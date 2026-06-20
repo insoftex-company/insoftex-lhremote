@@ -2,7 +2,7 @@
 
 MCP server for [lhremote](https://github.com/alexey-pelykh/lhremote) — LinkedHelper automation toolkit.
 
-This package exposes the full LinkedHelper automation surface as a [Model Context Protocol](https://modelcontextprotocol.io) server. AI assistants (Claude, etc.) connect over stdio and use the 68 registered tools to control LinkedHelper.
+This package exposes the full LinkedHelper automation surface as a [Model Context Protocol](https://modelcontextprotocol.io) server. AI assistants (Claude, etc.) connect over stdio and use the 78 registered tools to control LinkedHelper.
 
 Built on [`@lhremote/core`](../core).
 
@@ -61,7 +61,7 @@ await runStdioServer();
 | Profiles & Messaging | `query-profile`, `query-profiles`, `query-profiles-bulk`, `query-messages`, `check-replies`, `scrape-messaging-history` |
 | Utilities | `describe-actions`, `get-errors`, `dismiss-errors`, `get-action-budget`, `get-throttle-status` |
 
-See the [root README](https://github.com/alexey-pelykh/lhremote#mcp-tools) for parameter details on each tool.
+See the [root README](https://github.com/alexey-pelykh/lhremote#mcp-tools) for parameter details on each tool, and the [MCP Agent Capabilities guide](../../docs/mcp-agent-capabilities.md) for recommended agent workflows.
 
 ## Exports
 

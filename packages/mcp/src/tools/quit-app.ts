@@ -2,7 +2,7 @@
 // Copyright (C) 2026 Oleksii PELYKH
 
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
-import { AppService, DEFAULT_CDP_PORT } from "@lhremote/core";
+import { AppService, DEFAULT_CDP_PORT, resolveLauncherPort } from "@lhremote/core";
 import { z } from "zod";
 import { mcpCatchAll, mcpSuccess } from "../helpers.js";
 
@@ -17,11 +17,17 @@ export function registerQuitApp(server: McpServer): void {
         .int()
         .positive()
         .optional()
-        .default(DEFAULT_CDP_PORT)
-        .describe("CDP port"),
+        .describe("CDP port (auto-discovered from the launcher when omitted)"),
     },
     async ({ cdpPort }) => {
-      const app = new AppService(cdpPort);
+      let port = cdpPort;
+      try {
+        port ??= await resolveLauncherPort();
+      } catch {
+        port = DEFAULT_CDP_PORT;
+      }
+
+      const app = new AppService(port);
 
       try {
         await app.quit();

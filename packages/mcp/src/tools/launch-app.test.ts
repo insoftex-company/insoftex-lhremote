@@ -70,6 +70,21 @@ describe("registerLaunchApp", () => {
     expect(AppService).toHaveBeenCalledWith(4567, {});
   });
 
+  it("passes force and visible to AppService constructor", async () => {
+    const { server, getHandler } = createMockServer();
+    registerLaunchApp(server);
+
+    const mockLaunch = vi.fn().mockResolvedValue(undefined);
+    vi.mocked(AppService).mockImplementation(function () {
+      return { launch: mockLaunch, cdpPort: 4567 } as unknown as AppService;
+    });
+
+    const handler = getHandler("launch-app");
+    await handler({ cdpPort: 4567, force: true, visible: false });
+
+    expect(AppService).toHaveBeenCalledWith(4567, { force: true, visible: false });
+  });
+
   it("returns error response on AppNotFoundError", async () => {
     const { server, getHandler } = createMockServer();
     registerLaunchApp(server);

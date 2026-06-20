@@ -19,11 +19,13 @@ import { registerCampaignAddAction } from "./campaign-add-action.js";
 import { registerCampaignCreate } from "./campaign-create.js";
 import { registerCampaignDelete } from "./campaign-delete.js";
 import { registerCampaignErase } from "./campaign-erase.js";
+import { registerCampaignCloneAction } from "./campaign-clone-action.js";
 import { registerCampaignExcludeAdd } from "./campaign-exclude-add.js";
 import { registerCampaignExcludeList } from "./campaign-exclude-list.js";
 import { registerCampaignExcludeRemove } from "./campaign-exclude-remove.js";
 import { registerCampaignExport } from "./campaign-export.js";
 import { registerCampaignGet } from "./campaign-get.js";
+import { registerCampaignImportFromSourceUrl } from "./campaign-import-from-source-url.js";
 import { registerCampaignList } from "./campaign-list.js";
 import { registerCampaignListPeople } from "./campaign-list-people.js";
 import { registerCampaignMoveNext } from "./campaign-move-next.js";
@@ -39,6 +41,7 @@ import { registerCampaignStatus } from "./campaign-status.js";
 import { registerCampaignStop } from "./campaign-stop.js";
 import { registerCampaignUpdate } from "./campaign-update.js";
 import { registerCreateCollection } from "./create-collection.js";
+import { registerCampaignValidateActionSettings } from "./campaign-validate-action-settings.js";
 import { registerDeleteCollection } from "./delete-collection.js";
 import { registerCheckReplies } from "./check-replies.js";
 import { registerCheckStatus } from "./check-status.js";
@@ -96,11 +99,13 @@ export {
   registerCampaignCreate,
   registerCampaignDelete,
   registerCampaignErase,
+  registerCampaignCloneAction,
   registerCampaignExcludeAdd,
   registerCampaignExcludeList,
   registerCampaignExcludeRemove,
   registerCampaignExport,
   registerCampaignGet,
+  registerCampaignImportFromSourceUrl,
   registerCampaignList,
   registerCampaignListPeople,
   registerCampaignMoveNext,
@@ -115,6 +120,7 @@ export {
   registerCampaignStop,
   registerCampaignUpdate,
   registerCreateCollection,
+  registerCampaignValidateActionSettings,
   registerDeleteCollection,
   registerDismissFeedPost,
   registerDismissErrors,
@@ -161,6 +167,7 @@ export function registerAllTools(server: McpServer): void {
   registerAddPeopleToCollection(server);
   registerCommentOnPost(server);
   registerCampaignAddAction(server);
+  registerCampaignCloneAction(server);
   registerCampaignCreate(server);
   registerCampaignDelete(server);
   registerCampaignErase(server);
@@ -169,6 +176,7 @@ export function registerAllTools(server: McpServer): void {
   registerCampaignExcludeRemove(server);
   registerCampaignExport(server);
   registerCampaignGet(server);
+  registerCampaignImportFromSourceUrl(server);
   registerCampaignList(server);
   registerCampaignListPeople(server);
   registerCampaignMoveNext(server);
@@ -182,6 +190,7 @@ export function registerAllTools(server: McpServer): void {
   registerCampaignStop(server);
   registerCampaignUpdate(server);
   registerCampaignUpdateAction(server);
+  registerCampaignValidateActionSettings(server);
   registerFindApp(server);
   registerGetActionBudget(server);
   registerGetFeed(server);

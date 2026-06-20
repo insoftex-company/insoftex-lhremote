@@ -28,6 +28,9 @@ npm install -g @lhremote/cli    # binary: lhremote-cli
 # Detect running LinkedHelper
 lhremote find-app --json
 
+# Launch LinkedHelper and show its desktop window on Windows
+lhremote launch-app --verbose
+
 # List accounts and start an instance
 lhremote list-accounts --cdp-port 9222
 lhremote start-instance 1
@@ -61,6 +64,10 @@ lhremote check-replies --since 2025-01-01T00:00:00Z
 | Utilities | `describe-actions`, `get-errors` |
 
 See the [root README](https://github.com/alexey-pelykh/lhremote#cli-usage) for full command-line usage.
+
+## Development Notes
+
+`launch-app` delegates lifecycle behavior to `@lhremote/core` `AppService`. On Windows, the app is restored and focused through native window management rather than CDP page focus, because the launcher can expose a reachable CDP endpoint without any page targets. See the [Development Specification](../../docs/development-specification.md) for maintenance requirements.
 
 ## Programmatic Usage
 

@@ -128,15 +128,23 @@ describe("createProgram", () => {
 
       expect(forceOption).toBeDefined();
     });
+
+    it("accepts --no-visible option", () => {
+      const program = createProgram();
+      const cmd = program.commands.find((c) => c.name() === "launch-app");
+      const visibleOption = cmd?.options.find((o) => o.long === "--no-visible");
+
+      expect(visibleOption).toBeDefined();
+    });
   });
 
   describe("quit-app", () => {
-    it("does not have --cdp-port option", () => {
+    it("accepts --cdp-port option", () => {
       const program = createProgram();
       const cmd = program.commands.find((c) => c.name() === "quit-app");
       const portOption = cmd?.options.find((o) => o.long === "--cdp-port");
 
-      expect(portOption).toBeUndefined();
+      expect(portOption).toBeDefined();
     });
   });
 

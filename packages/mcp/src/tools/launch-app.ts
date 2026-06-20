@@ -22,10 +22,15 @@ export function registerLaunchApp(server: McpServer): void {
         .boolean()
         .optional()
         .describe("Kill existing LinkedHelper processes before launching"),
+      visible: z
+        .boolean()
+        .optional()
+        .describe("Restore and focus the LinkedHelper launcher window on Windows"),
     },
-    async ({ cdpPort, force }) => {
+    async ({ cdpPort, force, visible }) => {
       const app = new AppService(cdpPort, {
         ...(force !== undefined && { force }),
+        ...(visible !== undefined && { visible }),
       });
 
       try {

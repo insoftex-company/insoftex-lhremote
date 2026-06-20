@@ -135,22 +135,35 @@ export function createProgram(): Command {
     .description("CLI for LinkedHelper automation")
     .version(version);
 
-  program
+  const findAppCmd = program
     .command("find-app")
     .description("Detect running LinkedHelper instances")
     .option("--json", "Output as JSON")
+    .option("--verbose", "Print diagnostic messages during discovery")
     .action(handleFindApp);
+
+  findAppCmd.addHelpText(
+    "after",
+    `
+Examples:
+  lhremote find-app --verbose    Print diagnostics while discovering instances
+  lhremote find-app --json       Machine-readable JSON output
+`,
+  );
 
   program
     .command("launch-app")
     .description("Launch the LinkedHelper application")
     .option("--force", "Kill existing LinkedHelper processes before launching")
     .option("--verbose", "Print diagnostic messages during launch (binary path, CDP probe status)")
+    .option("--no-visible", "Do not restore/focus the LinkedHelper launcher window on Windows")
     .action(handleLaunchApp);
 
   program
     .command("quit-app")
     .description("Quit the LinkedHelper application")
+    .option("--verbose", "Print diagnostic messages while quitting")
+    .option("--cdp-port <port>", "CDP debugging port to target", parsePositiveInt)
     .action(handleQuitApp);
 
   program

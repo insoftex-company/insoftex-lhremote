@@ -6,6 +6,7 @@ import { errorMessage, findApp } from "@lhremote/core";
 /** Handle the {@link https://github.com/alexey-pelykh/lhremote#app-management | find-app} CLI command. */
 export async function handleFindApp(options: {
   json?: boolean;
+  verbose?: boolean;
 }): Promise<void> {
   try {
     const apps = await findApp();
@@ -27,6 +28,9 @@ export async function handleFindApp(options: {
       process.stdout.write(
         `PID ${String(app.pid)} — ${port} — ${status} — ${app.role}\n`,
       );
+      if (options.verbose) {
+        process.stdout.write(JSON.stringify(app, null, 2) + "\n");
+      }
     }
   } catch (error) {
     const message = errorMessage(error);

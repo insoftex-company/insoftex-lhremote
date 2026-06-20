@@ -8,10 +8,11 @@ vi.mock("@lhremote/core", async (importOriginal) => {
   return {
     ...actual,
     AppService: vi.fn(),
+    resolveLauncherPort: vi.fn().mockRejectedValue(new Error("not running")),
   };
 });
 
-import { AppService } from "@lhremote/core";
+import { AppService, resolveLauncherPort } from "@lhremote/core";
 
 import { handleQuitApp } from "./quit-app.js";
 
@@ -21,6 +22,7 @@ describe("handleQuitApp", () => {
   beforeEach(() => {
     process.exitCode = undefined;
     vi.clearAllMocks();
+    vi.mocked(resolveLauncherPort).mockRejectedValue(new Error("not running"));
   });
 
   afterEach(() => {
@@ -57,6 +59,36 @@ describe("handleQuitApp", () => {
     await handleQuitApp();
 
     expect(AppService).toHaveBeenCalledWith(9222);
+  });
+
+  it("uses discovered launcher port when available", async () => {
+    vi.spyOn(process.stdout, "write").mockReturnValue(true);
+    vi.mocked(resolveLauncherPort).mockResolvedValue(51544);
+
+    vi.mocked(AppService).mockImplementation(function () {
+      return {
+        quit: vi.fn().mockResolvedValue(undefined),
+      } as unknown as AppService;
+    });
+
+    await handleQuitApp();
+
+    expect(AppService).toHaveBeenCalledWith(51544);
+  });
+
+  it("uses explicit cdpPort without discovery", async () => {
+    vi.spyOn(process.stdout, "write").mockReturnValue(true);
+
+    vi.mocked(AppService).mockImplementation(function () {
+      return {
+        quit: vi.fn().mockResolvedValue(undefined),
+      } as unknown as AppService;
+    });
+
+    await handleQuitApp({ cdpPort: 4567 });
+
+    expect(resolveLauncherPort).not.toHaveBeenCalled();
+    expect(AppService).toHaveBeenCalledWith(4567);
   });
 
   it("sets exitCode 1 on error", async () => {

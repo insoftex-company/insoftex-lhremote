@@ -4,7 +4,7 @@
 import { AppService, errorMessage, findApp } from "@lhremote/core";
 
 /** Handle the {@link https://github.com/alexey-pelykh/lhremote#app-management | launch-app} CLI command. */
-export async function handleLaunchApp(options?: { force?: boolean; verbose?: boolean }): Promise<void> {
+export async function handleLaunchApp(options?: { force?: boolean; verbose?: boolean; visible?: boolean }): Promise<void> {
   const onLog = options?.verbose
     ? (message: string) => { process.stderr.write(`[launch-app] ${message}\n`); }
     : undefined;
@@ -14,6 +14,7 @@ export async function handleLaunchApp(options?: { force?: boolean; verbose?: boo
     launchProbeDelay: 10000,
     ...(options?.force !== undefined && { force: options.force }),
     ...(onLog !== undefined && { onLog }),
+    ...(options?.visible !== undefined && { visible: options.visible }),
   };
   const app = new AppService(undefined, serviceOptions);
 

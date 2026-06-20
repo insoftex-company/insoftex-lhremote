@@ -43,6 +43,8 @@ lhremote campaign-status <campaignId>              # monitor progress
 
 > **Pacing**: LinkedIn monitors automated activity. See the [Rate Limiting guide](docs/rate-limiting.md) for recommended settings.
 
+Agent workflow guidance lives in the [MCP Agent Capabilities guide](docs/mcp-agent-capabilities.md). Developer notes and implementation requirements live in the [Development Specification](docs/development-specification.md).
+
 ## Prerequisites
 
 - **Node.js** >= 24
@@ -75,7 +77,7 @@ Add to your Claude Desktop configuration (`claude_desktop_config.json`):
 }
 ```
 
-Once configured, Claude can use all 68 tools directly. A typical workflow:
+Once configured, Claude can use all 78 tools directly. A typical workflow:
 
 1. **`find-app`** — Detect a running LinkedHelper instance (or **`launch-app`** to start one)
 2. **`list-accounts`** — See available LinkedIn accounts
@@ -94,10 +96,12 @@ The `lhremote` command provides the same functionality as the MCP server. Every 
 ### App Management
 
 ```sh
-lhremote find-app [--json]
-lhremote launch-app
-lhremote quit-app
+lhremote find-app [--json] [--verbose]
+lhremote launch-app [--force] [--verbose] [--no-visible]
+lhremote quit-app [--cdp-port <port>] [--verbose]
 ```
+
+On Windows, `launch-app` also restores and focuses the LinkedHelper launcher window so the user can interact with it on the desktop. This is done with native window management because the launcher CDP endpoint can be reachable before it exposes any page target.
 
 ### Account & Instance
 
@@ -240,7 +244,10 @@ All **campaign, campaign-targeting, and people-import** commands additionally ac
 
 Detect running LinkedHelper application instances and their CDP connection details.
 
-*No parameters.*
+| Parameter | Type | Required | Default | Description |
+|-----------|------|----------|---------|-------------|
+| `json` | boolean | No | false | Output machine-readable JSON |
+| `verbose` | boolean | No | false | Include per-process discovery diagnostics |
 
 #### `launch-app`
 
@@ -250,6 +257,9 @@ Launch the LinkedHelper application with remote debugging enabled.
 |-----------|------|----------|---------|-------------|
 | `cdpPort` | number | No | auto-select | CDP port to use |
 | `force` | boolean | No | false | Kill existing LinkedHelper processes before launching |
+| `visible` | boolean | No | Windows: true, other platforms: false | Restore and focus the LinkedHelper launcher window for desktop interaction. Use `--no-visible` in the CLI to disable. |
+
+On Windows, visible launch is best-effort and does not depend on CDP page targets. If LinkedHelper is already running, `launch-app` reuses a connectable launcher and still attempts to bring its desktop window forward.
 
 #### `quit-app`
 
@@ -257,7 +267,8 @@ Quit the LinkedHelper application.
 
 | Parameter | Type | Required | Default | Description |
 |-----------|------|----------|---------|-------------|
-| `cdpPort` | number | No | 9222 | CDP port |
+| `cdpPort` | number | No | auto-discover launcher, then 9222 fallback | CDP port |
+| `verbose` | boolean | No | false | Print diagnostic messages while quitting |
 
 ### Account & Instance
 
@@ -325,6 +336,20 @@ Get detailed campaign information including action chain.
 | Parameter | Type | Required | Default | Description |
 |-----------|------|----------|---------|-------------|
 | `campaignId` | number | Yes | — | Campaign ID |
+| `cdpPort` | number | No | 9222 | CDP port |
+| `accountId` | number | No | auto-select if single account | Account ID to target when multiple accounts exist |
+
+#### `campaign-clone-action`
+
+Duplicate an existing campaign action/node, preserving its type, cooldown, max results, and settings with optional setting overrides.
+
+| Parameter | Type | Required | Default | Description |
+|-----------|------|----------|---------|-------------|
+| `campaignId` | number | Yes | — | Campaign ID |
+| `actionId` | number | Yes | — | Source action ID to clone |
+| `name` | string | No | `<source name> copy` | Name for the cloned action |
+| `description` | string \| null | No | preserve source | Description for the cloned action |
+| `actionSettingsOverrides` | string | No | — | JSON object merged into the cloned action settings |
 | `cdpPort` | number | No | 9222 | CDP port |
 | `accountId` | number | No | auto-select if single account | Account ID to target when multiple accounts exist |
 
@@ -472,6 +497,15 @@ Update an existing action's configuration in a campaign. Only provided fields ar
 | `cdpPort` | number | No | 9222 | CDP port |
 | `accountId` | number | No | auto-select if single account | Account ID to target when multiple accounts exist |
 
+#### `campaign-validate-action-settings`
+
+Validate action settings JSON against the known action schema before adding or updating a campaign action.
+
+| Parameter | Type | Required | Default | Description |
+|-----------|------|----------|---------|-------------|
+| `actionType` | string | Yes | — | LinkedHelper action type |
+| `actionSettings` | string | No | `{}` | Action-specific settings as a JSON object string |
+
 #### `campaign-reorder-actions`
 
 Reorder actions in a campaign's action chain.
@@ -580,6 +614,21 @@ Collect people from a LinkedIn page into a campaign. Detects the source type fro
 | `maxPages` | number | No | — | Max pages to process |
 | `pageSize` | number | No | — | Results per page |
 | `sourceType` | string | No | — | Explicit source type (bypasses URL detection) |
+| `cdpPort` | number | No | 9222 | CDP port |
+| `accountId` | number | No | auto-select if single account | Account ID to target when multiple accounts exist |
+
+#### `campaign-import-from-source-url`
+
+Agent-friendly alias for importing people into a campaign from a LinkedIn source URL such as search results, company people, group members, or my connections.
+
+| Parameter | Type | Required | Default | Description |
+|-----------|------|----------|---------|-------------|
+| `campaignId` | number | Yes | — | Campaign ID to import people into |
+| `sourceUrl` | string | Yes | — | LinkedIn source URL |
+| `limit` | number | No | — | Max profiles to collect |
+| `maxPages` | number | No | — | Max pages to process |
+| `pageSize` | number | No | — | Results per page |
+| `sourceType` | string | No | auto-detect | Explicit source type |
 | `cdpPort` | number | No | 9222 | CDP port |
 | `accountId` | number | No | auto-select if single account | Account ID to target when multiple accounts exist |
 

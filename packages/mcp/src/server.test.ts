@@ -87,9 +87,11 @@ describe("createServer", () => {
     expect(names).toContain("query-messages");
     expect(names).toContain("scrape-messaging-history");
     expect(names).toContain("campaign-create");
+    expect(names).toContain("campaign-clone-action");
     expect(names).toContain("campaign-delete");
     expect(names).toContain("campaign-export");
     expect(names).toContain("campaign-get");
+    expect(names).toContain("campaign-import-from-source-url");
     expect(names).toContain("campaign-list");
     expect(names).toContain("campaign-retry");
     expect(names).toContain("campaign-start");
@@ -97,6 +99,7 @@ describe("createServer", () => {
     expect(names).toContain("campaign-status");
     expect(names).toContain("campaign-stop");
     expect(names).toContain("campaign-update");
+    expect(names).toContain("campaign-validate-action-settings");
     expect(names).toContain("check-replies");
     expect(names).toContain("check-status");
     expect(names).toContain("describe-actions");
@@ -149,6 +152,6 @@ describe("createServer", () => {
     expect(names).toContain("hide-feed-author");
     expect(names).toContain("hide-feed-author-profile");
     expect(names).toContain("unfollow-profile");
-    expect(names).toHaveLength(75);
+    expect(names).toHaveLength(78);
   });
 });

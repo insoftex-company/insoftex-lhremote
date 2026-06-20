@@ -16,7 +16,7 @@ npm install @lhremote/core
 
 | Export | Description |
 |--------|-------------|
-| `AppService` | Detect, launch, and quit the LinkedHelper application |
+| `AppService` | Detect, launch, show, and quit the LinkedHelper application |
 | `InstanceService` | Start and stop LinkedHelper instances for individual accounts |
 | `LauncherService` | Low-level launcher interaction via CDP |
 | `CampaignService` | Create, configure, start, stop, and monitor campaigns |
@@ -170,6 +170,10 @@ await withInstanceDatabase(cdpPort, accountId, async ({ instance, db }) => {
   console.log(list);
 });
 ```
+
+## Development Notes
+
+`AppService` is responsible for process discovery, launch conflict handling, and Windows desktop visibility. On Windows, visible launch uses native top-level window enumeration instead of CDP `Page.bringToFront`, because the launcher CDP endpoint can be reachable before it has any page targets. See the [Development Specification](../../docs/development-specification.md) for app lifecycle requirements.
 
 ## License
 

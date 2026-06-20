@@ -83,6 +83,24 @@ describe("handleLaunchApp", () => {
     });
   });
 
+  it("passes visible through to AppService when explicitly disabled", async () => {
+    vi.spyOn(process.stdout, "write").mockReturnValue(true);
+
+    vi.mocked(AppService).mockImplementation(function () {
+      return {
+        launch: vi.fn().mockResolvedValue(undefined),
+        cdpPort: 9222,
+      } as unknown as AppService;
+    });
+
+    await handleLaunchApp({ visible: false });
+
+    expect(AppService).toHaveBeenCalledWith(undefined, {
+      launchProbeDelay: 10000,
+      visible: false,
+    });
+  });
+
   it("sets exitCode 1 on error", async () => {
     const stderrSpy = vi
       .spyOn(process.stderr, "write")
