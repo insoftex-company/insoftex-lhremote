@@ -13,7 +13,7 @@ export async function handleLaunchApp(options?: { force?: boolean; verbose?: boo
     // Give LinkedHelper up to 10 seconds to start and become ready on the CDP port
     launchProbeDelay: 10000,
     ...(options?.force !== undefined && { force: options.force }),
-    onLog,
+    ...(onLog !== undefined && { onLog }),
   };
   const app = new AppService(undefined, serviceOptions);
 
