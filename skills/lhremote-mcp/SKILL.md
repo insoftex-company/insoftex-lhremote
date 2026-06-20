@@ -34,7 +34,7 @@ An instance must be running before any campaign or query operations:
 launch-app → start-instance → [work] → stop-instance → quit-app
 ```
 
-- `start-instance` auto-selects the account when only one exists
+- `start-instance` auto-selects the account when only one exists; pass `accountId` when multiple accounts are configured
 - Most tools require a running instance (they will error if not started)
 - `stop-instance` and `quit-app` are separate — stop the instance before quitting the app
 
@@ -63,6 +63,7 @@ Optional parameters:
 - `maxPages` — Maximum pages to process
 - `pageSize` — Results per page
 - `sourceType` — Explicit source type to bypass URL auto-detection
+- `accountId` — Required when multiple accounts are configured (see [Parameter Conventions](#parameter-conventions))
 
 **Step 3 — Monitor collection progress:**
 
@@ -115,7 +116,7 @@ Three methods for adding people to a campaign:
 For `import-people-from-urls`: This is idempotent — re-importing the same person is a no-op. For bulk imports (1000+ URLs), use the CLI instead:
 
 ```bash
-npx lhremote import-people-from-urls <campaignId> --urls-file <path> --cdp-port <port>
+npx lhremote import-people-from-urls <campaignId> --urls-file <path> --cdp-port <port> [--account-id <id>]
 ```
 
 URL file: one LinkedIn profile URL per line. Get `cdp-port` from `find-app` output.
@@ -184,7 +185,9 @@ check-replies → query-messages
 
 ### Data Queries (No Campaign Needed)
 
-Profile and message queries work against the local LinkedHelper database — no campaign execution required, but an instance must be running:
+Profile and message queries work against the local LinkedHelper database — no campaign execution required, but an instance must be running.
+
+> **Note:** `campaign-list` connects via CDP (like all other campaign commands) and requires a running instance. It lists campaigns for the resolved account only. Pass `accountId` when multiple accounts are configured.
 
 - `query-profile` — Look up by `personId` (internal) or `publicId` (LinkedIn URL slug like `jane-doe-12345`)
 - `query-profiles` — Search by name/headline (`query`) or company, with `limit`/`offset` pagination
@@ -437,3 +440,5 @@ Collection uses LinkedHelper's internal pacing. For large source pages, limit sc
 | Starting a second collection while one runs | Wait for the first to complete — only one collection per instance |
 | Collecting without `limit` on large searches | Use `limit` or `maxPages` to control scope on searches with 1000+ results |
 | Using `import-people-from-urls` when `collect-people` works | Prefer `collect-people` — it handles page navigation and extraction automatically |
+| Multiple accounts configured but no `accountId` passed | Pass `accountId` to all campaign, targeting, and people-import tools; use `list-accounts` to find the ID |
+| Calling `campaign-list` without a running instance | `campaign-list` now connects via CDP — start an instance first; it is not a purely local database query |

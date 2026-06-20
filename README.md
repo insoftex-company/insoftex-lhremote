@@ -226,6 +226,12 @@ Most tools and CLI commands connect to LinkedHelper via the Chrome DevTools Prot
 | `cdpHost` | `--cdp-host` | string | `127.0.0.1` | CDP host address |
 | `allowRemote` | `--allow-remote` | boolean | false | Allow connections to non-loopback addresses |
 
+All **campaign, campaign-targeting, and people-import** commands additionally accept:
+
+| Parameter | CLI Flag | Type | Default | Description |
+|-----------|----------|------|---------|-------------|
+| `accountId` | `--account-id` | number | auto-select if single account | Target a specific LinkedHelper account when multiple are configured |
+
 > **Security warning:** Enabling `allowRemote` permits CDP connections to remote hosts. CDP is an unsandboxed protocol that grants full control over the target browser — equivalent to remote code execution. Only enable this when the network path between your machine and the target host is fully secured (e.g., SSH tunnel, VPN, or trusted LAN).
 
 ### App Management
@@ -1007,7 +1013,7 @@ Check if LinkedIn is currently throttling the account.
 
 ## Known Limitations
 
-- **Platform support**: LinkedHelper runs on macOS, Windows, and Linux. Binary paths are detected automatically but can be overridden with the `LINKEDHELPER_PATH` environment variable.
+- **Platform support**: LinkedHelper runs on macOS, Windows, and Linux. Binary paths are detected automatically (Windows: checks `PROGRAMFILES`, `PROGRAMFILES(X86)`, and common install locations; macOS/Linux: checks standard application directories). If detection fails, the error message lists every path searched. Override with the `LINKEDHELPER_PATH` environment variable.
 - **Instance startup time**: Starting an instance loads LinkedIn, which may take up to 45 seconds.
 - **Profile data is cached**: `query-profile` and `query-profiles` search the local LinkedHelper database. Profiles must have been visited or imported by LinkedHelper to appear in results.
 - **Messaging scrape is slow**: `scrape-messaging-history` navigates LinkedIn's messaging UI and can take several minutes depending on conversation volume.
@@ -1029,9 +1035,9 @@ Check if LinkedIn is currently throttling the account.
 
 ### Application binary not found
 
-**Error**: `LinkedHelper application binary not found. Set LINKEDHELPER_PATH to override.`
+**Error**: `LinkedHelper binary not found. Searched: ...`
 
-**Solution**: Install LinkedHelper from [linkedhelper.com](https://linkedhelper.com). If installed in a non-standard location, set the `LINKEDHELPER_PATH` environment variable to the binary path.
+**Solution**: Install LinkedHelper from [linkedhelper.com](https://linkedhelper.com). The error message lists every path that was searched. If LinkedHelper is installed in a non-standard location, set the `LINKEDHELPER_PATH` environment variable to the exact binary path.
 
 ### No accounts found
 
@@ -1043,7 +1049,7 @@ Check if LinkedIn is currently throttling the account.
 
 **Error**: `Multiple accounts found. Specify accountId. Use list-accounts to see available accounts.`
 
-**Solution**: Use `list-accounts` to see available accounts, then pass the desired `accountId` to `start-instance`, `stop-instance`, or other tools.
+**Solution**: Use `list-accounts` to see available accounts, then pass the desired account ID via `--account-id <id>` (CLI) or the `accountId` parameter (MCP). All campaign, campaign-targeting, and people-import commands accept this parameter. For instance management use `start-instance`/`stop-instance`.
 
 ### No instance running
 
