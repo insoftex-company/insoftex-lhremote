@@ -19,6 +19,7 @@ export async function handleCampaignExport(
     cdpPort?: number;
     cdpHost?: string;
     allowRemote?: boolean;
+    accountId?: number;
   },
 ): Promise<void> {
   const format = options.format ?? "yaml";
@@ -39,6 +40,7 @@ export async function handleCampaignExport(
       cdpPort: options.cdpPort,
       cdpHost: options.cdpHost,
       allowRemote: options.allowRemote,
+      accountId: options.accountId,
     });
   } catch (error) {
     if (error instanceof CampaignNotFoundError) {

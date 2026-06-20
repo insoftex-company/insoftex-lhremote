@@ -29,7 +29,8 @@
     "lhremote-cli": "./dist/cli.js"
   },
   "files": [
-    "dist"
+    "dist",
+    "!dist/**/*.test.*"
   ],
   "scripts": {
     "build": "tsc",

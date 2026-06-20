@@ -21,6 +21,7 @@ export async function handleCollectPeople(
     cdpPort?: number;
     cdpHost?: string;
     allowRemote?: boolean;
+    accountId?: number;
     json?: boolean;
   },
 ): Promise<void> {
@@ -40,6 +41,7 @@ export async function handleCollectPeople(
       cdpPort: options.cdpPort,
       ...(options.cdpHost !== undefined && { cdpHost: options.cdpHost }),
       ...(options.allowRemote !== undefined && { allowRemote: options.allowRemote }),
+      ...(options.accountId !== undefined && { accountId: options.accountId }),
       }),
     );
 

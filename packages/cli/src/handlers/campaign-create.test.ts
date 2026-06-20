@@ -165,6 +165,17 @@ describe("handleCampaignCreate", () => {
     );
   });
 
+  it("forwards accountId to campaignCreate", async () => {
+    vi.mocked(parseCampaignJson).mockReturnValue(MOCK_CONFIG as never);
+    vi.mocked(campaignCreate).mockResolvedValue(MOCK_RESULT);
+
+    await handleCampaignCreate({ jsonInput: '{"name":"Test"}', accountId: 42 });
+
+    expect(campaignCreate).toHaveBeenCalledWith(
+      expect.objectContaining({ accountId: 42 }),
+    );
+  });
+
   it("sets exitCode 1 when resolveAccount fails", async () => {
     vi.mocked(parseCampaignJson).mockReturnValue(MOCK_CONFIG as never);
     vi.mocked(campaignCreate).mockRejectedValue(

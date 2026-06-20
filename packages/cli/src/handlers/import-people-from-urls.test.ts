@@ -208,6 +208,19 @@ describe("handleImportPeopleFromUrls", () => {
     );
   });
 
+  it("forwards accountId to importPeopleFromUrls", async () => {
+    vi.mocked(importPeopleFromUrls).mockResolvedValue(MOCK_RESULT);
+
+    await handleImportPeopleFromUrls(1, {
+      urls: "https://linkedin.com/in/alice",
+      accountId: 7,
+    });
+
+    expect(importPeopleFromUrls).toHaveBeenCalledWith(
+      expect.objectContaining({ accountId: 7 }),
+    );
+  });
+
   it("sets exitCode 1 when resolveAccount fails", async () => {
     vi.mocked(importPeopleFromUrls).mockRejectedValue(new Error("timeout"));
 

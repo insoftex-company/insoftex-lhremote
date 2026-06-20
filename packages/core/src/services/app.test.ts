@@ -14,7 +14,7 @@ vi.mock("node:child_process", () => ({
 
 vi.mock("node:fs", () => ({
   accessSync: vi.fn(),
-  constants: { X_OK: 1 },
+  constants: { F_OK: 0, X_OK: 1 },
 }));
 
 vi.mock("../cdp/index.js", () => ({
@@ -103,7 +103,11 @@ describe("AppService", () => {
       vi.stubGlobal("process", {
         ...process,
         platform: "win32",
-        env: { LOCALAPPDATA: "C:\\Users\\test\\AppData\\Local" },
+        env: {
+          LOCALAPPDATA: "C:\\Users\\test\\AppData\\Local",
+          PROGRAMFILES: "C:\\Program Files",
+          "PROGRAMFILES(X86)": "C:\\Program Files (x86)",
+        },
       });
       mockedAccessSync.mockReturnValue(undefined);
 

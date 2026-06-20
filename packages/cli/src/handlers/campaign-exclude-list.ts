@@ -18,6 +18,7 @@ export async function handleCampaignExcludeList(
     cdpPort?: number;
     cdpHost?: string;
     allowRemote?: boolean;
+    accountId?: number;
     json?: boolean;
   },
 ): Promise<void> {
@@ -29,6 +30,7 @@ export async function handleCampaignExcludeList(
       cdpPort: options.cdpPort,
       cdpHost: options.cdpHost,
       allowRemote: options.allowRemote,
+      accountId: options.accountId,
     });
   } catch (error) {
     if (error instanceof CampaignNotFoundError) {

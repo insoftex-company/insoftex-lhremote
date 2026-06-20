@@ -97,6 +97,18 @@ describe("handleCollectPeople", () => {
     );
   });
 
+  it("forwards accountId to collectPeople", async () => {
+    vi.mocked(collectPeople).mockResolvedValue(MOCK_RESULT);
+
+    await handleCollectPeople(42, "https://www.linkedin.com/search/results/people/", {
+      accountId: 3,
+    });
+
+    expect(collectPeople).toHaveBeenCalledWith(
+      expect.objectContaining({ accountId: 3 }),
+    );
+  });
+
   it("sets exitCode 1 when instance is busy", async () => {
     vi.mocked(collectPeople).mockRejectedValue(
       new CollectionBusyError("running"),

@@ -17,6 +17,7 @@ export async function handleCampaignDelete(
     cdpPort?: number;
     cdpHost?: string;
     allowRemote?: boolean;
+    accountId?: number;
     hard?: boolean;
     json?: boolean;
   },
@@ -28,6 +29,7 @@ export async function handleCampaignDelete(
       cdpPort: options.cdpPort,
       cdpHost: options.cdpHost,
       allowRemote: options.allowRemote,
+      accountId: options.accountId,
       hard: options.hard,
     });
   } catch (error) {

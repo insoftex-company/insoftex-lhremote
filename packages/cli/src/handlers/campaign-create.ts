@@ -23,6 +23,7 @@ export async function handleCampaignCreate(options: {
   cdpPort?: number;
   cdpHost?: string;
   allowRemote?: boolean;
+  accountId?: number;
   json?: boolean;
 }): Promise<void> {
   // Validate input options
@@ -82,6 +83,7 @@ export async function handleCampaignCreate(options: {
       cdpPort: options.cdpPort,
       cdpHost: options.cdpHost,
       allowRemote: options.allowRemote,
+      accountId: options.accountId,
     });
   } catch (error) {
     if (error instanceof CampaignExecutionError) {

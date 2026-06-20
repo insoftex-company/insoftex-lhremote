@@ -228,14 +228,47 @@ function getDefaultBinaryPath(): string {
     case "darwin":
       return "/Applications/linked-helper.app/Contents/MacOS/linked-helper";
     case "win32":
-      return join(
-        process.env["LOCALAPPDATA"] ?? join(process.env["USERPROFILE"] ?? "C:\\Users\\Default", "AppData", "Local"),
-        "Programs",
-        "linked-helper",
-        "linked-helper.exe",
-      );
+      return getWindowsBinaryPath();
     default:
       return "/opt/linked-helper/linked-helper";
+  }
+}
+
+function getWindowsBinaryPath(): string {
+  const localAppData =
+    process.env["LOCALAPPDATA"] ??
+    join(process.env["USERPROFILE"] ?? "C:\\Users\\Default", "AppData", "Local");
+  const programFiles = process.env["PROGRAMFILES"] ?? "C:\\Program Files";
+  const programFilesX86 = process.env["PROGRAMFILES(X86)"] ?? "C:\\Program Files (x86)";
+
+  const candidates = [
+    join(localAppData, "Programs", "linked-helper", "linked-helper.exe"),
+    join(localAppData, "Programs", "LinkedHelper", "linked-helper.exe"),
+    join(localAppData, "Programs", "linked-helper", "LinkedHelper.exe"),
+    join(localAppData, "Programs", "LinkedHelper", "LinkedHelper.exe"),
+    join(programFiles, "linked-helper", "linked-helper.exe"),
+    join(programFiles, "LinkedHelper", "linked-helper.exe"),
+    join(programFilesX86, "linked-helper", "linked-helper.exe"),
+    join(programFilesX86, "LinkedHelper", "linked-helper.exe"),
+  ];
+
+  for (const candidate of candidates) {
+    if (fileExists(candidate)) {
+      return candidate;
+    }
+  }
+
+  throw new AppNotFoundError(
+    `LinkedHelper binary not found. Searched:\n${candidates.map((c) => `  ${c}`).join("\n")}\nSet LINKEDHELPER_PATH to override.`,
+  );
+}
+
+function fileExists(path: string): boolean {
+  try {
+    accessSync(path, process.platform === "win32" ? constants.F_OK : constants.X_OK);
+    return true;
+  } catch {
+    return false;
   }
 }
 
@@ -297,9 +330,7 @@ async function killProcesses(pids: number[]): Promise<void> {
 }
 
 function assertFileExists(path: string): void {
-  try {
-    accessSync(path, constants.X_OK);
-  } catch {
+  if (!fileExists(path)) {
     throw new AppNotFoundError(
       `LinkedHelper binary not found at ${path}. Set LINKEDHELPER_PATH to override.`,
     );

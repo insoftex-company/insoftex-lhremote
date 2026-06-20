@@ -19,6 +19,7 @@ export async function handleCampaignReorderActions(
     cdpPort?: number;
     cdpHost?: string;
     allowRemote?: boolean;
+    accountId?: number;
     json?: boolean;
   },
 ): Promise<void> {
@@ -55,6 +56,7 @@ export async function handleCampaignReorderActions(
       cdpPort: options.cdpPort,
       cdpHost: options.cdpHost,
       allowRemote: options.allowRemote,
+      accountId: options.accountId,
     });
   } catch (error) {
     if (error instanceof CampaignNotFoundError) {

@@ -23,6 +23,7 @@ export async function handleCampaignUpdateAction(
     cdpPort?: number;
     cdpHost?: string;
     allowRemote?: boolean;
+    accountId?: number;
     json?: boolean;
   },
 ): Promise<void> {
@@ -59,6 +60,7 @@ export async function handleCampaignUpdateAction(
       cdpPort: options.cdpPort,
       cdpHost: options.cdpHost,
       allowRemote: options.allowRemote,
+      accountId: options.accountId,
     });
   } catch (error) {
     if (error instanceof CampaignNotFoundError) {

@@ -218,6 +218,24 @@ describe("createProgram", () => {
     });
   });
 
+  describe("campaign-list", () => {
+    it("accepts --account-id option", () => {
+      const program = createProgram();
+      const cmd = program.commands.find((c) => c.name() === "campaign-list");
+      const accountIdOption = cmd?.options.find((o) => o.long === "--account-id");
+
+      expect(accountIdOption).toBeDefined();
+    });
+
+    it("accepts --cdp-port option", () => {
+      const program = createProgram();
+      const cmd = program.commands.find((c) => c.name() === "campaign-list");
+      const portOption = cmd?.options.find((o) => o.long === "--cdp-port");
+
+      expect(portOption).toBeDefined();
+    });
+  });
+
   describe("check-status", () => {
     it("accepts --json option", () => {
       const program = createProgram();

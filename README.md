@@ -111,40 +111,40 @@ lhremote check-status [--cdp-port <port>] [--json]
 ### Campaigns
 
 ```sh
-lhremote campaign-list [--include-archived] [--json]
-lhremote campaign-create --file <path> | --yaml <config> | --json-input <config> [--cdp-port <port>] [--json]
-lhremote campaign-get <campaignId> [--cdp-port <port>] [--json]
-lhremote campaign-export <campaignId> [--format yaml|json] [--output <path>] [--cdp-port <port>]
-lhremote campaign-update <campaignId> [--name <name>] [--description <text>] [--clear-description] [--cdp-port <port>] [--json]
-lhremote campaign-delete <campaignId> [--cdp-port <port>] [--json]
-lhremote campaign-erase <campaignId> [--cdp-port <port>] [--json]
-lhremote campaign-start <campaignId> --person-ids <ids> | --person-ids-file <path> [--cdp-port <port>] [--json]
-lhremote campaign-stop <campaignId> [--cdp-port <port>] [--json]
-lhremote campaign-status <campaignId> [--include-results] [--limit <n>] [--cdp-port <port>] [--json]
-lhremote campaign-statistics <campaignId> [--action-id <id>] [--max-errors <n>] [--cdp-port <port>] [--json]
-lhremote campaign-retry <campaignId> --person-ids <ids> | --person-ids-file <path> [--cdp-port <port>] [--json]
-lhremote campaign-list-people <campaignId> [--action-id <id>] [--status <status>] [--limit <n>] [--offset <n>] [--cdp-port <port>] [--json]
+lhremote campaign-list [--include-archived] [--cdp-port <port>] [--account-id <id>] [--json]
+lhremote campaign-create --file <path> | --yaml <config> | --json-input <config> [--cdp-port <port>] [--account-id <id>] [--json]
+lhremote campaign-get <campaignId> [--cdp-port <port>] [--account-id <id>] [--json]
+lhremote campaign-export <campaignId> [--format yaml|json] [--output <path>] [--cdp-port <port>] [--account-id <id>]
+lhremote campaign-update <campaignId> [--name <name>] [--description <text>] [--clear-description] [--cdp-port <port>] [--account-id <id>] [--json]
+lhremote campaign-delete <campaignId> [--cdp-port <port>] [--account-id <id>] [--json]
+lhremote campaign-erase <campaignId> [--cdp-port <port>] [--account-id <id>] [--json]
+lhremote campaign-start <campaignId> --person-ids <ids> | --person-ids-file <path> [--cdp-port <port>] [--account-id <id>] [--json]
+lhremote campaign-stop <campaignId> [--cdp-port <port>] [--account-id <id>] [--json]
+lhremote campaign-status <campaignId> [--include-results] [--limit <n>] [--cdp-port <port>] [--account-id <id>] [--json]
+lhremote campaign-statistics <campaignId> [--action-id <id>] [--max-errors <n>] [--cdp-port <port>] [--account-id <id>] [--json]
+lhremote campaign-retry <campaignId> --person-ids <ids> | --person-ids-file <path> [--cdp-port <port>] [--account-id <id>] [--json]
+lhremote campaign-list-people <campaignId> [--action-id <id>] [--status <status>] [--limit <n>] [--offset <n>] [--cdp-port <port>] [--account-id <id>] [--json]
 ```
 
 ### Campaign Actions
 
 ```sh
-lhremote campaign-add-action <campaignId> --name <name> --action-type <type> [--description <text>] [--cool-down <ms>] [--max-results <n>] [--action-settings <json>] [--cdp-port <port>] [--json]
-lhremote campaign-remove-action <campaignId> <actionId> [--cdp-port <port>] [--json]
-lhremote campaign-update-action <campaignId> <actionId> [--name <name>] [--description <text>] [--clear-description] [--cool-down <ms>] [--max-results <n>] [--action-settings <json>] [--cdp-port <port>] [--json]
-lhremote campaign-reorder-actions <campaignId> --action-ids <ids> [--cdp-port <port>] [--json]
-lhremote campaign-move-next <campaignId> <actionId> --person-ids <ids> | --person-ids-file <path> [--cdp-port <port>] [--json]
+lhremote campaign-add-action <campaignId> --name <name> --action-type <type> [--description <text>] [--cool-down <ms>] [--max-results <n>] [--action-settings <json>] [--cdp-port <port>] [--account-id <id>] [--json]
+lhremote campaign-remove-action <campaignId> <actionId> [--cdp-port <port>] [--account-id <id>] [--json]
+lhremote campaign-update-action <campaignId> <actionId> [--name <name>] [--description <text>] [--clear-description] [--cool-down <ms>] [--max-results <n>] [--action-settings <json>] [--cdp-port <port>] [--account-id <id>] [--json]
+lhremote campaign-reorder-actions <campaignId> --action-ids <ids> [--cdp-port <port>] [--account-id <id>] [--json]
+lhremote campaign-move-next <campaignId> <actionId> --person-ids <ids> | --person-ids-file <path> [--cdp-port <port>] [--account-id <id>] [--json]
 ```
 
 ### Campaign Targeting
 
 ```sh
-lhremote campaign-exclude-list <campaignId> [--action-id <id>] [--cdp-port <port>] [--json]
-lhremote campaign-exclude-add <campaignId> --person-ids <ids> | --person-ids-file <path> [--action-id <id>] [--cdp-port <port>] [--json]
-lhremote campaign-exclude-remove <campaignId> --person-ids <ids> | --person-ids-file <path> [--action-id <id>] [--cdp-port <port>] [--json]
-lhremote campaign-remove-people <campaignId> --person-ids <ids> | --person-ids-file <path> [--cdp-port <port>] [--json]
-lhremote import-people-from-urls <campaignId> --urls <urls> | --urls-file <path> [--cdp-port <port>] [--json]
-lhremote collect-people <campaignId> <sourceUrl> [--limit <n>] [--max-pages <n>] [--page-size <n>] [--source-type <type>] [--cdp-port <port>] [--json]
+lhremote campaign-exclude-list <campaignId> [--action-id <id>] [--cdp-port <port>] [--account-id <id>] [--json]
+lhremote campaign-exclude-add <campaignId> --person-ids <ids> | --person-ids-file <path> [--action-id <id>] [--cdp-port <port>] [--account-id <id>] [--json]
+lhremote campaign-exclude-remove <campaignId> --person-ids <ids> | --person-ids-file <path> [--action-id <id>] [--cdp-port <port>] [--account-id <id>] [--json]
+lhremote campaign-remove-people <campaignId> --person-ids <ids> | --person-ids-file <path> [--cdp-port <port>] [--account-id <id>] [--json]
+lhremote import-people-from-urls <campaignId> --urls <urls> | --urls-file <path> [--cdp-port <port>] [--account-id <id>] [--json]
+lhremote collect-people <campaignId> <sourceUrl> [--limit <n>] [--max-pages <n>] [--page-size <n>] [--source-type <type>] [--cdp-port <port>] [--account-id <id>] [--json]
 ```
 
 ### Collections
@@ -299,6 +299,7 @@ List existing campaigns with summary statistics.
 |-----------|------|----------|---------|-------------|
 | `includeArchived` | boolean | No | false | Include archived campaigns |
 | `cdpPort` | number | No | 9222 | CDP port |
+| `accountId` | number | No | auto-select if single account | Account ID to target when multiple accounts exist |
 
 #### `campaign-create`
 
@@ -309,6 +310,7 @@ Create a new campaign from YAML or JSON configuration.
 | `config` | string | Yes | — | Campaign configuration in YAML or JSON format |
 | `format` | string | No | yaml | Configuration format (`yaml` or `json`) |
 | `cdpPort` | number | No | 9222 | CDP port |
+| `accountId` | number | No | auto-select if single account | Account ID to target when multiple accounts exist |
 
 #### `campaign-get`
 
@@ -318,6 +320,7 @@ Get detailed campaign information including action chain.
 |-----------|------|----------|---------|-------------|
 | `campaignId` | number | Yes | — | Campaign ID |
 | `cdpPort` | number | No | 9222 | CDP port |
+| `accountId` | number | No | auto-select if single account | Account ID to target when multiple accounts exist |
 
 #### `campaign-export`
 
@@ -328,6 +331,7 @@ Export campaign configuration as YAML or JSON.
 | `campaignId` | number | Yes | — | Campaign ID |
 | `format` | string | No | yaml | Export format (`yaml` or `json`) |
 | `cdpPort` | number | No | 9222 | CDP port |
+| `accountId` | number | No | auto-select if single account | Account ID to target when multiple accounts exist |
 
 #### `campaign-update`
 
@@ -339,6 +343,7 @@ Update a campaign's name and/or description.
 | `name` | string | No | — | New campaign name |
 | `description` | string | No | — | New description (empty string to clear) |
 | `cdpPort` | number | No | 9222 | CDP port |
+| `accountId` | number | No | auto-select if single account | Account ID to target when multiple accounts exist |
 
 #### `campaign-delete`
 
@@ -348,6 +353,7 @@ Delete (archive) a campaign.
 |-----------|------|----------|---------|-------------|
 | `campaignId` | number | Yes | — | Campaign ID |
 | `cdpPort` | number | No | 9222 | CDP port |
+| `accountId` | number | No | auto-select if single account | Account ID to target when multiple accounts exist |
 
 #### `campaign-erase`
 
@@ -357,6 +363,7 @@ Permanently erase a campaign and all related data from the database. This is irr
 |-----------|------|----------|---------|-------------|
 | `campaignId` | number | Yes | — | Campaign ID |
 | `cdpPort` | number | No | 9222 | CDP port |
+| `accountId` | number | No | auto-select if single account | Account ID to target when multiple accounts exist |
 
 #### `campaign-start`
 
@@ -367,6 +374,7 @@ Start a campaign with specified target persons. Returns immediately (async execu
 | `campaignId` | number | Yes | — | Campaign ID |
 | `personIds` | number[] | Yes | — | Person IDs to target |
 | `cdpPort` | number | No | 9222 | CDP port |
+| `accountId` | number | No | auto-select if single account | Account ID to target when multiple accounts exist |
 
 #### `campaign-stop`
 
@@ -376,6 +384,7 @@ Stop a running campaign.
 |-----------|------|----------|---------|-------------|
 | `campaignId` | number | Yes | — | Campaign ID |
 | `cdpPort` | number | No | 9222 | CDP port |
+| `accountId` | number | No | auto-select if single account | Account ID to target when multiple accounts exist |
 
 #### `campaign-status`
 
@@ -387,6 +396,7 @@ Check campaign execution status and results.
 | `includeResults` | boolean | No | false | Include execution results |
 | `limit` | number | No | 20 | Max results to return |
 | `cdpPort` | number | No | 9222 | CDP port |
+| `accountId` | number | No | auto-select if single account | Account ID to target when multiple accounts exist |
 
 #### `campaign-statistics`
 
@@ -398,6 +408,7 @@ Get per-action statistics for a campaign.
 | `actionId` | number | No | — | Filter to a specific action |
 | `maxErrors` | number | No | 5 | Max top errors per action |
 | `cdpPort` | number | No | 9222 | CDP port |
+| `accountId` | number | No | auto-select if single account | Account ID to target when multiple accounts exist |
 
 #### `campaign-retry`
 
@@ -408,6 +419,7 @@ Reset specified people for re-run in a campaign.
 | `campaignId` | number | Yes | — | Campaign ID |
 | `personIds` | number[] | Yes | — | Person IDs to retry |
 | `cdpPort` | number | No | 9222 | CDP port |
+| `accountId` | number | No | auto-select if single account | Account ID to target when multiple accounts exist |
 
 ### Campaign Actions
 
@@ -425,6 +437,7 @@ Add a new action to a campaign's action chain. Use `describe-actions` to explore
 | `maxResults` | number | No | — | Max results per iteration (-1 for unlimited) |
 | `actionSettings` | object | No | — | Action-specific settings |
 | `cdpPort` | number | No | 9222 | CDP port |
+| `accountId` | number | No | auto-select if single account | Account ID to target when multiple accounts exist |
 
 #### `campaign-remove-action`
 
@@ -435,6 +448,7 @@ Remove an action from a campaign's action chain.
 | `campaignId` | number | Yes | — | Campaign ID |
 | `actionId` | number | Yes | — | Action ID to remove |
 | `cdpPort` | number | No | 9222 | CDP port |
+| `accountId` | number | No | auto-select if single account | Account ID to target when multiple accounts exist |
 
 #### `campaign-update-action`
 
@@ -450,6 +464,7 @@ Update an existing action's configuration in a campaign. Only provided fields ar
 | `maxActionResultsPerIteration` | number | No | — | Max results per iteration (-1 for unlimited) |
 | `actionSettings` | string | No | — | Action-specific settings as JSON (merged with existing) |
 | `cdpPort` | number | No | 9222 | CDP port |
+| `accountId` | number | No | auto-select if single account | Account ID to target when multiple accounts exist |
 
 #### `campaign-reorder-actions`
 
@@ -460,6 +475,7 @@ Reorder actions in a campaign's action chain.
 | `campaignId` | number | Yes | — | Campaign ID |
 | `actionIds` | number[] | Yes | — | Action IDs in desired order |
 | `cdpPort` | number | No | 9222 | CDP port |
+| `accountId` | number | No | auto-select if single account | Account ID to target when multiple accounts exist |
 
 #### `campaign-move-next`
 
@@ -471,6 +487,7 @@ Move people from one action to the next in a campaign.
 | `actionId` | number | Yes | — | Action ID to move people from |
 | `personIds` | number[] | Yes | — | Person IDs to move |
 | `cdpPort` | number | No | 9222 | CDP port |
+| `accountId` | number | No | auto-select if single account | Account ID to target when multiple accounts exist |
 
 ### Campaign Targeting
 
@@ -483,6 +500,7 @@ View the exclude list for a campaign or action.
 | `campaignId` | number | Yes | — | Campaign ID |
 | `actionId` | number | No | — | Action ID (for action-level list) |
 | `cdpPort` | number | No | 9222 | CDP port |
+| `accountId` | number | No | auto-select if single account | Account ID to target when multiple accounts exist |
 
 #### `campaign-exclude-add`
 
@@ -494,6 +512,7 @@ Add people to a campaign or action exclude list.
 | `personIds` | number[] | Yes | — | Person IDs to exclude |
 | `actionId` | number | No | — | Action ID (for action-level list) |
 | `cdpPort` | number | No | 9222 | CDP port |
+| `accountId` | number | No | auto-select if single account | Account ID to target when multiple accounts exist |
 
 #### `campaign-exclude-remove`
 
@@ -505,6 +524,7 @@ Remove people from a campaign or action exclude list.
 | `personIds` | number[] | Yes | — | Person IDs to remove from exclude list |
 | `actionId` | number | No | — | Action ID (for action-level list) |
 | `cdpPort` | number | No | 9222 | CDP port |
+| `accountId` | number | No | auto-select if single account | Account ID to target when multiple accounts exist |
 
 #### `campaign-list-people`
 
@@ -518,6 +538,7 @@ List people assigned to a campaign with their processing status.
 | `limit` | number | No | 20 | Max results |
 | `offset` | number | No | 0 | Pagination offset |
 | `cdpPort` | number | No | 9222 | CDP port |
+| `accountId` | number | No | auto-select if single account | Account ID to target when multiple accounts exist |
 
 #### `campaign-remove-people`
 
@@ -528,6 +549,7 @@ Remove people from a campaign's target list entirely. This is the inverse of `im
 | `campaignId` | number | Yes | — | Campaign ID |
 | `personIds` | number[] | Yes | — | Person IDs to remove |
 | `cdpPort` | number | No | 9222 | CDP port |
+| `accountId` | number | No | auto-select if single account | Account ID to target when multiple accounts exist |
 
 #### `import-people-from-urls`
 
@@ -538,6 +560,7 @@ Import LinkedIn profile URLs into a campaign action target list. Idempotent — 
 | `campaignId` | number | Yes | — | Campaign ID |
 | `urls` | string[] | Yes | — | LinkedIn profile URLs |
 | `cdpPort` | number | No | 9222 | CDP port |
+| `accountId` | number | No | auto-select if single account | Account ID to target when multiple accounts exist |
 
 #### `collect-people`
 
@@ -552,6 +575,7 @@ Collect people from a LinkedIn page into a campaign. Detects the source type fro
 | `pageSize` | number | No | — | Results per page |
 | `sourceType` | string | No | — | Explicit source type (bypasses URL detection) |
 | `cdpPort` | number | No | 9222 | CDP port |
+| `accountId` | number | No | auto-select if single account | Account ID to target when multiple accounts exist |
 
 ### Collections
 
