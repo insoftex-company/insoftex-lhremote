@@ -200,11 +200,20 @@ Profile and message queries work against the local LinkedHelper database — no 
 - **`format`**: Campaign config format — `"yaml"` (default) or `"json"`.
 - **`publicId`**: The LinkedIn profile URL slug (e.g., `jane-doe-12345` from `linkedin.com/in/jane-doe-12345`).
 
+## Startup Timing on Windows
+
+After `launch-app`, LinkedHelper briefly drops its CDP port while reconnecting to any existing instance processes. All commands that use CDP auto-discovery automatically retry for up to 30 seconds before failing. This means:
+
+- Commands issued immediately after `launch-app` may take up to 30 s to respond while LH stabilizes — this is expected.
+- If LH never becomes reachable within that window, the "LinkedHelper is running but CDP is not reachable" error is raised.
+- `check-status` intentionally bypasses the retry and returns the current state immediately (fast health probe).
+
 ## Error Patterns
 
 | Error | Cause | Fix |
 |-------|-------|-----|
 | "No running LinkedHelper instances found" | App not running | Use `launch-app` |
+| "LinkedHelper is running but CDP is not reachable" | LH process exists but CDP not yet available | Commands auto-retry for up to 30 s; if it persists, use `launch-app --force` |
 | "Failed to connect to LinkedHelper" | Wrong CDP port or app crashed | Use `find-app` to discover correct port |
 | "Instance not running" | Instance not started for account | Use `start-instance` |
 | "No accounts found" / "Multiple accounts" | Account resolution failed | Use `list-accounts`, then pass explicit `accountId` |

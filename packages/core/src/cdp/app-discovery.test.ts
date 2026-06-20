@@ -236,8 +236,8 @@ describe("resolveAppPort", () => {
     const port = await resolveAppPort("launcher");
     expect(port).toBe(9222);
 
-    // Now test the failure case — no instance process
-    await expect(resolveAppPort("instance")).rejects.toThrow(LinkedHelperUnreachableError);
+    // Now test the failure case — no instance process (retryTimeout=0 skips the retry wait)
+    await expect(resolveAppPort("instance", 0)).rejects.toThrow(LinkedHelperUnreachableError);
   });
 
   it("should select correct role (launcher vs instance)", async () => {

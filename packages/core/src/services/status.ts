@@ -56,7 +56,7 @@ export async function checkStatus(
   // Resolve launcher port: explicit, auto-discovered, or none
   let resolvedPort: number | null;
   try {
-    resolvedPort = await resolveLauncherPort(cdpPort, options?.host);
+    resolvedPort = await resolveLauncherPort(cdpPort, options?.host, 0);
   } catch {
     resolvedPort = null;
   }

@@ -4,6 +4,7 @@
 import { pidToPorts } from "pid-port";
 import psList from "ps-list";
 import { LinkedHelperNotRunningError, LinkedHelperUnreachableError } from "../services/errors.js";
+import { delay } from "../utils/index.js";
 import { isCdpPort } from "../utils/cdp-port.js";
 import { isLoopbackAddress } from "../utils/loopback.js";
 
@@ -80,34 +81,64 @@ export async function findApp(): Promise<DiscoveredApp[]> {
 }
 
 /**
+ * How long to retry when LH processes exist but CDP is unreachable (ms).
+ * LH briefly drops its CDP port while reconnecting to existing instances
+ * after a fresh launch — 30 s is enough to ride out that window.
+ * Tests may pass 0 to disable retries and get an immediate failure.
+ */
+export const REACHABILITY_RETRY_TIMEOUT = 30_000;
+const REACHABILITY_RETRY_INTERVAL = 1_000;
+
+/**
  * Discover the CDP port for a running LinkedHelper process with the
  * specified role.
  *
  * Scans running processes via {@link findApp} and returns the first
- * connectable port matching the requested role.
+ * connectable port matching the requested role. When processes are found
+ * but none are connectable, retries every second for up to
+ * {@link REACHABILITY_RETRY_TIMEOUT} ms (LH briefly drops its CDP port
+ * while reconciling instances after a fresh launch).
  *
  * @param role - Process role to look for (`"launcher"` or `"instance"`).
+ * @param retryTimeout - How long to retry when processes are found but
+ *   unreachable (ms). Pass `0` for immediate failure (useful in tests or
+ *   best-effort callers).
  * @returns The CDP port number.
  * @throws {LinkedHelperNotRunningError} if no LinkedHelper processes are found.
  * @throws {LinkedHelperUnreachableError} if processes are found but none are
- *   connectable with the requested role.
+ *   connectable with the requested role within `retryTimeout` ms.
  */
 export async function resolveAppPort(
   role: "launcher" | "instance",
+  retryTimeout = REACHABILITY_RETRY_TIMEOUT,
 ): Promise<number> {
-  const apps = await findApp();
-  if (apps.length === 0) {
-    throw new LinkedHelperNotRunningError();
+  const deadline = Date.now() + retryTimeout;
+  let lastApps: Awaited<ReturnType<typeof findApp>> = [];
+
+  while (true) {
+    const apps = await findApp();
+
+    if (apps.length === 0) {
+      throw new LinkedHelperNotRunningError();
+    }
+
+    const match = apps.find(
+      (a) => a.role === role && a.connectable && a.cdpPort !== null,
+    );
+    if (match?.cdpPort !== null && match?.cdpPort !== undefined) {
+      return match.cdpPort;
+    }
+
+    lastApps = apps;
+    if (Date.now() >= deadline) break;
+
+    // LH may be temporarily unreachable while reconciling instance state;
+    // retry until the deadline rather than failing immediately.
+    // eslint-disable-next-line no-await-in-loop
+    await delay(REACHABILITY_RETRY_INTERVAL);
   }
 
-  const match = apps.find(
-    (a) => a.role === role && a.connectable && a.cdpPort !== null,
-  );
-  if (match?.cdpPort !== null && match?.cdpPort !== undefined) {
-    return match.cdpPort;
-  }
-
-  throw new LinkedHelperUnreachableError(apps);
+  throw new LinkedHelperUnreachableError(lastApps);
 }
 
 /**
@@ -126,12 +157,13 @@ export async function resolveAppPort(
 export async function resolveInstancePort(
   cdpPort?: number,
   cdpHost?: string,
+  retryTimeout = REACHABILITY_RETRY_TIMEOUT,
 ): Promise<number> {
   if (cdpPort !== undefined) return cdpPort;
   if (cdpHost !== undefined && !isLoopbackAddress(cdpHost)) {
     throw new Error("cdpPort is required when using a non-loopback cdpHost — auto-discovery only works locally");
   }
-  return resolveAppPort("instance");
+  return resolveAppPort("instance", retryTimeout);
 }
 
 /**
@@ -141,17 +173,21 @@ export async function resolveInstancePort(
  *
  * @param cdpPort - Explicit CDP port (returned verbatim when provided).
  * @param cdpHost - Target host for the CDP connection.
+ * @param retryTimeout - How long to retry when processes are found but
+ *   unreachable (ms). Defaults to {@link REACHABILITY_RETRY_TIMEOUT}. Pass `0`
+ *   for fast-fail behavior (health checks, best-effort probes).
  * @returns The resolved CDP port number.
  */
 export async function resolveLauncherPort(
   cdpPort?: number,
   cdpHost?: string,
+  retryTimeout = REACHABILITY_RETRY_TIMEOUT,
 ): Promise<number> {
   if (cdpPort !== undefined) return cdpPort;
   if (cdpHost !== undefined && !isLoopbackAddress(cdpHost)) {
     throw new Error("cdpPort is required when using a non-loopback cdpHost — auto-discovery only works locally");
   }
-  return resolveAppPort("launcher");
+  return resolveAppPort("launcher", retryTimeout);
 }
 
 /**
