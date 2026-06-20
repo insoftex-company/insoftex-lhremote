@@ -145,6 +145,7 @@ export function createProgram(): Command {
     .command("launch-app")
     .description("Launch the LinkedHelper application")
     .option("--force", "Kill existing LinkedHelper processes before launching")
+    .option("--verbose", "Print diagnostic messages during launch (binary path, CDP probe status)")
     .action(handleLaunchApp);
 
   program

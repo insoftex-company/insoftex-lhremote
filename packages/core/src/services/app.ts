@@ -24,6 +24,8 @@ export interface AppServiceOptions {
   launchProbeDelay?: number;
   /** Kill existing LinkedHelper processes before launching (default false). */
   force?: boolean;
+  /** Optional callback for diagnostic messages during launch (e.g. binary path, probe status). */
+  onLog?: (message: string) => void;
 }
 
 /**
@@ -39,6 +41,7 @@ export class AppService {
   private detectedExternal = false;
   private readonly launchProbeDelay: number;
   private readonly force: boolean;
+  private readonly onLog: ((message: string) => void) | undefined;
 
   /**
    * @param cdpPort - Explicit CDP port.  When omitted, `launch()` will
@@ -49,6 +52,7 @@ export class AppService {
     this.assignedPort = cdpPort ?? null;
     this.launchProbeDelay = options?.launchProbeDelay ?? DEFAULT_LAUNCH_PROBE_DELAY;
     this.force = options?.force ?? false;
+    this.onLog = options?.onLog;
   }
 
   /**
@@ -106,6 +110,9 @@ export class AppService {
     const binary = AppService.findBinary();
     const args = [`--remote-debugging-port=${String(this.assignedPort)}`];
 
+    this.onLog?.(`Binary: ${binary}`);
+    this.onLog?.(`Args: ${args.join(" ")}`);
+
     const child = spawn(binary, args, {
       detached: true,
       stdio: "ignore",
@@ -136,11 +143,14 @@ export class AppService {
       child.on("error", onError);
     });
 
-    // If a non-zero probe delay is configured, poll the CDP endpoint
-    // for a short period after spawn to ensure the application became
-    // reachable.  Tests use a zero delay (FAST_OPTIONS) to avoid waiting.
+    // Best-effort: poll the CDP endpoint until the app is reachable or the
+    // deadline passes.  On Windows, Electron re-spawns itself and the CDP
+    // port may open well after the initial process exits, so a timeout here
+    // is not treated as an error.  Use find-app / check-status to confirm.
     if (this.launchProbeDelay > 0) {
-      const probeDeadline = Date.now() + this.launchProbeDelay;
+      this.onLog?.(`Probing CDP on port ${String(this.assignedPort)} (up to ${this.launchProbeDelay}ms)...`);
+      const probeStart = Date.now();
+      const probeDeadline = probeStart + this.launchProbeDelay;
       let probeSuccess = false;
       while (Date.now() < probeDeadline) {
         try {
@@ -148,17 +158,14 @@ export class AppService {
           probeSuccess = true;
           break;
         } catch {
-          // Retry briefly until probe deadline
           // eslint-disable-next-line no-await-in-loop
           await new Promise((r) => setTimeout(r, 200));
         }
       }
-
-      if (!probeSuccess) {
-        // Probing failed - the app did not become reachable in time
-        throw new AppLaunchError(
-          `LinkedHelper did not become reachable on CDP port ${String(this.assignedPort)} within ${this.launchProbeDelay}ms`,
-        );
+      if (probeSuccess) {
+        this.onLog?.(`CDP reachable after ${Date.now() - probeStart}ms`);
+      } else {
+        this.onLog?.(`CDP not yet reachable after ${this.launchProbeDelay}ms — app may still be starting`);
       }
     }
 
