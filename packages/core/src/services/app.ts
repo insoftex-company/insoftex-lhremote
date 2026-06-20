@@ -113,10 +113,21 @@ export class AppService {
     this.onLog?.(`Binary: ${binary}`);
     this.onLog?.(`Args: ${args.join(" ")}`);
 
+    // Clear ELECTRON_RUN_AS_NODE so LH always starts as a GUI app, not a Node process.
+    const childEnv = { ...process.env };
+    delete childEnv["ELECTRON_RUN_AS_NODE"];
+
     const child = spawn(binary, args, {
       detached: true,
       stdio: "ignore",
-      env: { ...process.env, ELECTRON_RUN_AS_NODE: "" },
+      // windowsHide prevents Windows from creating a visible console window for
+      // the Squirrel launcher process, which otherwise blocks proper background launch.
+      windowsHide: true,
+      env: childEnv,
+    });
+
+    child.on("exit", (code, signal) => {
+      this.onLog?.(`Launcher process exited (code=${String(code)} signal=${String(signal)})`);
     });
 
     child.unref();
@@ -277,10 +288,17 @@ function getWindowsBinaryPath(): string {
   const programFilesX86 = process.env["PROGRAMFILES(X86)"] ?? "C:\\Program Files (x86)";
 
   const candidates = [
+    // Squirrel per-user install (most common on Windows)
+    join(localAppData, "linked-helper", "linked-helper.exe"),
+    join(localAppData, "LinkedHelper", "linked-helper.exe"),
+    join(localAppData, "linked-helper", "LinkedHelper.exe"),
+    join(localAppData, "LinkedHelper", "LinkedHelper.exe"),
+    // Programs subfolder variants
     join(localAppData, "Programs", "linked-helper", "linked-helper.exe"),
     join(localAppData, "Programs", "LinkedHelper", "linked-helper.exe"),
     join(localAppData, "Programs", "linked-helper", "LinkedHelper.exe"),
     join(localAppData, "Programs", "LinkedHelper", "LinkedHelper.exe"),
+    // System-wide installs
     join(programFiles, "linked-helper", "linked-helper.exe"),
     join(programFiles, "LinkedHelper", "linked-helper.exe"),
     join(programFilesX86, "linked-helper", "linked-helper.exe"),
