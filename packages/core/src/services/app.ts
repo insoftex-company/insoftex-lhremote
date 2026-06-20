@@ -112,30 +112,20 @@ export class AppService {
       env: { ...process.env, ELECTRON_RUN_AS_NODE: "" },
     });
 
-    // Keep a reference to the child temporarily to detect early failures
-    let childExited = false;
-    child.on("exit", () => {
-      childExited = true;
-    });
-
     child.unref();
 
-    // Wait for an early error (e.g. ENOENT from spawn)
+    // Wait briefly for a spawn error (e.g. ENOENT / permission denied).
+    // Electron apps on Windows routinely exit their launcher process immediately
+    // and re-spawn as the real GUI process, so a prompt exit is not an error.
     await new Promise<void>((resolve, reject) => {
       const onError = (err: Error) => {
         cleanup();
         reject(new AppLaunchError(`Failed to launch LinkedHelper: ${err.message}`, { cause: err }));
       };
 
-      // Use a fixed 2-second timeout for early error detection
       const timer = setTimeout(() => {
         cleanup();
-        // Check if the process died while we were waiting
-        if (childExited) {
-          reject(new AppLaunchError("LinkedHelper process exited immediately after spawn"));
-        } else {
-          resolve();
-        }
+        resolve();
       }, 2000);
 
       function cleanup() {
