@@ -1,3 +1,9 @@
+---
+name: lhremote-mcp
+description: This skill should be used when the user asks about lhremote MCP tools, LinkedHelper automation workflows, campaign management, account selection, instance lifecycle, people collection, messaging, or any lhremote CLI/MCP commands. Provides tool discovery patterns, workflow sequences, parameter conventions, error handling, and rate-limiting guidance for automating LinkedHelper via CDP.
+version: 1.0.0
+---
+
 # lhremote MCP — Tool Surface & Workflow Guide
 
 This skill teaches lhremote MCP workflow patterns, conventions, and error handling for automating LinkedHelper via Chrome DevTools Protocol (CDP).
