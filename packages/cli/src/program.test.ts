@@ -120,6 +120,14 @@ describe("createProgram", () => {
 
       expect(portOption).toBeUndefined();
     });
+
+    it("accepts --force option", () => {
+      const program = createProgram();
+      const cmd = program.commands.find((c) => c.name() === "launch-app");
+      const forceOption = cmd?.options.find((o) => o.long === "--force");
+
+      expect(forceOption).toBeDefined();
+    });
   });
 
   describe("quit-app", () => {

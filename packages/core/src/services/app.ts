@@ -112,19 +112,31 @@ export class AppService {
       env: { ...process.env, ELECTRON_RUN_AS_NODE: "" },
     });
 
+    // Keep a reference to the child temporarily to detect early failures
+    let childExited = false;
+    child.on("exit", () => {
+      childExited = true;
+    });
+
     child.unref();
 
-    // Wait for an early error (e.g. ENOENT from spawn) before probing
+    // Wait for an early error (e.g. ENOENT from spawn)
     await new Promise<void>((resolve, reject) => {
       const onError = (err: Error) => {
         cleanup();
         reject(new AppLaunchError(`Failed to launch LinkedHelper: ${err.message}`, { cause: err }));
       };
 
+      // Use a fixed 2-second timeout for early error detection
       const timer = setTimeout(() => {
         cleanup();
-        resolve();
-      }, this.launchProbeDelay);
+        // Check if the process died while we were waiting
+        if (childExited) {
+          reject(new AppLaunchError("LinkedHelper process exited immediately after spawn"));
+        } else {
+          resolve();
+        }
+      }, 2000);
 
       function cleanup() {
         child.removeListener("error", onError);
@@ -133,6 +145,32 @@ export class AppService {
 
       child.on("error", onError);
     });
+
+    // If a non-zero probe delay is configured, poll the CDP endpoint
+    // for a short period after spawn to ensure the application became
+    // reachable.  Tests use a zero delay (FAST_OPTIONS) to avoid waiting.
+    if (this.launchProbeDelay > 0) {
+      const probeDeadline = Date.now() + this.launchProbeDelay;
+      let probeSuccess = false;
+      while (Date.now() < probeDeadline) {
+        try {
+          await discoverTargets(this.assignedPort as number);
+          probeSuccess = true;
+          break;
+        } catch {
+          // Retry briefly until probe deadline
+          // eslint-disable-next-line no-await-in-loop
+          await new Promise((r) => setTimeout(r, 200));
+        }
+      }
+
+      if (!probeSuccess) {
+        // Probing failed - the app did not become reachable in time
+        throw new AppLaunchError(
+          `LinkedHelper did not become reachable on CDP port ${String(this.assignedPort)} within ${this.launchProbeDelay}ms`,
+        );
+      }
+    }
 
     this.childProcess = child;
   }

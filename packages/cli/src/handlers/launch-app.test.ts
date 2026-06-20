@@ -60,7 +60,27 @@ describe("handleLaunchApp", () => {
 
     await handleLaunchApp();
 
-    expect(AppService).toHaveBeenCalledWith();
+    expect(AppService).toHaveBeenCalledWith(undefined, {
+      launchProbeDelay: 10000,
+    });
+  });
+
+  it("passes force through to AppService when requested", async () => {
+    vi.spyOn(process.stdout, "write").mockReturnValue(true);
+
+    vi.mocked(AppService).mockImplementation(function () {
+      return {
+        launch: vi.fn().mockResolvedValue(undefined),
+        cdpPort: 9222,
+      } as unknown as AppService;
+    });
+
+    await handleLaunchApp({ force: true });
+
+    expect(AppService).toHaveBeenCalledWith(undefined, {
+      launchProbeDelay: 10000,
+      force: true,
+    });
   });
 
   it("sets exitCode 1 on error", async () => {

@@ -4,8 +4,13 @@
 import { AppService, errorMessage } from "@lhremote/core";
 
 /** Handle the {@link https://github.com/alexey-pelykh/lhremote#app-management | launch-app} CLI command. */
-export async function handleLaunchApp(): Promise<void> {
-  const app = new AppService();
+export async function handleLaunchApp(options?: { force?: boolean }): Promise<void> {
+  const serviceOptions = {
+    // Give LinkedHelper up to 10 seconds to start and become ready on the CDP port
+    launchProbeDelay: 10000,
+    ...(options?.force !== undefined && { force: options.force }),
+  };
+  const app = new AppService(undefined, serviceOptions);
 
   try {
     await app.launch();

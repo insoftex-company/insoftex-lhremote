@@ -68,6 +68,18 @@ describe("findApp", () => {
     ]);
   });
 
+  it("should discover a LinkedHelper.exe process on Windows regardless of case", async () => {
+    vi.mocked(psList).mockResolvedValue([
+      { pid: 2001, name: "LinkedHelper.exe", ppid: 1 },
+    ]);
+    vi.mocked(pidToPorts).mockResolvedValue(new Set([9334]) as never);
+
+    const result = await findApp();
+    expect(result).toEqual([
+      { pid: 2001, cdpPort: 9334, connectable: true, role: "launcher" },
+    ]);
+  });
+
   it("should discover multiple LinkedHelper processes", async () => {
     vi.mocked(psList).mockResolvedValue([
       { pid: 1000, name: "linked-helper", ppid: 1 },

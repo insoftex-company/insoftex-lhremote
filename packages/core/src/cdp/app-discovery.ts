@@ -10,7 +10,13 @@ import { isLoopbackAddress } from "../utils/loopback.js";
 /**
  * Known LinkedHelper binary names across platforms.
  */
-const BINARY_NAMES = ["linked-helper", "linked-helper.exe"];
+const BINARY_NAMES = [
+  "linked-helper",
+  "linked-helper.exe",
+  "linkedhelper",
+  "linkedhelper.exe",
+];
+const BINARY_NAMES_LOWERCASE = new Set(BINARY_NAMES.map((name) => name.toLowerCase()));
 
 /**
  * Role of a discovered LinkedHelper process.
@@ -163,7 +169,7 @@ async function listLinkedHelperProcesses(): Promise<LHProcess[]> {
   try {
     const all = await psList();
     return all
-      .filter((p) => BINARY_NAMES.includes(p.name))
+      .filter((p) => BINARY_NAMES_LOWERCASE.has(p.name.toLowerCase()))
       .map((p) => ({ pid: p.pid, ppid: p.ppid }));
   } catch {
     return [];
