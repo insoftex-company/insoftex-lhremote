@@ -2,7 +2,7 @@
   "mcpServers": {
     "lhremote": {
       "command": "npx",
-      "args": ["lhremote", "mcp"]
+      "args": ["--yes", "lhremote", "mcp"]
     }
   }
 }
