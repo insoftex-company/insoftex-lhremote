@@ -9,7 +9,7 @@ export async function handleFindApp(options: {
   verbose?: boolean;
 }): Promise<void> {
   try {
-    const apps = await findApp();
+    const apps = await findApp(options.verbose ? { includeHelpers: true } : {});
 
     if (options.json) {
       process.stdout.write(JSON.stringify(apps, null, 2) + "\n");

@@ -132,11 +132,15 @@ function collectString(value: string, previous: string[]): string[] {
 /**
  * Create the CLI program with all subcommands registered.
  */
-export function createProgram(): Command {
+export interface CreateProgramOptions {
+  version?: string;
+}
+
+export function createProgram(options: CreateProgramOptions = {}): Command {
   const program = new Command()
     .name("lhremote")
     .description("CLI for LinkedHelper automation")
-    .version(version);
+    .version(options.version ?? version);
 
   const findAppCmd = program
     .command("find-app")

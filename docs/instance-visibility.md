@@ -39,7 +39,7 @@ This document describes the ground truth uncovered from real process trees and t
 | Condition | Role |
 |-----------|------|
 | Command line contains `--type=` | `helper-child` |
-| Path contains `resources[\/]out[\/]` AND has `--app-id=` or `--user-li-id=` | `instance` |
+| Path contains `resources[\/]out[\/]` (no `--type=`) | `instance` |
 | Path does NOT contain `resources[\/]out[\/]` | `launcher` |
 | Fallback (no command line available) | parent-PID heuristic |
 
@@ -113,7 +113,9 @@ When the launcher CDP drops (for example while reconciling instances after a fre
 
 ---
 
-## `runningInstances[]` display model
+## `instances[]` / `runningInstances[]` display model
+
+`StatusReport.instances` and `StatusReport.runningInstances` are the same array, both populated from `scanRunningInstances()`.  `instances[]` is the authoritative field; `runningInstances[]` is retained as a backward-compat alias.
 
 `check-status` returns:
 
@@ -160,9 +162,11 @@ Chromium helper children are **never** orphans, even if their parent has exited.
 
 | File | Purpose |
 |------|---------|
+| `packages/core/src/cdp/gather-raw-processes.ts` | Shared OS process list with cmdlines (Win32_Process on Windows) |
 | `packages/core/src/cdp/process-inspector.ts` | Process scanning, identity parsing, orphan detection |
-| `packages/core/src/cdp/app-discovery.ts` | `findApp()` (backward-compatible, calls process-inspector) |
-| `packages/core/src/services/status.ts` | `checkStatus()` with `runningInstances[]` |
-| `packages/core/src/services/instance-lifecycle.ts` | `startInstanceWithRecovery()` with F4 verification |
+| `packages/core/src/cdp/app-discovery.ts` | `findApp()` — full process tree with `helperChildCount` and `includeHelpers` |
+| `packages/core/src/services/status.ts` | `checkStatus()` with `instances[]` and `runningInstances[]` from process inspection |
+| `packages/core/src/services/instance-lifecycle.ts` | `startInstanceWithRecovery()` with post-start verification |
 | `packages/core/src/services/ensure-instances.ts` | `ensureInstances()` idempotent multi-start |
-| `packages/core/src/cdp/process-inspector.test.ts` | Unit tests for above (mock psList, pid-port) |
+| `packages/core/src/cdp/process-inspector.test.ts` | Unit tests (mock `gatherRawProcesses`, `pid-port`) |
+| `packages/core/src/cdp/app-discovery.test.ts` | Unit tests for `findApp()` including 3-not-7 regression |

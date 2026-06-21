@@ -4,6 +4,27 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+## [0.3.1] — 2026-06-21
+
+### Fixed
+
+- `check-status` `instances[]` now reflects only genuinely running processes from OS process inspection (Win32_Process on Windows), not all 7 configured accounts from the launcher roster (R1)
+- `instances[].cdpPort` and `instances[].connectable` now carry real values from live process probing instead of always being `null` (R2)
+- Instance identity (`accountId`, `name`, `email`) is parsed from `--app-id`/`--user-li-id`/`--user-li` only — `--lh-account` (license-owner decoy, identical across all instances) is now explicitly ignored (R3)
+- `instances[]` remains correct when the launcher CDP is unreachable; `launcher.reachable` is a separate flag (R4)
+- `find-app` role classification: `--type=` present → `helper-child` (excluded by default); `resources\out\` path → `instance`; otherwise `launcher`; added `helperChildCount` per entry (R5)
+
+### Added
+
+- `gather-raw-processes` shared utility — abstracts OS process listing with cmdlines (Win32_Process via PowerShell on Windows; ps-list `cmd` on other platforms)
+- `FindAppOptions.includeHelpers` — opt-in to show helper-child processes in `find-app` output (CLI `--verbose` flag)
+- `StatusReport.instances` — authoritative process-inspection-based array (same data as `runningInstances`, which is retained for backward compatibility)
+- `docs/instance-visibility.md` — process taxonomy, cmdline identity fields, `--lh-account` trap, redaction requirements
+
+### Security
+
+- Command line secrets (`--app-credentials`, `--upstream-proxy`, `--sentry` DSN) are never captured, stored, or returned in any tool output or log
+
 ## [0.9.0] — 2026-04-01
 
 ### Added

@@ -2,7 +2,6 @@
 // Copyright (C) 2026 Oleksii PELYKH
 
 import { pidToPorts } from "pid-port";
-import psList from "ps-list";
 
 import { LinkedHelperNotRunningError, LinkedHelperUnreachableError } from "../services/errors.js";
 import { delay } from "../utils/index.js";
@@ -10,17 +9,18 @@ import { isCdpPort } from "../utils/cdp-port.js";
 import { isLoopbackAddress } from "../utils/loopback.js";
 import type { InstanceIdentity } from "./process-inspector.js";
 import { parseIdentityFromCmdline } from "./process-inspector.js";
+import { gatherRawProcesses } from "./gather-raw-processes.js";
+import type { RawProcess } from "./gather-raw-processes.js";
 
 /**
  * Known LinkedHelper binary names across platforms.
  */
-const BINARY_NAMES = [
+const BINARY_NAMES_LOWERCASE = new Set([
   "linked-helper",
   "linked-helper.exe",
   "linkedhelper",
   "linkedhelper.exe",
-];
-const BINARY_NAMES_LOWERCASE = new Set(BINARY_NAMES.map((name) => name.toLowerCase()));
+]);
 
 /**
  * Role of a discovered LinkedHelper process.
@@ -52,7 +52,7 @@ export interface DiscoveredApp {
    *
    * Classification uses command-line analysis when available:
    * - `--type=` flag → `"helper-child"` (never a real instance).
-   * - `resources[\/]out[\/]` path + `--app-id`/`--user-li-id` → `"instance"`.
+   * - `resources[\/]out[\/]` path + no `--type=` → `"instance"`.
    * - No `resources[\/]out[\/]` → `"launcher"`.
    * Falls back to parent-PID heuristic when command lines are unavailable.
    */
@@ -64,6 +64,30 @@ export interface DiscoveredApp {
    * Never contains credentials or secrets.
    */
   identity?: InstanceIdentity;
+
+  /**
+   * Number of `--type=` Chromium helper child processes (gpu/renderer/utility/crashpad)
+   * whose parent PID is this process.
+   */
+  helperChildCount?: number;
+
+  /**
+   * Parent process ID. Only present for `role === "helper-child"` entries
+   * (visible when `includeHelpers` is true).
+   */
+  parentPid?: number;
+}
+
+/**
+ * Options for {@link findApp}.
+ */
+export interface FindAppOptions {
+  /**
+   * When true, include `--type=` Chromium helper child processes in the result.
+   * They appear with `role: "helper-child"` and `parentPid` set.
+   * Default: false (helpers are omitted from the default output).
+   */
+  includeHelpers?: boolean;
 }
 
 /**
@@ -73,47 +97,79 @@ export interface DiscoveredApp {
  * by inspecting its listening TCP ports and probing them with an HTTP
  * request to the CDP `/json/list` endpoint.
  *
- * Role classification uses command-line analysis when available (the
- * `--type=` flag identifies helper children; the executable path and
- * `--app-id` flag identify instance main processes), falling back to
- * the parent-PID heuristic.  Helper children (`role: "helper-child"`)
- * are included so callers can see the full process tree; they are
- * never connectable CDP endpoints.
+ * Role classification uses command-line analysis (the `--type=` flag identifies
+ * helper children; the executable path identifies instance main processes).
+ * On Windows, command lines are obtained via Win32_Process to guarantee correct
+ * classification — the ps-list `cmd` field is not available on Windows.
+ *
+ * By default, `--type=` helper children are excluded from the result; their
+ * count is reflected in `helperChildCount` on the owning instance or launcher.
+ * Pass `{ includeHelpers: true }` to include them (e.g. for diagnostics).
  *
  * Account identity (`identity` field) is populated for instance main
  * processes from a security-allowlisted command-line parser.
  *
  * @returns An array of discovered LinkedHelper processes (may be empty).
+ *   Connectable entries appear before non-connectable ones; within each
+ *   group, launchers precede instances.
  */
-export async function findApp(): Promise<DiscoveredApp[]> {
-  const all = await psList().catch(() => [] as Awaited<ReturnType<typeof psList>>);
-  const lhProcs = all
-    .filter((p) => BINARY_NAMES_LOWERCASE.has(p.name.toLowerCase()))
-    .map((p) => ({
-      pid: p.pid,
-      ppid: p.ppid ?? 0,
-      cmdline: (p as { cmd?: string }).cmd ?? null,
-    }));
+export async function findApp(options: FindAppOptions = {}): Promise<DiscoveredApp[]> {
+  const allProcs = await gatherRawProcesses().catch((): RawProcess[] => []);
+  const lhProcs = allProcs.filter((p) =>
+    BINARY_NAMES_LOWERCASE.has(p.name.toLowerCase()),
+  );
 
   if (lhProcs.length === 0) return [];
 
   const lhPids = new Set(lhProcs.map((p) => p.pid));
+
+  // First pass: identify helper children and count per parent PID
+  const helperCounts = new Map<number, number>();
+  const helperProcs: RawProcess[] = [];
+
+  for (const proc of lhProcs) {
+    if (classifyRole(proc, lhPids) === "helper-child") {
+      helperCounts.set(proc.ppid, (helperCounts.get(proc.ppid) ?? 0) + 1);
+      helperProcs.push(proc);
+    }
+  }
+
+  // Second pass: probe and build DiscoveredApp for non-helper processes
   const discovered: DiscoveredApp[] = [];
 
   for (const proc of lhProcs) {
     const role = classifyRole(proc, lhPids);
-
     if (role === "helper-child") continue;
 
     const app = await probeProcess(proc.pid, role);
+    app.helperChildCount = helperCounts.get(proc.pid) ?? 0;
 
-    // Populate identity for instance processes when cmdline is available.
-    // Uses an allowlist parser — no credentials or secrets are captured.
     if (role === "instance" && proc.cmdline) {
       app.identity = parseIdentityFromCmdline(proc.cmdline);
     }
 
     discovered.push(app);
+  }
+
+  // Sort: connectable first, then launcher before instance
+  const roleOrder: AppRole[] = ["launcher", "instance", "unknown", "helper-child"];
+  discovered.sort((a, b) => {
+    if (a.connectable !== b.connectable) return a.connectable ? -1 : 1;
+    return roleOrder.indexOf(a.role) - roleOrder.indexOf(b.role);
+  });
+
+  // Optionally append helper children
+  if (options.includeHelpers) {
+    for (const proc of helperProcs) {
+      discovered.push({
+        pid: proc.pid,
+        cdpPort: null,
+        connectable: false,
+        role: "helper-child",
+        parentPid: proc.ppid,
+        helperChildCount: 0,
+      });
+    }
   }
 
   return discovered;
@@ -173,7 +229,6 @@ export async function resolveAppPort(
 
     // LH may be temporarily unreachable while reconciling instance state;
     // retry until the deadline rather than failing immediately.
-    // eslint-disable-next-line no-await-in-loop
     await delay(REACHABILITY_RETRY_INTERVAL);
   }
 
@@ -237,7 +292,7 @@ export async function resolveLauncherPort(
  * Falls back to parent-PID heuristic when no command line is available.
  */
 function classifyRole(
-  proc: { ppid: number; cmdline: string | null },
+  proc: Pick<RawProcess, "ppid" | "cmdline">,
   lhPids: Set<number>,
 ): AppRole {
   if (proc.cmdline) {

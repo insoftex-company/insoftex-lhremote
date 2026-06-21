@@ -1,14 +1,12 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 // Copyright (C) 2026 Oleksii PELYKH
 
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-
 // ---------------------------------------------------------------------------
 // Module-level mocks — must be hoisted before any imports from the module
 // ---------------------------------------------------------------------------
 
-vi.mock("ps-list", () => ({
-  default: vi.fn().mockResolvedValue([]),
+vi.mock("./gather-raw-processes.js", () => ({
+  gatherRawProcesses: vi.fn().mockResolvedValue([]),
 }));
 
 vi.mock("pid-port", () => ({
@@ -19,17 +17,16 @@ vi.mock("../utils/cdp-port.js", () => ({
   isCdpPort: vi.fn().mockResolvedValue(false),
 }));
 
-// Ensure the WMI path is not triggered (we're on non-Windows in tests)
-// No explicit mock needed: process.platform is "darwin"/"linux" in CI
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import psList from "ps-list";
+import { gatherRawProcesses } from "./gather-raw-processes.js";
 import { pidToPorts } from "pid-port";
 import { isCdpPort } from "../utils/cdp-port.js";
 import { reapOrphans, scanOrphans, scanRunningInstances } from "./process-inspector.js";
 import type { OrphanProcess } from "./process-inspector.js";
+import type { RawProcess } from "./gather-raw-processes.js";
 
-const mockedPsList = vi.mocked(psList);
-// pidToPorts has two overloads; cast to the single-PID variant used by process-inspector
+const mockedGatherRawProcesses = vi.mocked(gatherRawProcesses);
 const mockedPidToPorts = vi.mocked(pidToPorts as (pid: number) => Promise<Set<number>>);
 const mockedIsCdpPort = vi.mocked(isCdpPort);
 
@@ -86,6 +83,10 @@ function launcherCmdline(): string {
   );
 }
 
+function proc(pid: number, ppid: number, name: string, cmdline: string | null): RawProcess {
+  return { pid, ppid, name, cmdline };
+}
+
 // ---------------------------------------------------------------------------
 // Role classification
 // ---------------------------------------------------------------------------
@@ -102,9 +103,9 @@ describe("role classification", () => {
   });
 
   it("classifies instance main process correctly", async () => {
-    mockedPsList.mockResolvedValue([
-      { pid: 13004, ppid: 9000, name: "linked-helper.exe", cmd: instanceCmdline({}) },
-    ] as never);
+    mockedGatherRawProcesses.mockResolvedValue([
+      proc(13004, 9000, "linked-helper.exe", instanceCmdline({})),
+    ]);
 
     const instances = await scanRunningInstances();
     expect(instances).toHaveLength(1);
@@ -112,13 +113,13 @@ describe("role classification", () => {
   });
 
   it("does NOT include helper children in runningInstances", async () => {
-    mockedPsList.mockResolvedValue([
-      { pid: 1000, ppid: 0, name: "linked-helper.exe", cmd: launcherCmdline() },
-      { pid: 13004, ppid: 1000, name: "linked-helper.exe", cmd: instanceCmdline({}) },
-      { pid: 8008, ppid: 13004, name: "linked-helper.exe", cmd: helperCmdline("utility") },
-      { pid: 8009, ppid: 13004, name: "linked-helper.exe", cmd: helperCmdline("gpu-process") },
-      { pid: 8010, ppid: 1000, name: "linked-helper.exe", cmd: helperCmdline("crashpad-handler") },
-    ] as never);
+    mockedGatherRawProcesses.mockResolvedValue([
+      proc(1000,  0,     "linked-helper.exe", launcherCmdline()),
+      proc(13004, 1000,  "linked-helper.exe", instanceCmdline({})),
+      proc(8008,  13004, "linked-helper.exe", helperCmdline("utility")),
+      proc(8009,  13004, "linked-helper.exe", helperCmdline("gpu-process")),
+      proc(8010,  1000,  "linked-helper.exe", helperCmdline("crashpad-handler")),
+    ]);
 
     const instances = await scanRunningInstances();
     // Only the instance main process (pid 13004) should appear
@@ -128,12 +129,12 @@ describe("role classification", () => {
   });
 
   it("counts helper children per instance", async () => {
-    mockedPsList.mockResolvedValue([
-      { pid: 13004, ppid: 0, name: "linked-helper.exe", cmd: instanceCmdline({ appId: 347559 }) },
-      { pid: 8008, ppid: 13004, name: "linked-helper.exe", cmd: helperCmdline("utility") },
-      { pid: 8009, ppid: 13004, name: "linked-helper.exe", cmd: helperCmdline("gpu-process") },
-      { pid: 8010, ppid: 13004, name: "linked-helper.exe", cmd: helperCmdline("renderer") },
-    ] as never);
+    mockedGatherRawProcesses.mockResolvedValue([
+      proc(13004, 0,     "linked-helper.exe", instanceCmdline({ appId: 347559 })),
+      proc(8008,  13004, "linked-helper.exe", helperCmdline("utility")),
+      proc(8009,  13004, "linked-helper.exe", helperCmdline("gpu-process")),
+      proc(8010,  13004, "linked-helper.exe", helperCmdline("renderer")),
+    ]);
 
     const instances = await scanRunningInstances();
     expect(instances).toHaveLength(1);
@@ -141,11 +142,11 @@ describe("role classification", () => {
   });
 
   it("handles multiple instances without interference", async () => {
-    mockedPsList.mockResolvedValue([
-      { pid: 13004, ppid: 0, name: "linked-helper.exe", cmd: instanceCmdline({ appId: 347559 }) },
-      { pid: 13640, ppid: 0, name: "linked-helper.exe", cmd: instanceCmdline({ appId: 329925, fullName: "Mike Florko", email: "mike@example.com" }) },
-      { pid: 7044, ppid: 0, name: "linked-helper.exe", cmd: instanceCmdline({ appId: 331874, fullName: "Michael Fliorko", email: "michael@example.com" }) },
-    ] as never);
+    mockedGatherRawProcesses.mockResolvedValue([
+      proc(13004, 0, "linked-helper.exe", instanceCmdline({ appId: 347559 })),
+      proc(13640, 0, "linked-helper.exe", instanceCmdline({ appId: 329925, fullName: "Mike Florko", email: "mike@example.com" })),
+      proc(7044,  0, "linked-helper.exe", instanceCmdline({ appId: 331874, fullName: "Michael Fliorko", email: "michael@example.com" })),
+    ]);
 
     const instances = await scanRunningInstances();
     expect(instances).toHaveLength(3);
@@ -166,9 +167,9 @@ describe("identity parsing", () => {
   });
 
   it("extracts accountId from --app-id", async () => {
-    mockedPsList.mockResolvedValue([
-      { pid: 13004, ppid: 0, name: "linked-helper.exe", cmd: instanceCmdline({ appId: 347559 }) },
-    ] as never);
+    mockedGatherRawProcesses.mockResolvedValue([
+      proc(13004, 0, "linked-helper.exe", instanceCmdline({ appId: 347559 })),
+    ]);
 
     const [inst] = await scanRunningInstances();
     expect(inst?.accountId).toBe(347559);
@@ -177,9 +178,9 @@ describe("identity parsing", () => {
   });
 
   it("extracts name and email from --user-li JSON", async () => {
-    mockedPsList.mockResolvedValue([
-      { pid: 13004, ppid: 0, name: "linked-helper.exe", cmd: instanceCmdline({ appId: 347559, fullName: "Vira Lyn", email: "vira@example.com" }) },
-    ] as never);
+    mockedGatherRawProcesses.mockResolvedValue([
+      proc(13004, 0, "linked-helper.exe", instanceCmdline({ appId: 347559, fullName: "Vira Lyn", email: "vira@example.com" })),
+    ]);
 
     const [inst] = await scanRunningInstances();
     expect(inst?.name).toBe("Vira Lyn");
@@ -187,13 +188,12 @@ describe("identity parsing", () => {
   });
 
   it("three instances with identical --lh-account resolve to three DISTINCT accounts (decoy regression)", async () => {
-    // All three have the same --lh-account (license owner) but different --app-id / --user-li
     const sharedLhAccountEmail = "license-owner@example.com";
-    mockedPsList.mockResolvedValue([
-      { pid: 13004, ppid: 0, name: "linked-helper.exe", cmd: instanceCmdline({ appId: 347559, fullName: "Vira Lyn", email: "vira@example.com", lhAccountEmail: sharedLhAccountEmail }) },
-      { pid: 13640, ppid: 0, name: "linked-helper.exe", cmd: instanceCmdline({ appId: 329925, fullName: "Mike Florko", email: "mike@example.com", lhAccountEmail: sharedLhAccountEmail }) },
-      { pid: 7044, ppid: 0, name: "linked-helper.exe", cmd: instanceCmdline({ appId: 331874, fullName: "Michael Fliorko", email: "michael@example.com", lhAccountEmail: sharedLhAccountEmail }) },
-    ] as never);
+    mockedGatherRawProcesses.mockResolvedValue([
+      proc(13004, 0, "linked-helper.exe", instanceCmdline({ appId: 347559, fullName: "Vira Lyn", email: "vira@example.com", lhAccountEmail: sharedLhAccountEmail })),
+      proc(13640, 0, "linked-helper.exe", instanceCmdline({ appId: 329925, fullName: "Mike Florko", email: "mike@example.com", lhAccountEmail: sharedLhAccountEmail })),
+      proc(7044,  0, "linked-helper.exe", instanceCmdline({ appId: 331874, fullName: "Michael Fliorko", email: "michael@example.com", lhAccountEmail: sharedLhAccountEmail })),
+    ]);
 
     const instances = await scanRunningInstances();
     expect(instances).toHaveLength(3);
@@ -213,12 +213,10 @@ describe("identity parsing", () => {
   });
 
   it("sets confidence=unknown when no identity fields are present", async () => {
-    // A process under resources/out/ but no --app-id or --user-li
-    const bareCmd =
-      "C:\\path\\resources\\out\\linked-helper.exe --env=PROD";
-    mockedPsList.mockResolvedValue([
-      { pid: 99, ppid: 0, name: "linked-helper.exe", cmd: bareCmd },
-    ] as never);
+    const bareCmd = "C:\\path\\resources\\out\\linked-helper.exe --env=PROD";
+    mockedGatherRawProcesses.mockResolvedValue([
+      proc(99, 0, "linked-helper.exe", bareCmd),
+    ]);
 
     const instances = await scanRunningInstances();
     expect(instances[0]?.accountId).toBeNull();
@@ -238,9 +236,9 @@ describe("secret redaction", () => {
   });
 
   it("never exposes --app-credentials in output", async () => {
-    mockedPsList.mockResolvedValue([
-      { pid: 13004, ppid: 0, name: "linked-helper.exe", cmd: instanceCmdline({ appId: 347559 }) },
-    ] as never);
+    mockedGatherRawProcesses.mockResolvedValue([
+      proc(13004, 0, "linked-helper.exe", instanceCmdline({ appId: 347559 })),
+    ]);
 
     const instances = await scanRunningInstances();
     const serialized = JSON.stringify(instances);
@@ -249,9 +247,9 @@ describe("secret redaction", () => {
   });
 
   it("never exposes --upstream-proxy credentials in output", async () => {
-    mockedPsList.mockResolvedValue([
-      { pid: 13004, ppid: 0, name: "linked-helper.exe", cmd: instanceCmdline({ appId: 347559 }) },
-    ] as never);
+    mockedGatherRawProcesses.mockResolvedValue([
+      proc(13004, 0, "linked-helper.exe", instanceCmdline({ appId: 347559 })),
+    ]);
 
     const instances = await scanRunningInstances();
     const serialized = JSON.stringify(instances);
@@ -260,9 +258,9 @@ describe("secret redaction", () => {
   });
 
   it("never exposes Sentry DSN in output", async () => {
-    mockedPsList.mockResolvedValue([
-      { pid: 13004, ppid: 0, name: "linked-helper.exe", cmd: instanceCmdline({ appId: 347559 }) },
-    ] as never);
+    mockedGatherRawProcesses.mockResolvedValue([
+      proc(13004, 0, "linked-helper.exe", instanceCmdline({ appId: 347559 })),
+    ]);
 
     const instances = await scanRunningInstances();
     const serialized = JSON.stringify(instances);
@@ -271,9 +269,9 @@ describe("secret redaction", () => {
   });
 
   it("never exposes raw --lh-account license data in output", async () => {
-    mockedPsList.mockResolvedValue([
-      { pid: 13004, ppid: 0, name: "linked-helper.exe", cmd: instanceCmdline({ appId: 347559, lhAccountEmail: "license-owner@secret.com" }) },
-    ] as never);
+    mockedGatherRawProcesses.mockResolvedValue([
+      proc(13004, 0, "linked-helper.exe", instanceCmdline({ appId: 347559, lhAccountEmail: "license-owner@secret.com" })),
+    ]);
 
     const instances = await scanRunningInstances();
     const serialized = JSON.stringify(instances);
@@ -293,18 +291,17 @@ describe("scanOrphans", () => {
   });
 
   it("returns zero orphans when every non-connectable is a --type= child of a live parent", async () => {
-    // Live instance (connectable)
     mockedPidToPorts.mockImplementation(async (pid: number) => {
       if (pid === 13004) return new Set([54321]);
       return new Set();
     });
     mockedIsCdpPort.mockImplementation(async (port: number) => port === 54321);
 
-    mockedPsList.mockResolvedValue([
-      { pid: 13004, ppid: 0, name: "linked-helper.exe", cmd: instanceCmdline({ appId: 347559 }) },
-      { pid: 8008, ppid: 13004, name: "linked-helper.exe", cmd: helperCmdline("utility") },
-      { pid: 8009, ppid: 13004, name: "linked-helper.exe", cmd: helperCmdline("gpu-process") },
-    ] as never);
+    mockedGatherRawProcesses.mockResolvedValue([
+      proc(13004, 0,     "linked-helper.exe", instanceCmdline({ appId: 347559 })),
+      proc(8008,  13004, "linked-helper.exe", helperCmdline("utility")),
+      proc(8009,  13004, "linked-helper.exe", helperCmdline("gpu-process")),
+    ]);
 
     const liveInstances = await scanRunningInstances();
     const orphans = await scanOrphans(liveInstances);
@@ -312,10 +309,9 @@ describe("scanOrphans", () => {
   });
 
   it("detects non-connectable instance-side process as orphan", async () => {
-    mockedPsList.mockResolvedValue([
-      // A stale non-connectable instance process (not a helper child)
-      { pid: 9999, ppid: 0, name: "linked-helper.exe", cmd: instanceCmdline({ appId: 347559 }) },
-    ] as never);
+    mockedGatherRawProcesses.mockResolvedValue([
+      proc(9999, 0, "linked-helper.exe", instanceCmdline({ appId: 347559 })),
+    ]);
 
     const liveInstances: never[] = [];
     const orphans = await scanOrphans(liveInstances);
@@ -331,9 +327,9 @@ describe("scanOrphans", () => {
     });
     mockedIsCdpPort.mockImplementation(async (port: number) => port === 54321);
 
-    mockedPsList.mockResolvedValue([
-      { pid: 13004, ppid: 0, name: "linked-helper.exe", cmd: instanceCmdline({ appId: 347559 }) },
-    ] as never);
+    mockedGatherRawProcesses.mockResolvedValue([
+      proc(13004, 0, "linked-helper.exe", instanceCmdline({ appId: 347559 })),
+    ]);
 
     const liveInstances = await scanRunningInstances();
     const orphans = await scanOrphans(liveInstances);
@@ -430,10 +426,10 @@ describe("result ordering", () => {
     });
     mockedIsCdpPort.mockImplementation(async (port: number) => port === 54321);
 
-    mockedPsList.mockResolvedValue([
-      { pid: 100, ppid: 0, name: "linked-helper.exe", cmd: instanceCmdline({ appId: 111 }) }, // not connectable
-      { pid: 200, ppid: 0, name: "linked-helper.exe", cmd: instanceCmdline({ appId: 222 }) }, // connectable
-    ] as never);
+    mockedGatherRawProcesses.mockResolvedValue([
+      proc(100, 0, "linked-helper.exe", instanceCmdline({ appId: 111 })), // not connectable
+      proc(200, 0, "linked-helper.exe", instanceCmdline({ appId: 222 })), // connectable
+    ]);
 
     const instances = await scanRunningInstances();
     expect(instances[0]?.pid).toBe(200);

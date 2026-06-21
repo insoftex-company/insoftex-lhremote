@@ -14,6 +14,7 @@ export {
   resolveLauncherPort,
   type AppRole,
   type DiscoveredApp,
+  type FindAppOptions,
 } from "./app-discovery.js";
 export {
   scanRunningInstances,

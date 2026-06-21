@@ -239,6 +239,7 @@ export {
   resolveLauncherPort,
   type AppRole,
   type DiscoveredApp,
+  type FindAppOptions,
   killInstanceProcesses,
   scanRunningInstances,
   scanOrphans,

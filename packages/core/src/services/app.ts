@@ -179,7 +179,6 @@ export class AppService {
           probeSuccess = true;
           break;
         } catch {
-          // eslint-disable-next-line no-await-in-loop
           await new Promise((r) => setTimeout(r, 200));
         }
       }

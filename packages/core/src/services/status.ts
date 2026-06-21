@@ -4,7 +4,6 @@
 import {
   type DiscoveredApp,
   type RunningInstance,
-  discoverInstancePort,
   findApp,
   resolveLauncherPort,
   scanRunningInstances,
@@ -39,12 +38,16 @@ export interface DatabaseStatus {
 /** Aggregated health-check result. */
 export interface StatusReport {
   launcher: LauncherStatus;
-  /** Launcher-derived instance list (requires live launcher CDP). */
-  instances: AccountInstanceStatus[];
   /**
    * Process-inspection-based instance list — the authoritative
    * "which accounts are started" source.  Works even when the launcher
    * CDP is unreachable.  Never contains --type= helper children.
+   * Real CDP ports and identity are wired from live processes.
+   */
+  instances: RunningInstance[];
+  /**
+   * Backward-compat alias for `instances` — same data, kept for
+   * callers that already reference this field name.
    */
   runningInstances: RunningInstance[];
   databases: DatabaseStatus[];
@@ -79,7 +82,6 @@ export async function checkStatus(
   }
 
   const launcher: LauncherStatus = { reachable: false, port: resolvedPort };
-  const instances: AccountInstanceStatus[] = [];
   const databases: DatabaseStatus[] = [];
   const warnings: string[] = [];
 
@@ -98,26 +100,7 @@ export async function checkStatus(
       await launcherService.connect();
       launcher.reachable = true;
 
-      // 3. List accounts and discover instance CDP ports
-      try {
-        const accounts = await launcherService.listAccounts();
-        const instancePort = await discoverInstancePort(resolvedPort);
-
-        for (const account of accounts) {
-          // discoverInstancePort finds a single child-process port but cannot
-          // determine which account owns it.  Assign the port only when there
-          // is exactly one account (the common case); otherwise report null.
-          instances.push({
-            accountId: account.id,
-            accountName: account.name,
-            cdpPort: accounts.length === 1 ? instancePort : null,
-          });
-        }
-      } catch (error: unknown) {
-        warnings.push(`Failed to query accounts: ${errorMessage(error)}`);
-      } finally {
-        launcherService.disconnect();
-      }
+      launcherService.disconnect();
     } catch (error: unknown) {
       launcherService.disconnect();
       warnings.push(`Launcher not reachable on port ${resolvedPort.toString()}: ${errorMessage(error)}`);
@@ -181,7 +164,7 @@ export async function checkStatus(
 
   return {
     launcher,
-    instances,
+    instances: runningInstances,
     runningInstances,
     databases,
     ...(warnings.length > 0 ? { warnings } : {}),
