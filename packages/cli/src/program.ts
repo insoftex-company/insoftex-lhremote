@@ -39,6 +39,9 @@ import {
   handleListCollections,
   handleCheckReplies,
   handleCheckStatus,
+  handleEnsureInstances,
+  handleListOrphans,
+  handleReapOrphans,
   handleCommentOnPost,
   handleCollectPeople,
   handleDescribeActions,
@@ -202,6 +205,29 @@ Examples:
     .option("--cdp-host <host>", "CDP host (default: 127.0.0.1)")
     .option("--allow-remote", "SECURITY: allow non-loopback CDP connections (enables remote code execution on target)")
     .action(handleStopInstance);
+
+  program
+    .command("ensure-instances")
+    .description("Idempotently start the specified account instances (skips already-running ones)")
+    .argument("<accountId...>", "Account IDs to ensure are running", (v, prev: number[]) => collectPositiveInt(v, prev))
+    .option("--cdp-port <port>", "CDP debugging port (auto-discovered when omitted)", parsePositiveInt)
+    .option("--cdp-host <host>", "CDP host (default: 127.0.0.1)")
+    .option("--allow-remote", "SECURITY: allow non-loopback CDP connections (enables remote code execution on target)")
+    .option("--json", "Output as JSON")
+    .action(handleEnsureInstances);
+
+  program
+    .command("list-orphans")
+    .description("List orphaned LinkedHelper account-instance processes")
+    .option("--json", "Output as JSON")
+    .action(handleListOrphans);
+
+  program
+    .command("reap-orphans")
+    .description("Terminate orphaned LinkedHelper account-instance processes (dry-run by default)")
+    .option("--confirm", "Actually terminate orphaned processes (without this flag, performs a dry-run)")
+    .option("--json", "Output kill results as JSON")
+    .action(handleReapOrphans);
 
   program
     .command("campaign-list")

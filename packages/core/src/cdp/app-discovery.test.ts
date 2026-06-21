@@ -182,6 +182,125 @@ describe("findApp", () => {
     const result = await findApp();
     expect(result).toEqual([]);
   });
+
+  describe("cmdline-based classification", () => {
+    it("uses resources/out/ path in cmd to classify instance (overrides ppid heuristic)", async () => {
+      vi.mocked(psList).mockResolvedValue([
+        {
+          pid: 1000,
+          name: "linked-helper.exe",
+          ppid: 1,
+          cmd: "C:\\path\\linked-helper.exe --remote-debugging-port=9222",
+        },
+        {
+          pid: 2000,
+          name: "linked-helper.exe",
+          ppid: 1,
+          cmd: "C:\\path\\resources\\out\\linked-helper.exe --app-id=347559",
+        },
+      ] as never);
+      vi.mocked(pidToPorts)
+        .mockResolvedValueOnce(new Set([9222]) as never)
+        .mockResolvedValueOnce(new Set([55123]) as never);
+
+      const result = await findApp();
+
+      expect(result).toHaveLength(2);
+      expect(result.find((a) => a.pid === 1000)?.role).toBe("launcher");
+      expect(result.find((a) => a.pid === 2000)?.role).toBe("instance");
+    });
+
+    it("populates identity.accountId from --app-id in cmd", async () => {
+      vi.mocked(psList).mockResolvedValue([
+        {
+          pid: 2000,
+          name: "linked-helper.exe",
+          ppid: 1,
+          cmd: "C:\\path\\resources\\out\\linked-helper.exe --app-id=347559 --user-li-id=347559",
+        },
+      ] as never);
+      vi.mocked(pidToPorts).mockResolvedValue(new Set() as never);
+
+      const result = await findApp();
+
+      expect(result[0]?.identity?.accountId).toBe(347559);
+      expect(result[0]?.identity?.confidence).toBe("high");
+      expect(result[0]?.identity?.source).toBe("cmdline");
+    });
+
+    it("sets identity.confidence=unknown for instance path without --app-id", async () => {
+      vi.mocked(psList).mockResolvedValue([
+        {
+          pid: 2000,
+          name: "linked-helper.exe",
+          ppid: 1,
+          cmd: "C:\\path\\resources\\out\\linked-helper.exe --env=PROD",
+        },
+      ] as never);
+      vi.mocked(pidToPorts).mockResolvedValue(new Set() as never);
+
+      const result = await findApp();
+
+      expect(result[0]?.role).toBe("instance");
+      expect(result[0]?.identity?.accountId).toBeNull();
+      expect(result[0]?.identity?.confidence).toBe("unknown");
+    });
+
+    it("excludes helper-child processes with --type= in cmd", async () => {
+      vi.mocked(psList).mockResolvedValue([
+        {
+          pid: 1000,
+          name: "linked-helper.exe",
+          ppid: 1,
+          cmd: "C:\\path\\linked-helper.exe --remote-debugging-port=9222",
+        },
+        {
+          pid: 2000,
+          name: "linked-helper.exe",
+          ppid: 1000,
+          cmd: "C:\\path\\resources\\out\\linked-helper.exe --app-id=347559",
+        },
+        {
+          pid: 3000,
+          name: "linked-helper.exe",
+          ppid: 2000,
+          cmd: "C:\\path\\resources\\out\\linked-helper.exe --type=gpu-process",
+        },
+        {
+          pid: 3001,
+          name: "linked-helper.exe",
+          ppid: 2000,
+          cmd: "C:\\path\\linked-helper.exe --type=utility",
+        },
+      ] as never);
+      vi.mocked(pidToPorts)
+        .mockResolvedValueOnce(new Set([9222]) as never)
+        .mockResolvedValueOnce(new Set([55123]) as never);
+
+      const result = await findApp();
+
+      expect(result).toHaveLength(2);
+      expect(result.some((a) => a.pid === 3000)).toBe(false);
+      expect(result.some((a) => a.pid === 3001)).toBe(false);
+    });
+
+    it("does not add identity to launcher processes even when cmd is present", async () => {
+      vi.mocked(psList).mockResolvedValue([
+        {
+          pid: 1000,
+          name: "linked-helper.exe",
+          ppid: 1,
+          cmd: "C:\\path\\linked-helper.exe --remote-debugging-port=9222",
+        },
+      ] as never);
+      vi.mocked(pidToPorts).mockResolvedValue(new Set([9222]) as never);
+
+      const result = await findApp();
+
+      expect(result[0]?.role).toBe("launcher");
+      expect(result[0]).not.toHaveProperty("identity");
+    });
+  });
 });
 
 describe("resolveAppPort", () => {

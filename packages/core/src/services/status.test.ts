@@ -8,6 +8,7 @@ vi.mock("../cdp/index.js", () => ({
   findApp: vi.fn(),
   resolveAppPort: vi.fn(),
   resolveLauncherPort: vi.fn(),
+  scanRunningInstances: vi.fn().mockResolvedValue([]),
 }));
 
 vi.mock("../db/index.js", () => ({
@@ -138,7 +139,7 @@ describe("checkStatus", () => {
 
     const report = await checkStatus();
 
-    expect(mockedResolveLauncherPort).toHaveBeenCalledWith(undefined, undefined);
+    expect(mockedResolveLauncherPort).toHaveBeenCalledWith(undefined, undefined, 0);
     expect(report.launcher.port).toBe(9222);
   });
 

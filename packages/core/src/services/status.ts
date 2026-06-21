@@ -1,7 +1,14 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 // Copyright (C) 2026 Oleksii PELYKH
 
-import { type DiscoveredApp, discoverInstancePort, findApp, resolveLauncherPort } from "../cdp/index.js";
+import {
+  type DiscoveredApp,
+  type RunningInstance,
+  discoverInstancePort,
+  findApp,
+  resolveLauncherPort,
+  scanRunningInstances,
+} from "../cdp/index.js";
 import { DatabaseClient, discoverAllDatabases } from "../db/index.js";
 import { ProfileRepository } from "../db/repositories/profile.js";
 import { errorMessage } from "../utils/error-message.js";
@@ -15,7 +22,7 @@ export interface LauncherStatus {
   processes?: DiscoveredApp[];
 }
 
-/** Status of a single LinkedHelper account instance. */
+/** Status of a single LinkedHelper account instance (launcher-derived). */
 export interface AccountInstanceStatus {
   accountId: number;
   accountName: string;
@@ -32,7 +39,14 @@ export interface DatabaseStatus {
 /** Aggregated health-check result. */
 export interface StatusReport {
   launcher: LauncherStatus;
+  /** Launcher-derived instance list (requires live launcher CDP). */
   instances: AccountInstanceStatus[];
+  /**
+   * Process-inspection-based instance list — the authoritative
+   * "which accounts are started" source.  Works even when the launcher
+   * CDP is unreachable.  Never contains --type= helper children.
+   */
+  runningInstances: RunningInstance[];
   databases: DatabaseStatus[];
   warnings?: string[];
 }
@@ -46,6 +60,9 @@ export interface StatusReport {
  * When {@link cdpPort} is omitted, the launcher port is auto-discovered
  * via {@link resolveLauncherPort}.  If no launcher is available, the report
  * reflects this and still includes database and process information.
+ *
+ * `runningInstances` is always populated from process inspection (launcher-
+ * independent) and is the authoritative source for which accounts are running.
  *
  * @param cdpPort - The CDP port of the LinkedHelper launcher (auto-discovered if omitted).
  */
@@ -66,14 +83,22 @@ export async function checkStatus(
   const databases: DatabaseStatus[] = [];
   const warnings: string[] = [];
 
-  // 1. Probe launcher
+  // 1. Process-inspection-based running instances (launcher-independent)
+  let runningInstances: RunningInstance[] = [];
+  try {
+    runningInstances = await scanRunningInstances();
+  } catch (error: unknown) {
+    warnings.push(`Failed to scan running instances: ${errorMessage(error)}`);
+  }
+
+  // 2. Probe launcher (best-effort; failures don't block runningInstances)
   if (resolvedPort !== null) {
     const launcherService = new LauncherService(resolvedPort, options);
     try {
       await launcherService.connect();
       launcher.reachable = true;
 
-      // 2. List accounts and discover instance CDP ports
+      // 3. List accounts and discover instance CDP ports
       try {
         const accounts = await launcherService.listAccounts();
         const instancePort = await discoverInstancePort(resolvedPort);
@@ -121,18 +146,18 @@ export async function checkStatus(
             "(list-accounts, start/stop-instance) are unavailable. " +
             "Relaunch LinkedHelper with --remote-debugging-port or use launch-app.",
         );
-      } else {
+      } else if (runningInstances.length === 0) {
         warnings.push(
           `LinkedHelper process(es) detected (PID ${apps.map((a) => String(a.pid)).join(", ")}) ` +
             "but no CDP endpoints are reachable.",
         );
       }
-    } else {
+    } else if (runningInstances.length === 0) {
       warnings.push("LinkedHelper is not running.");
     }
   }
 
-  // 3. Check databases
+  // 4. Check databases
   try {
     const dbMap = discoverAllDatabases();
     for (const [accountId, dbPath] of dbMap) {
@@ -157,6 +182,7 @@ export async function checkStatus(
   return {
     launcher,
     instances,
+    runningInstances,
     databases,
     ...(warnings.length > 0 ? { warnings } : {}),
   };

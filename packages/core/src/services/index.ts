@@ -18,6 +18,10 @@ export {
   type LauncherStatus,
   type StatusReport,
 } from "./status.js";
+export {
+  ensureInstances,
+  type EnsureInstanceResult,
+} from "./ensure-instances.js";
 
 export { CampaignService } from "./campaign.js";
 export { EphemeralCampaignService } from "./ephemeral-campaign.js";

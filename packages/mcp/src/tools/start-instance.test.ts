@@ -72,11 +72,61 @@ describe("registerStartInstance", () => {
     const handler = getHandler("start-instance");
     const result = await handler({ accountId: 42, cdpPort: 9222 });
 
+    // Without pid/verified fields the base text is unchanged
     expect(result).toEqual({
       content: [
         {
           type: "text",
           text: "Instance started for account 42 on CDP port 55123",
+        },
+      ],
+    });
+  });
+
+  it("includes PID and verified flag when outcome carries them", async () => {
+    const { server, getHandler } = createMockServer();
+    registerStartInstance(server);
+
+    mockLauncher();
+    vi.mocked(startInstanceWithRecovery).mockResolvedValue({
+      status: "started",
+      port: 55123,
+      pid: 13004,
+      verified: true,
+    });
+
+    const handler = getHandler("start-instance");
+    const result = await handler({ accountId: 42, cdpPort: 9222 });
+
+    expect(result).toEqual({
+      content: [
+        {
+          type: "text",
+          text: "Instance started for account 42 on CDP port 55123 — PID 13004 — verified",
+        },
+      ],
+    });
+  });
+
+  it("reports NOT verified when verification failed", async () => {
+    const { server, getHandler } = createMockServer();
+    registerStartInstance(server);
+
+    mockLauncher();
+    vi.mocked(startInstanceWithRecovery).mockResolvedValue({
+      status: "started",
+      port: 55123,
+      verified: false,
+    });
+
+    const handler = getHandler("start-instance");
+    const result = await handler({ accountId: 42, cdpPort: 9222 });
+
+    expect(result).toEqual({
+      content: [
+        {
+          type: "text",
+          text: "Instance started for account 42 on CDP port 55123 — NOT verified — duplicate port suspected",
         },
       ],
     });
@@ -200,6 +250,7 @@ describe("registerStartInstance", () => {
     const handler = getHandler("start-instance");
     const result = await handler({ accountId: 42, cdpPort: 9222 });
 
+    // Without pid/verified fields the base text is unchanged
     expect(result).toEqual({
       content: [
         {

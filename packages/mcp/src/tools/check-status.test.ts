@@ -52,6 +52,7 @@ describe("registerCheckStatus", () => {
       databases: [
         { accountId: 1, path: "/path/to/db.db", profileCount: 100 },
       ],
+      runningInstances: [],
     };
 
     mockedCheckStatus.mockResolvedValue(report);
@@ -72,6 +73,7 @@ describe("registerCheckStatus", () => {
       launcher: { reachable: false, port: 9222 },
       instances: [],
       databases: [],
+      runningInstances: [],
     };
 
     mockedCheckStatus.mockResolvedValue(report);
@@ -93,6 +95,7 @@ describe("registerCheckStatus", () => {
       launcher: { reachable: false, port: 4567 },
       instances: [],
       databases: [],
+      runningInstances: [],
     });
 
     const handler = getHandler("check-status");
@@ -129,6 +132,7 @@ describe("registerCheckStatus", () => {
       launcher: { reachable: false, port: 9222 },
       instances: [],
       databases: [],
+      runningInstances: [],
     });
 
     const handler = getHandler("check-status");

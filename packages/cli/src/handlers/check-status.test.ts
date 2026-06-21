@@ -43,6 +43,7 @@ describe("handleCheckStatus", () => {
       databases: [
         { accountId: 1, path: "/path/to/db.db", profileCount: 100 },
       ],
+      runningInstances: [],
     };
 
     mockedCheckStatus.mockResolvedValue(report);
@@ -69,6 +70,7 @@ describe("handleCheckStatus", () => {
       databases: [
         { accountId: 1, path: "/path/to/db.db", profileCount: 42 },
       ],
+      runningInstances: [],
     });
 
     await handleCheckStatus({});
@@ -94,6 +96,7 @@ describe("handleCheckStatus", () => {
       launcher: { reachable: false, port: 9222 },
       instances: [],
       databases: [],
+      runningInstances: [],
     });
 
     await handleCheckStatus({});
@@ -116,6 +119,7 @@ describe("handleCheckStatus", () => {
         { accountId: 1, accountName: "Alice", cdpPort: null },
       ],
       databases: [],
+      runningInstances: [],
     });
 
     await handleCheckStatus({});
@@ -145,6 +149,7 @@ describe("handleCheckStatus", () => {
       launcher: { reachable: false, port: 4567 },
       instances: [],
       databases: [],
+      runningInstances: [],
     });
 
     await handleCheckStatus({ cdpPort: 4567 });

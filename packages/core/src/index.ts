@@ -164,6 +164,8 @@ export {
   withInstanceDatabase,
   NodeIntegrationUnavailableError,
   WrongPortError,
+  ensureInstances,
+  type EnsureInstanceResult,
 } from "./services/index.js";
 
 // Data access
@@ -238,6 +240,14 @@ export {
   type AppRole,
   type DiscoveredApp,
   killInstanceProcesses,
+  scanRunningInstances,
+  scanOrphans,
+  reapOrphans,
+  type IdentitySource,
+  type IdentityConfidence,
+  type InstanceIdentity,
+  type RunningInstance,
+  type OrphanProcess,
 } from "./cdp/index.js";
 
 // Operations (shared business logic for CLI + MCP)

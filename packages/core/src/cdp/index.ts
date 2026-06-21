@@ -16,6 +16,16 @@ export {
   type DiscoveredApp,
 } from "./app-discovery.js";
 export {
+  scanRunningInstances,
+  scanOrphans,
+  reapOrphans,
+  type IdentitySource,
+  type IdentityConfidence,
+  type InstanceIdentity,
+  type RunningInstance,
+  type OrphanProcess,
+} from "./process-inspector.js";
+export {
   CDPConnectionError,
   CDPError,
   CDPEvaluationError,

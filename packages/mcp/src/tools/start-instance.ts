@@ -62,9 +62,21 @@ export function registerStartInstance(server: McpServer): void {
               ? "already running"
               : "started";
 
-          return mcpSuccess(
+          const parts = [
             `Instance ${verb} for account ${String(resolvedId)} on CDP port ${String(outcome.port)}`,
-          );
+          ];
+          if (outcome.pid !== undefined) {
+            parts.push(`PID ${String(outcome.pid)}`);
+          }
+          if (outcome.verified !== undefined) {
+            parts.push(
+              outcome.verified
+                ? "verified"
+                : "NOT verified — duplicate port suspected",
+            );
+          }
+
+          return mcpSuccess(parts.join(" — "));
         } catch (error) {
           return mcpCatchAll(error, "Failed to start instance");
         } finally {

@@ -45,6 +45,9 @@ import { registerCampaignValidateActionSettings } from "./campaign-validate-acti
 import { registerDeleteCollection } from "./delete-collection.js";
 import { registerCheckReplies } from "./check-replies.js";
 import { registerCheckStatus } from "./check-status.js";
+import { registerEnsureInstances } from "./ensure-instances.js";
+import { registerListOrphans } from "./list-orphans.js";
+import { registerReapOrphans } from "./reap-orphans.js";
 import { registerDismissErrors } from "./dismiss-errors.js";
 import { registerDescribeActions } from "./describe-actions.js";
 import { registerDismissFeedPost } from "./dismiss-feed-post.js";
@@ -83,6 +86,9 @@ import { registerUnfollowProfile } from "./unfollow-profile.js";
 import { registerVisitProfile } from "./visit-profile.js";
 
 export {
+  registerEnsureInstances,
+  registerListOrphans,
+  registerReapOrphans,
   registerAddPeopleToCollection,
   registerBuildLinkedInUrl,
   registerCollectPeople,
@@ -164,6 +170,9 @@ export {
 };
 
 export function registerAllTools(server: McpServer): void {
+  registerEnsureInstances(server);
+  registerListOrphans(server);
+  registerReapOrphans(server);
   registerAddPeopleToCollection(server);
   registerCommentOnPost(server);
   registerCampaignAddAction(server);
