@@ -2,7 +2,7 @@
 // Copyright (C) 2026 Oleksii PELYKH
 
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
-import { LauncherService, ensureInstances, resolveLauncherPort } from "@lhremote/core";
+import { LauncherService, ensureInstances, resolveLauncherPort } from "@insoftex/lhremote-core";
 import { z } from "zod";
 import { buildCdpOptions, cdpConnectionSchema, mcpCatchAll, mcpSuccess } from "../helpers.js";
 

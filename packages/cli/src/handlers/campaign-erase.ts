@@ -8,9 +8,9 @@ import {
   InstanceNotRunningError,
   campaignErase,
   type CampaignEraseOutput,
-} from "@lhremote/core";
+} from "@insoftex/lhremote-core";
 
-/** Handle the {@link https://github.com/alexey-pelykh/lhremote#campaigns | campaign-erase} CLI command. */
+/** Handle the {@link https://github.com/insoftex-company/insoftex-lhremote#campaigns | campaign-erase} CLI command. */
 export async function handleCampaignErase(
   campaignId: number,
   options: {

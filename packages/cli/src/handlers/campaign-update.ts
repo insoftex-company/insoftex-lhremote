@@ -6,9 +6,9 @@ import {
   errorMessage,
   campaignUpdate,
   type CampaignUpdateOutput,
-} from "@lhremote/core";
+} from "@insoftex/lhremote-core";
 
-/** Handle the {@link https://github.com/alexey-pelykh/lhremote#campaigns | campaign-update} CLI command. */
+/** Handle the {@link https://github.com/insoftex-company/insoftex-lhremote#campaigns | campaign-update} CLI command. */
 export async function handleCampaignUpdate(
   campaignId: number,
   options: {

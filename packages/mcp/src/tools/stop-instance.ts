@@ -6,10 +6,10 @@ import {
   type Account,
   LauncherService,
   resolveLauncherPort,
-} from "@lhremote/core";
+} from "@insoftex/lhremote-core";
 import { buildCdpOptions, cdpConnectionSchema, mcpCatchAll, mcpError, mcpSuccess } from "../helpers.js";
 
-/** Register the {@link https://github.com/alexey-pelykh/lhremote#stop-instance | stop-instance} MCP tool. */
+/** Register the {@link https://github.com/insoftex-company/insoftex-lhremote#stop-instance | stop-instance} MCP tool. */
 export function registerStopInstance(server: McpServer): void {
   server.tool(
     "stop-instance",

@@ -1,15 +1,15 @@
 # lhremote: LinkedHelper Automation Toolkit
 
-[![CI](https://github.com/alexey-pelykh/lhremote/actions/workflows/ci.yml/badge.svg)](https://github.com/alexey-pelykh/lhremote/actions/workflows/ci.yml)
-[![codecov](https://codecov.io/gh/alexey-pelykh/lhremote/graph/badge.svg)](https://codecov.io/gh/alexey-pelykh/lhremote)
-[![npm version](https://img.shields.io/npm/v/lhremote?logo=npm)](https://www.npmjs.com/package/lhremote)
-[![npm downloads](https://img.shields.io/npm/dm/lhremote?logo=npm)](https://www.npmjs.com/package/lhremote)
-[![GitHub Repo stars](https://img.shields.io/github/stars/alexey-pelykh/lhremote?style=flat&logo=github)](https://github.com/alexey-pelykh/lhremote)
-[![License](https://img.shields.io/github/license/alexey-pelykh/lhremote)](LICENSE)
+[![CI](https://github.com/insoftex-company/insoftex-lhremote/actions/workflows/ci.yml/badge.svg)](https://github.com/insoftex-company/insoftex-lhremote/actions/workflows/ci.yml)
+[![codecov](https://codecov.io/gh/insoftex-company/insoftex-lhremote/graph/badge.svg)](https://codecov.io/gh/insoftex-company/insoftex-lhremote)
+[![npm version](https://img.shields.io/npm/v/@insoftex/lhremote?logo=npm)](https://www.npmjs.com/package/@insoftex/lhremote)
+[![npm downloads](https://img.shields.io/npm/dm/@insoftex/lhremote?logo=npm)](https://www.npmjs.com/package/@insoftex/lhremote)
+[![GitHub Repo stars](https://img.shields.io/github/stars/insoftex-company/insoftex-lhremote?style=flat&logo=github)](https://github.com/insoftex-company/insoftex-lhremote)
+[![License](https://img.shields.io/github/license/insoftex-company/insoftex-lhremote)](LICENSE)
 
 CLI and MCP server for [LinkedHelper](https://linkedhelper.com) automation.
 
-This project is brought to you by [Alexey Pelykh](https://github.com/alexey-pelykh).
+This project is brought to you by [Insoftex](https://github.com/insoftex-company).
 
 ## What It Does
 
@@ -31,7 +31,7 @@ lhremote lets AI assistants (Claude, etc.) control LinkedHelper through the [Mod
 ## Quick Start
 
 ```sh
-npm install -g lhremote        # or: npx lhremote --help
+npm install -g @insoftex/lhremote        # or: npx @insoftex/lhremote --help
 lhremote launch-app            # start LinkedHelper with remote debugging
 lhremote list-accounts         # find your LinkedIn account ID
 lhremote start-instance        # start an instance (auto-selects single account)
@@ -53,13 +53,13 @@ Agent workflow guidance lives in the [MCP Agent Capabilities guide](docs/mcp-age
 ## Installation
 
 ```sh
-npm install -g lhremote
+npm install -g @insoftex/lhremote
 ```
 
 Or run directly with npx:
 
 ```sh
-npx lhremote --help
+npx @insoftex/lhremote --help
 ```
 
 ## Usage with Claude Desktop
@@ -71,7 +71,7 @@ Add to your Claude Desktop configuration (`claude_desktop_config.json`):
     "mcpServers": {
         "lhremote": {
             "command": "npx",
-            "args": ["lhremote", "mcp"]
+            "args": ["@insoftex/lhremote", "mcp"]
         }
     }
 }

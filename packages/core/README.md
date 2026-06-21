@@ -1,13 +1,13 @@
-# @lhremote/core
+# @insoftex/lhremote-core
 
-Core library for [lhremote](https://github.com/alexey-pelykh/lhremote) — LinkedHelper automation toolkit.
+Core library for [lhremote](https://github.com/insoftex-company/insoftex-lhremote) — LinkedHelper automation toolkit.
 
-This package provides services, data access, and CDP communication for controlling LinkedHelper. It is the foundation that both [`@lhremote/mcp`](../mcp) and [`@lhremote/cli`](../cli) build on.
+This package provides services, data access, and CDP communication for controlling LinkedHelper. It is the foundation that both [`@insoftex/lhremote-mcp`](../mcp) and [`@insoftex/lhremote-cli`](../cli) build on.
 
 ## Installation
 
 ```bash
-npm install @lhremote/core
+npm install @insoftex/lhremote-core
 ```
 
 ## Key Exports
@@ -154,7 +154,7 @@ import {
   resolveAccount,
   CampaignService,
   withInstanceDatabase,
-} from "@lhremote/core";
+} from "@insoftex/lhremote-core";
 
 // Detect LinkedHelper
 const apps = await findApp();
@@ -177,4 +177,4 @@ await withInstanceDatabase(cdpPort, accountId, async ({ instance, db }) => {
 
 ## License
 
-[AGPL-3.0-only](https://github.com/alexey-pelykh/lhremote/blob/main/LICENSE)
+[AGPL-3.0-only](https://github.com/insoftex-company/insoftex-lhremote/blob/main/LICENSE)

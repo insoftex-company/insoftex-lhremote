@@ -1,9 +1,9 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 // Copyright (C) 2026 Oleksii PELYKH
 
-import { campaignList, errorMessage, InstanceNotRunningError } from "@lhremote/core";
+import { campaignList, errorMessage, InstanceNotRunningError } from "@insoftex/lhremote-core";
 
-/** Handle the {@link https://github.com/alexey-pelykh/lhremote#campaigns | campaign-list} CLI command. */
+/** Handle the {@link https://github.com/insoftex-company/insoftex-lhremote#campaigns | campaign-list} CLI command. */
 export async function handleCampaignList(options: {
   includeArchived?: boolean;
   cdpPort?: number;

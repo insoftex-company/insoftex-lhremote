@@ -6,7 +6,7 @@ import {
   ensureInstances,
   errorMessage,
   resolveLauncherPort,
-} from "@lhremote/core";
+} from "@insoftex/lhremote-core";
 
 /** Handle the ensure-instances CLI command. */
 export async function handleEnsureInstances(

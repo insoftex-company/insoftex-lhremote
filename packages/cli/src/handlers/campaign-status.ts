@@ -8,9 +8,9 @@ import {
   InstanceNotRunningError,
   campaignStatus,
   type CampaignStatusOutput,
-} from "@lhremote/core";
+} from "@insoftex/lhremote-core";
 
-/** Handle the {@link https://github.com/alexey-pelykh/lhremote#campaigns | campaign-status} CLI command. */
+/** Handle the {@link https://github.com/insoftex-company/insoftex-lhremote#campaigns | campaign-status} CLI command. */
 export async function handleCampaignStatus(
   campaignId: number,
   options: {

@@ -1,9 +1,9 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 // Copyright (C) 2026 Oleksii PELYKH
 
-import { AppService, errorMessage, findApp } from "@lhremote/core";
+import { AppService, errorMessage, findApp } from "@insoftex/lhremote-core";
 
-/** Handle the {@link https://github.com/alexey-pelykh/lhremote#app-management | launch-app} CLI command. */
+/** Handle the {@link https://github.com/insoftex-company/insoftex-lhremote#app-management | launch-app} CLI command. */
 export async function handleLaunchApp(options?: { force?: boolean; verbose?: boolean; visible?: boolean }): Promise<void> {
   const onLog = options?.verbose
     ? (message: string) => { process.stderr.write(`[launch-app] ${message}\n`); }

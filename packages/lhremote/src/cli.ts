@@ -4,8 +4,8 @@
 
 import { createRequire } from "node:module";
 
-import { createProgram } from "@lhremote/cli";
-import { runStdioServer } from "@lhremote/mcp/stdio";
+import { createProgram } from "@insoftex/lhremote-cli";
+import { runStdioServer } from "@insoftex/lhremote-mcp/stdio";
 
 const require = createRequire(import.meta.url);
 const { version } = require("../package.json") as { version: string };

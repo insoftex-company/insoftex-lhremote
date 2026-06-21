@@ -8,11 +8,11 @@ import {
   NoNextActionError,
   campaignMoveNext,
   type CampaignMoveNextOutput,
-} from "@lhremote/core";
+} from "@insoftex/lhremote-core";
 
 import { resolvePersonIds } from "./person-ids.js";
 
-/** Handle the {@link https://github.com/alexey-pelykh/lhremote#campaign-actions | campaign-move-next} CLI command. */
+/** Handle the {@link https://github.com/insoftex-company/insoftex-lhremote#campaign-actions | campaign-move-next} CLI command. */
 export async function handleCampaignMoveNext(
   campaignId: number,
   actionId: number,

@@ -8,11 +8,11 @@ import {
   InstanceNotRunningError,
   campaignRemovePeople,
   type CampaignRemovePeopleOutput,
-} from "@lhremote/core";
+} from "@insoftex/lhremote-core";
 
 import { resolvePersonIds } from "./person-ids.js";
 
-/** Handle the {@link https://github.com/alexey-pelykh/lhremote#campaign-targeting | campaign-remove-people} CLI command. */
+/** Handle the {@link https://github.com/insoftex-company/insoftex-lhremote#campaign-targeting | campaign-remove-people} CLI command. */
 export async function handleCampaignRemovePeople(
   campaignId: number,
   options: {

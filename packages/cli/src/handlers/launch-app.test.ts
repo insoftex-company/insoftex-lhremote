@@ -3,15 +3,15 @@
 
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-vi.mock("@lhremote/core", async (importOriginal) => {
-  const actual = await importOriginal<typeof import("@lhremote/core")>();
+vi.mock("@insoftex/lhremote-core", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@insoftex/lhremote-core")>();
   return {
     ...actual,
     AppService: vi.fn(),
   };
 });
 
-import { AppNotFoundError, AppService } from "@lhremote/core";
+import { AppNotFoundError, AppService } from "@insoftex/lhremote-core";
 
 import { handleLaunchApp } from "./launch-app.js";
 

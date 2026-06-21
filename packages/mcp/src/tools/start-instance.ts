@@ -7,10 +7,10 @@ import {
   LauncherService,
   resolveLauncherPort,
   startInstanceWithRecovery,
-} from "@lhremote/core";
+} from "@insoftex/lhremote-core";
 import { buildCdpOptions, cdpConnectionSchema, mcpCatchAll, mcpError, mcpSuccess } from "../helpers.js";
 
-/** Register the {@link https://github.com/alexey-pelykh/lhremote#start-instance | start-instance} MCP tool. */
+/** Register the {@link https://github.com/insoftex-company/insoftex-lhremote#start-instance | start-instance} MCP tool. */
 export function registerStartInstance(server: McpServer): void {
   server.tool(
     "start-instance",

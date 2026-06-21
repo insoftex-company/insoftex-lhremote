@@ -2,7 +2,7 @@
 // Copyright (C) 2026 Oleksii PELYKH
 
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
-import { scanOrphans, scanRunningInstances } from "@lhremote/core";
+import { scanOrphans, scanRunningInstances } from "@insoftex/lhremote-core";
 import { mcpCatchAll, mcpSuccess } from "../helpers.js";
 
 /** Register the list-orphans MCP tool. */

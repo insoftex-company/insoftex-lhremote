@@ -58,7 +58,7 @@ describe("createServer", () => {
 
     const info = c.getServerVersion();
     expect(info).toEqual(
-      expect.objectContaining({ name: "@lhremote/mcp", version }),
+      expect.objectContaining({ name: "@insoftex/lhremote-mcp", version }),
     );
   });
 

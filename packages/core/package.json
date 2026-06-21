@@ -1,5 +1,5 @@
 {
-  "name": "@lhremote/core",
+  "name": "@insoftex/lhremote-core",
   "version": "0.3.2",
   "description": "Core library for LinkedHelper automation",
   "type": "module",
@@ -7,12 +7,12 @@
     "node": ">=24"
   },
   "license": "AGPL-3.0-only",
-  "author": "Alexey Pelykh (https://github.com/alexey-pelykh)",
-  "homepage": "https://github.com/alexey-pelykh/lhremote/tree/main/packages/core",
-  "bugs": "https://github.com/alexey-pelykh/lhremote/issues",
+  "author": "Insoftex (https://github.com/insoftex-company)",
+  "homepage": "https://github.com/insoftex-company/insoftex-lhremote/tree/main/packages/core",
+  "bugs": "https://github.com/insoftex-company/insoftex-lhremote/issues",
   "repository": {
     "type": "git",
-    "url": "https://github.com/alexey-pelykh/lhremote.git",
+    "url": "https://github.com/insoftex-company/insoftex-lhremote.git",
     "directory": "packages/core"
   },
   "exports": {

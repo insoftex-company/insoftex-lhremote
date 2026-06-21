@@ -1,16 +1,16 @@
 {
   "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
-  "name": "io.github.alexey-pelykh/lhremote",
+  "name": "io.github.insoftex-company/insoftex-lhremote",
   "description": "CLI and MCP server for LinkedHelper — AI-driven LinkedIn outreach automation",
   "repository": {
-    "url": "https://github.com/alexey-pelykh/lhremote",
+    "url": "https://github.com/insoftex-company/insoftex-lhremote",
     "source": "github"
   },
   "version": "0.3.2",
   "packages": [
     {
       "registryType": "npm",
-      "identifier": "lhremote",
+      "identifier": "@insoftex/lhremote",
       "version": "0.3.2",
       "transport": {
         "type": "stdio"

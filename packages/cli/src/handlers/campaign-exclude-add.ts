@@ -8,11 +8,11 @@ import {
   ExcludeListNotFoundError,
   campaignExcludeAdd,
   type CampaignExcludeAddOutput,
-} from "@lhremote/core";
+} from "@insoftex/lhremote-core";
 
 import { resolvePersonIds } from "./person-ids.js";
 
-/** Handle the {@link https://github.com/alexey-pelykh/lhremote#campaign-targeting | campaign-exclude-add} CLI command. */
+/** Handle the {@link https://github.com/insoftex-company/insoftex-lhremote#campaign-targeting | campaign-exclude-add} CLI command. */
 export async function handleCampaignExcludeAdd(
   campaignId: number,
   options: {

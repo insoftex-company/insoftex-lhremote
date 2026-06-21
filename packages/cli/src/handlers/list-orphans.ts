@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 // Copyright (C) 2026 Oleksii PELYKH
 
-import { errorMessage, scanOrphans, scanRunningInstances } from "@lhremote/core";
+import { errorMessage, scanOrphans, scanRunningInstances } from "@insoftex/lhremote-core";
 
 /** Handle the list-orphans CLI command. */
 export async function handleListOrphans(options: {

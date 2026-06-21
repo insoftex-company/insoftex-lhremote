@@ -1,9 +1,9 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 // Copyright (C) 2026 Oleksii PELYKH
 
-import { buildCdpOptions, checkStatus, errorMessage } from "@lhremote/core";
+import { buildCdpOptions, checkStatus, errorMessage } from "@insoftex/lhremote-core";
 
-/** Handle the {@link https://github.com/alexey-pelykh/lhremote#account--instance | check-status} CLI command. */
+/** Handle the {@link https://github.com/insoftex-company/insoftex-lhremote#account--instance | check-status} CLI command. */
 export async function handleCheckStatus(options: {
   cdpPort?: number;
   cdpHost?: string;

@@ -3,15 +3,15 @@
 
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-vi.mock("@lhremote/core", async (importOriginal) => {
-  const actual = await importOriginal<typeof import("@lhremote/core")>();
+vi.mock("@insoftex/lhremote-core", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@insoftex/lhremote-core")>();
   return {
     ...actual,
     campaignCloneAction: vi.fn(),
   };
 });
 
-import { ActionNotFoundError, campaignCloneAction, type CampaignAction } from "@lhremote/core";
+import { ActionNotFoundError, campaignCloneAction, type CampaignAction } from "@insoftex/lhremote-core";
 
 import { registerCampaignCloneAction } from "./campaign-clone-action.js";
 import { createMockServer } from "./testing/mock-server.js";

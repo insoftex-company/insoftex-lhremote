@@ -7,9 +7,9 @@ import {
   errorMessage,
   campaignStatistics,
   type CampaignStatisticsOutput,
-} from "@lhremote/core";
+} from "@insoftex/lhremote-core";
 
-/** Handle the {@link https://github.com/alexey-pelykh/lhremote#campaigns | campaign-statistics} CLI command. */
+/** Handle the {@link https://github.com/insoftex-company/insoftex-lhremote#campaigns | campaign-statistics} CLI command. */
 export async function handleCampaignStatistics(
   campaignId: number,
   options: {

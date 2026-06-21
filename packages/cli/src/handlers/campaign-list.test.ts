@@ -3,15 +3,15 @@
 
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-vi.mock("@lhremote/core", async (importOriginal) => {
-  const actual = await importOriginal<typeof import("@lhremote/core")>();
+vi.mock("@insoftex/lhremote-core", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@insoftex/lhremote-core")>();
   return {
     ...actual,
     campaignList: vi.fn(),
   };
 });
 
-import { type CampaignListOutput, type CampaignSummary, campaignList, InstanceNotRunningError } from "@lhremote/core";
+import { type CampaignListOutput, type CampaignSummary, campaignList, InstanceNotRunningError } from "@insoftex/lhremote-core";
 
 import { handleCampaignList } from "./campaign-list.js";
 import { getStdout } from "./testing/mock-helpers.js";

@@ -3,8 +3,8 @@
 
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-vi.mock("@lhremote/core", async (importOriginal) => {
-  const actual = await importOriginal<typeof import("@lhremote/core")>();
+vi.mock("@insoftex/lhremote-core", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@insoftex/lhremote-core")>();
   return {
     ...actual,
     AppService: vi.fn(),
@@ -12,7 +12,7 @@ vi.mock("@lhremote/core", async (importOriginal) => {
   };
 });
 
-import { AppService, resolveLauncherPort } from "@lhremote/core";
+import { AppService, resolveLauncherPort } from "@insoftex/lhremote-core";
 
 import { handleQuitApp } from "./quit-app.js";
 

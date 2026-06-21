@@ -1,9 +1,9 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 // Copyright (C) 2026 Oleksii PELYKH
 
-import { errorMessage, findApp } from "@lhremote/core";
+import { errorMessage, findApp } from "@insoftex/lhremote-core";
 
-/** Handle the {@link https://github.com/alexey-pelykh/lhremote#app-management | find-app} CLI command. */
+/** Handle the {@link https://github.com/insoftex-company/insoftex-lhremote#app-management | find-app} CLI command. */
 export async function handleFindApp(options: {
   json?: boolean;
   verbose?: boolean;

@@ -33,7 +33,7 @@ All notable changes to this project will be documented in this file.
 - Smart port resolution with direct instance connection — auto-discovers instance CDP port without manual configuration
 - Dialog dismissal on LauncherService (`dismissInstanceDialog`, `stopInstanceWithDialogDismissal`)
 - `connectUiOnly()` on InstanceService for partial-start resilience
-- `CDPClient` export from `@lhremote/core`
+- `CDPClient` export from `@insoftex/lhremote-core`
 
 ### Changed
 

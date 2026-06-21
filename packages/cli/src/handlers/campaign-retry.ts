@@ -6,11 +6,11 @@ import {
   errorMessage,
   campaignRetry,
   type CampaignRetryOutput,
-} from "@lhremote/core";
+} from "@insoftex/lhremote-core";
 
 import { resolvePersonIds } from "./person-ids.js";
 
-/** Handle the {@link https://github.com/alexey-pelykh/lhremote#campaigns | campaign-retry} CLI command. */
+/** Handle the {@link https://github.com/insoftex-company/insoftex-lhremote#campaigns | campaign-retry} CLI command. */
 export async function handleCampaignRetry(
   campaignId: number,
   options: {

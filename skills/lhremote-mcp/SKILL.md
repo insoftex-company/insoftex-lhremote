@@ -122,7 +122,7 @@ Three methods for adding people to a campaign:
 For `import-people-from-urls`: This is idempotent — re-importing the same person is a no-op. For bulk imports (1000+ URLs), use the CLI instead:
 
 ```bash
-npx lhremote import-people-from-urls <campaignId> --urls-file <path> --cdp-port <port> [--account-id <id>]
+lhremote import-people-from-urls <campaignId> --urls-file <path> --cdp-port <port> [--account-id <id>]
 ```
 
 URL file: one LinkedIn profile URL per line. Get `cdp-port` from `find-app` output.

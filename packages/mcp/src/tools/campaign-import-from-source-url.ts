@@ -7,7 +7,7 @@ import {
   CollectionError,
   collectPeople,
   withLoggedInStateRetryAtPort,
-} from "@lhremote/core";
+} from "@insoftex/lhremote-core";
 import { z } from "zod";
 import { cdpConnectionSchema, mcpCatchAll, mcpError, mcpSuccess } from "../helpers.js";
 

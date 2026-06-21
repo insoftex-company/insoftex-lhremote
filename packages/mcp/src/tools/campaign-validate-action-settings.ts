@@ -2,7 +2,7 @@
 // Copyright (C) 2026 Oleksii PELYKH
 
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
-import { getActionTypeInfo, validateActionSettings } from "@lhremote/core";
+import { getActionTypeInfo, validateActionSettings } from "@insoftex/lhremote-core";
 import { z } from "zod";
 import { mcpError, mcpSuccess } from "../helpers.js";
 

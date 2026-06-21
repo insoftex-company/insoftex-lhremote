@@ -2,7 +2,7 @@
 // Copyright (C) 2026 Oleksii PELYKH
 
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
-import { reapOrphans, scanOrphans, scanRunningInstances } from "@lhremote/core";
+import { reapOrphans, scanOrphans, scanRunningInstances } from "@insoftex/lhremote-core";
 import { z } from "zod";
 import { mcpCatchAll, mcpError, mcpSuccess } from "../helpers.js";
 

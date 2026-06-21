@@ -2,7 +2,7 @@
 // Copyright (C) 2026 Oleksii PELYKH
 
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
-import { ActionNotFoundError, campaignCloneAction } from "@lhremote/core";
+import { ActionNotFoundError, campaignCloneAction } from "@insoftex/lhremote-core";
 import { z } from "zod";
 import { cdpConnectionSchema, mcpCatchAll, mcpError, mcpSuccess } from "../helpers.js";
 

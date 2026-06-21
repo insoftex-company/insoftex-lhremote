@@ -7,9 +7,9 @@ import {
   collectPeople,
   errorMessage,
   withLoggedInStateRetryAtPort,
-} from "@lhremote/core";
+} from "@insoftex/lhremote-core";
 
-/** Handle the {@link https://github.com/alexey-pelykh/lhremote#collect-people | collect-people} CLI command. */
+/** Handle the {@link https://github.com/insoftex-company/insoftex-lhremote#collect-people | collect-people} CLI command. */
 export async function handleCollectPeople(
   campaignId: number,
   sourceUrl: string,

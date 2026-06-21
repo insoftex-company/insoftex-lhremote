@@ -13,9 +13,9 @@ import {
   parseCampaignYaml,
   campaignCreate,
   type CampaignCreateOutput,
-} from "@lhremote/core";
+} from "@insoftex/lhremote-core";
 
-/** Handle the {@link https://github.com/alexey-pelykh/lhremote#campaigns | campaign-create} CLI command. */
+/** Handle the {@link https://github.com/insoftex-company/insoftex-lhremote#campaigns | campaign-create} CLI command. */
 export async function handleCampaignCreate(options: {
   file?: string;
   yaml?: string;

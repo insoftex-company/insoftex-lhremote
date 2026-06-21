@@ -2,11 +2,11 @@
 // Copyright (C) 2026 Oleksii PELYKH
 
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
-import { LauncherService, resolveLauncherPort } from "@lhremote/core";
+import { LauncherService, resolveLauncherPort } from "@insoftex/lhremote-core";
 import { z } from "zod";
 import { buildCdpOptions, cdpConnectionSchema, mcpCatchAll, mcpSuccess } from "../helpers.js";
 
-/** Register the {@link https://github.com/alexey-pelykh/lhremote#list-accounts | list-accounts} MCP tool. */
+/** Register the {@link https://github.com/insoftex-company/insoftex-lhremote#list-accounts | list-accounts} MCP tool. */
 export function registerListAccounts(server: McpServer): void {
   server.tool(
     "list-accounts",

@@ -10,7 +10,7 @@ import {
   InstanceNotRunningError,
   importPeopleFromUrls,
   type ImportPeopleFromUrlsOutput,
-} from "@lhremote/core";
+} from "@insoftex/lhremote-core";
 
 function parseUrls(raw: string): string[] {
   return raw
@@ -27,7 +27,7 @@ function readUrlsFile(filePath: string): string[] {
     .filter((s) => s.length > 0);
 }
 
-/** Handle the {@link https://github.com/alexey-pelykh/lhremote#campaign-targeting | import-people-from-urls} CLI command. */
+/** Handle the {@link https://github.com/insoftex-company/insoftex-lhremote#campaign-targeting | import-people-from-urls} CLI command. */
 export async function handleImportPeopleFromUrls(
   campaignId: number,
   options: {

@@ -8,11 +8,11 @@ lhremote is a pnpm monorepo with three main packages:
 
 | Package | Responsibility |
 |---------|----------------|
-| `@lhremote/core` | CDP client, process discovery, services, database access, operations, shared errors |
-| `@lhremote/cli` | Commander-based CLI adapter over core operations |
-| `@lhremote/mcp` | Model Context Protocol adapter over core operations |
+| `@insoftex/lhremote-core` | CDP client, process discovery, services, database access, operations, shared errors |
+| `@insoftex/lhremote-cli` | Commander-based CLI adapter over core operations |
+| `@insoftex/lhremote-mcp` | Model Context Protocol adapter over core operations |
 
-Core behavior belongs in `@lhremote/core`. CLI and MCP packages should stay thin: parse input, call core, format output, and map errors to user-facing messages.
+Core behavior belongs in `@insoftex/lhremote-core`. CLI and MCP packages should stay thin: parse input, call core, format output, and map errors to user-facing messages.
 
 ## App Lifecycle Requirements
 
@@ -73,10 +73,10 @@ Use the three-tier testing strategy described in `docs/adr/004-three-tier-testin
 For app lifecycle changes, run at minimum:
 
 ```sh
-pnpm --filter @lhremote/core exec vitest run src/services/app.test.ts
-pnpm --filter @lhremote/core build
-pnpm --filter @lhremote/cli exec vitest run src/handlers/launch-app.test.ts src/program.test.ts
-pnpm --filter @lhremote/cli build
+pnpm --filter @insoftex/lhremote-core exec vitest run src/services/app.test.ts
+pnpm --filter @insoftex/lhremote-core build
+pnpm --filter @insoftex/lhremote-cli exec vitest run src/handlers/launch-app.test.ts src/program.test.ts
+pnpm --filter @insoftex/lhremote-cli build
 ```
 
 For Windows visibility changes, also perform a local smoke test with a real LinkedHelper installation:

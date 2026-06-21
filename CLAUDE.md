@@ -55,9 +55,9 @@ Do **not** dismiss or ignore Copilot feedback. Every comment must be explicitly 
 - Test helper `packages/core/src/cdp/testing/launch-chromium.ts` manages Chromium lifecycle.
 - Chromium is installed in CI via `npx playwright-core install chromium --with-deps`.
 - E2E tests live in `packages/e2e/src/` and are **not** run in CI. Always run `pnpm test:e2e` locally before submitting PRs that add or modify E2E tests.
-- Run a single E2E file: `pnpm --filter @lhremote/e2e test:e2e:file <pattern>` (e.g., `list-accounts`). Do **not** use `--` before the pattern — pnpm forwards it literally and vitest ignores args after `--` for file filtering.
-- E2E tests must assert preconditions explicitly — never silently skip via `if (accounts.length > 0)`. Use `resolveAccountId(port)` from `@lhremote/core/testing` which throws if no accounts exist.
-- Shared E2E helpers (`resolveAccountId`, `forceStopInstance`, `assertDefined`, `getE2EPersonId`) are exported from `@lhremote/core/testing` — do not duplicate them locally in test files.
+- Run a single E2E file: `pnpm --filter @insoftex/lhremote-e2e test:e2e:file <pattern>` (e.g., `list-accounts`). Do **not** use `--` before the pattern — pnpm forwards it literally and vitest ignores args after `--` for file filtering.
+- E2E tests must assert preconditions explicitly — never silently skip via `if (accounts.length > 0)`. Use `resolveAccountId(port)` from `@insoftex/lhremote-core/testing` which throws if no accounts exist.
+- Shared E2E helpers (`resolveAccountId`, `forceStopInstance`, `assertDefined`, `getE2EPersonId`) are exported from `@insoftex/lhremote-core/testing` — do not duplicate them locally in test files.
 - `navigateToProfile` and `waitForPostLoad` can capture timeout diagnostics (URL, `document.title`, DOM probes, full-page screenshot) into a per-invocation `${os.tmpdir()}/lhremote-diagnostics-XXXXXX/` directory (created via `mkdtemp` for TOCTOU-safe atomic creation — see ADR-007 § 2026-05-05 Amendment). Trigger condition differs per helper: `navigateToProfile` captures on `CDPTimeoutError` from its underlying `waitForElement`; `waitForPostLoad` captures when its own polling deadline expires (throws a plain `Error("Timed out waiting for post detail to appear in the DOM")`). Activation in both cases is gated on `LHREMOTE_CAPTURE_DIAGNOSTICS=1`; E2E runs set it via `vitest.e2e.config.ts`, CLI/MCP are default-off. The trailing `console.warn` line emitted by the helper reports the actual artifact path. Inspect these artifacts before changing profile or post-detail selectors.
 
 ## Infrastructure
@@ -101,7 +101,7 @@ Architecture Decision Records live in `docs/adr/` and explain *why* the codebase
 
 ## Task Tracking
 
-- **Issues**: https://github.com/alexey-pelykh/lhremote/issues
+- **Issues**: https://github.com/insoftex-company/insoftex-lhremote/issues
 - **Milestones**: used for grouping related issues into campaigns/phases
 - **Labels**: default GitHub set (bug, enhancement, documentation, etc.)
 - No GitHub Projects

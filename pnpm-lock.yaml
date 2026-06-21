@@ -104,7 +104,7 @@ importers:
 
   packages/cli:
     dependencies:
-      '@lhremote/core':
+      '@insoftex/lhremote-core':
         specifier: workspace:^
         version: link:../core
       commander:
@@ -163,13 +163,13 @@ importers:
 
   packages/e2e:
     dependencies:
-      '@lhremote/cli':
+      '@insoftex/lhremote-cli':
         specifier: workspace:^
         version: link:../cli
-      '@lhremote/core':
+      '@insoftex/lhremote-core':
         specifier: workspace:^
         version: link:../core
-      '@lhremote/mcp':
+      '@insoftex/lhremote-mcp':
         specifier: workspace:^
         version: link:../mcp
       yaml:
@@ -191,10 +191,10 @@ importers:
 
   packages/lhremote:
     dependencies:
-      '@lhremote/cli':
+      '@insoftex/lhremote-cli':
         specifier: workspace:^
         version: link:../cli
-      '@lhremote/mcp':
+      '@insoftex/lhremote-mcp':
         specifier: workspace:^
         version: link:../mcp
     devDependencies:
@@ -213,7 +213,7 @@ importers:
 
   packages/mcp:
     dependencies:
-      '@lhremote/core':
+      '@insoftex/lhremote-core':
         specifier: workspace:^
         version: link:../core
       '@modelcontextprotocol/sdk':

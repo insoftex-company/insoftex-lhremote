@@ -3,8 +3,8 @@
 
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-vi.mock("@lhremote/core", async (importOriginal) => {
-  const actual = await importOriginal<typeof import("@lhremote/core")>();
+vi.mock("@insoftex/lhremote-core", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@insoftex/lhremote-core")>();
   return {
     ...actual,
     scanRunningInstances: vi.fn(),
@@ -12,7 +12,7 @@ vi.mock("@lhremote/core", async (importOriginal) => {
   };
 });
 
-import { type OrphanProcess, type RunningInstance, scanOrphans, scanRunningInstances } from "@lhremote/core";
+import { type OrphanProcess, type RunningInstance, scanOrphans, scanRunningInstances } from "@insoftex/lhremote-core";
 import { registerListOrphans } from "./list-orphans.js";
 import { createMockServer } from "./testing/mock-server.js";
 

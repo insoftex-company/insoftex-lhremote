@@ -1,5 +1,5 @@
 {
-  "name": "@lhremote/mcp",
+  "name": "@insoftex/lhremote-mcp",
   "version": "0.3.2",
   "description": "MCP server for LinkedHelper automation",
   "type": "module",
@@ -7,12 +7,12 @@
     "node": ">=24"
   },
   "license": "AGPL-3.0-only",
-  "author": "Alexey Pelykh (https://github.com/alexey-pelykh)",
-  "homepage": "https://github.com/alexey-pelykh/lhremote/tree/main/packages/mcp",
-  "bugs": "https://github.com/alexey-pelykh/lhremote/issues",
+  "author": "Insoftex (https://github.com/insoftex-company)",
+  "homepage": "https://github.com/insoftex-company/insoftex-lhremote/tree/main/packages/mcp",
+  "bugs": "https://github.com/insoftex-company/insoftex-lhremote/issues",
   "repository": {
     "type": "git",
-    "url": "https://github.com/alexey-pelykh/lhremote.git",
+    "url": "https://github.com/insoftex-company/insoftex-lhremote.git",
     "directory": "packages/mcp"
   },
   "exports": {
@@ -52,7 +52,7 @@
     "dev": "tsc --watch"
   },
   "dependencies": {
-    "@lhremote/core": "workspace:^",
+    "@insoftex/lhremote-core": "workspace:^",
     "@modelcontextprotocol/sdk": "catalog:",
     "zod": "catalog:"
   },
