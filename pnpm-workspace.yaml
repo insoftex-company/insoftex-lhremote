@@ -1,6 +1,9 @@
 packages:
   - "packages/*"
 
+allowBuilds:
+  esbuild: set this to true or false
+
 catalog:
   typescript: "^5.9.3"
   "@types/node": "^25"
