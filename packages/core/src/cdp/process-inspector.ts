@@ -119,7 +119,10 @@ function findFlagStart(cmdline: string, flag: string): number {
   while (true) {
     const pos = cmdline.indexOf(flag, idx);
     if (pos === -1) return -1;
-    if (pos === 0 || /\s/.test(cmdline[pos - 1] ?? "")) return pos;
+    // Accept whitespace or `"` before the flag: Windows WMI CommandLine wraps
+    // args containing special characters in outer double-quotes, so the flag
+    // is preceded by `"` rather than a space (e.g. `"--user-li={...}"`).
+    if (pos === 0 || /[\s"]/.test(cmdline[pos - 1] ?? "")) return pos;
     idx = pos + 1;
   }
 }
@@ -141,7 +144,11 @@ function extractBalancedJson(str: string, startIdx: number): string | null {
       escapeNext = false;
       continue;
     }
-    if (ch === "\\" && inString) {
+    // Treat backslash as an escape regardless of string state. Windows/Electron
+    // command lines store --user-li JSON with backslash-escaped quotes (\"), so
+    // the quote delimiters themselves are escaped; an always-on escape rule is
+    // required to keep brace matching balanced for that format.
+    if (ch === "\\") {
       escapeNext = true;
       continue;
     }
@@ -205,7 +212,10 @@ export function parseIdentityFromCmdline(cmdline: string): InstanceIdentity {
       const jsonStr = extractBalancedJson(cmdline, jsonStart);
       if (jsonStr) {
         try {
-          const parsed: unknown = JSON.parse(jsonStr);
+          // Windows/Electron store --user-li JSON with backslash-escaped
+          // quotes (e.g. {\"id\":...}); unescape \" and \\ before parsing.
+          const unescaped = jsonStr.replace(/\\(["\\])/g, "$1");
+          const parsed: unknown = JSON.parse(unescaped);
           if (parsed !== null && typeof parsed === "object") {
             const obj = parsed as Record<string, unknown>;
             // Allowlist: id, fullName, email only (avatar not exposed in output)

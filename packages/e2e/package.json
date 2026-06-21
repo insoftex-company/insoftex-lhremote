@@ -1,6 +1,6 @@
 {
   "name": "@lhremote/e2e",
-  "version": "0.1.0",
+  "version": "0.3.2",
   "private": true,
   "description": "End-to-end tests for LinkedHelper automation",
   "type": "module",

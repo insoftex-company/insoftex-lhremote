@@ -1,6 +1,6 @@
 {
   "name": "lhremote",
-  "version": "0.3.1",
+  "version": "0.3.2",
   "description": "LinkedHelper automation toolkit — CLI & MCP server",
   "type": "module",
   "engines": {

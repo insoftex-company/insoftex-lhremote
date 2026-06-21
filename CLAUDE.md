@@ -62,7 +62,7 @@ Do **not** dismiss or ignore Copilot feedback. Every comment must be explicitly 
 
 ## Infrastructure
 
-- **Monorepo**: pnpm workspace with 4 packages: `core`, `mcp`, `cli`, `lhremote`
+- **Monorepo**: pnpm workspace with 5 packages: `core`, `mcp`, `cli`, `lhremote`, `e2e`
 - **Toolchain**: pnpm 9.15.4, Node 24, Turbo (cached via `.turbo/`)
 - **CI**: GitHub Actions (`ci.yml`) — `build`, `lint`, `test` on ubuntu/macos/windows matrix
   - GH Pages docs (README + rate-limiting guide) built via pandoc on every CI run, published on push to main
@@ -71,9 +71,19 @@ Do **not** dismiss or ignore Copilot feedback. Every comment must be explicitly 
 - **Release**: GitHub Actions (`release.yml`) — triggered by GitHub Release publish
   - Validates (build+lint+test), stamps version from tag, publishes to npm (OIDC trusted publishing)
   - Concurrency group `release`, never cancels in-progress
-- **claude-plugin**: `.claude-plugin/plugin.json`, `.claude-plugin/marketplace.json`, and `server.json` versions must match the npm package version (set by the release tag) and be bumped together on each release
-  - The release workflow does **not** auto-bump these files — after each release, open a PR to update their `"version"` fields to match the new tag
-  - All three files must always show the same version string
+- **Versioning**: every file that carries a version must match the release tag. All must change together on every release — no file may lag behind:
+  | File | Field(s) |
+  |------|----------|
+  | `package.json` | `version` |
+  | `packages/core/package.json` | `version` |
+  | `packages/cli/package.json` | `version` |
+  | `packages/mcp/package.json` | `version` |
+  | `packages/lhremote/package.json` | `version` |
+  | `packages/e2e/package.json` | `version` |
+  | `.claude-plugin/plugin.json` | `version` |
+  | `.claude-plugin/marketplace.json` | `plugins[0].version` |
+  | `server.json` | `version` and `packages[0].version` |
+  - The release workflow stamps the 6 `package.json` files from the git tag but does **not** auto-bump the plugin/server files — after each release, open a PR to update them to match the new tag.
 
 ## Design Decisions
 
