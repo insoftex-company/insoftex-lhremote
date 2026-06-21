@@ -1,6 +1,6 @@
 {
   "name": "@insoftex/lhremote-workspace",
-  "version": "0.3.2",
+  "version": "0.21.0",
   "private": true,
   "license": "AGPL-3.0-only",
   "type": "module",
@@ -19,6 +19,7 @@
   "devDependencies": {
     "@eslint/js": "catalog:",
     "@vitest/coverage-v8": "catalog:",
+    "esbuild": "^0.28.1",
     "eslint": "catalog:",
     "eslint-config-prettier": "catalog:",
     "eslint-plugin-header": "catalog:",

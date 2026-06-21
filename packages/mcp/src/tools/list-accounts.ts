@@ -2,7 +2,11 @@
 // Copyright (C) 2026 Oleksii PELYKH
 
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
-import { LauncherService, resolveLauncherPort } from "@insoftex/lhremote-core";
+import {
+  LauncherService,
+  resolveLauncherPort,
+  withLauncherRecovery,
+} from "@insoftex/lhremote-core";
 import { z } from "zod";
 import { buildCdpOptions, cdpConnectionSchema, mcpCatchAll, mcpSuccess } from "../helpers.js";
 
@@ -35,8 +39,13 @@ export function registerListAccounts(server: McpServer): void {
           const options = includeAllWorkspaces === true
             ? { includeAllWorkspaces: true }
             : undefined;
-          const accounts = await launcher.listAccounts(options);
-          return mcpSuccess(JSON.stringify(accounts, null, 2));
+
+          const { result: accounts, launcherRecovered } = await withLauncherRecovery(
+            launcher,
+            () => launcher.listAccounts(options),
+          );
+
+          return mcpSuccess(JSON.stringify({ accounts, launcherRecovered }, null, 2));
         } catch (error) {
           return mcpCatchAll(error, "Failed to list accounts");
         } finally {

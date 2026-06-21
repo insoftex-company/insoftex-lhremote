@@ -7,6 +7,7 @@ import {
   LauncherService,
   resolveLauncherPort,
   startInstanceWithRecovery,
+  withLauncherRecovery,
 } from "@insoftex/lhremote-core";
 import { buildCdpOptions, cdpConnectionSchema, mcpCatchAll, mcpError, mcpSuccess } from "../helpers.js";
 
@@ -30,10 +31,17 @@ export function registerStartInstance(server: McpServer): void {
         }
 
         try {
+          // Phase 1: resolve account ID (auto-select when not provided).
           let resolvedId = accountId;
+          let resolveRecovered = false;
 
           if (resolvedId === undefined) {
-            const accounts = await launcher.listAccounts();
+            const { result: accounts, launcherRecovered } = await withLauncherRecovery(
+              launcher,
+              () => launcher.listAccounts(),
+            );
+            resolveRecovered = launcherRecovered;
+
             if (accounts.length === 0) {
               return mcpError("No accounts found.");
             }
@@ -45,11 +53,12 @@ export function registerStartInstance(server: McpServer): void {
             resolvedId = (accounts[0] as Account).id;
           }
 
-          const outcome = await startInstanceWithRecovery(
+          // Phase 2: start the instance.
+          const { result: outcome, launcherRecovered: startRecovered } = await withLauncherRecovery(
             launcher,
-            resolvedId,
-            port,
+            () => startInstanceWithRecovery(launcher, resolvedId as number, port),
           );
+          const launcherRecovered = resolveRecovered || startRecovered;
 
           if (outcome.status === "timeout") {
             return mcpError(
@@ -57,26 +66,14 @@ export function registerStartInstance(server: McpServer): void {
             );
           }
 
-          const verb =
-            outcome.status === "already_running"
-              ? "already running"
-              : "started";
-
-          const parts = [
-            `Instance ${verb} for account ${String(resolvedId)} on CDP port ${String(outcome.port)}`,
-          ];
-          if (outcome.pid !== undefined) {
-            parts.push(`PID ${String(outcome.pid)}`);
-          }
-          if (outcome.verified !== undefined) {
-            parts.push(
-              outcome.verified
-                ? "verified"
-                : "NOT verified — duplicate port suspected",
-            );
-          }
-
-          return mcpSuccess(parts.join(" — "));
+          return mcpSuccess(JSON.stringify({
+            status: outcome.status,
+            accountId: resolvedId,
+            cdpPort: outcome.port,
+            pid: outcome.pid,
+            verified: outcome.verified,
+            launcherRecovered,
+          }, null, 2));
         } catch (error) {
           return mcpCatchAll(error, "Failed to start instance");
         } finally {

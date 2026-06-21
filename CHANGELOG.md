@@ -4,6 +4,52 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+## [0.21.0] — 2026-06-21
+
+Baseline: upstream 0.20.1. This fork branches above upstream to eliminate the
+`0.3.x < 0.20.1` semver confusion. All changes below are relative to upstream
+0.20.1.
+
+### Added
+
+- **Launcher CDP auto-recovery (F3)**: before any launcher-dependent operation
+  (`list-accounts`, `start-instance`, `stop-instance`, `list-workspaces`, …)
+  the service detects an unreachable CDP endpoint and automatically re-discovers
+  the launcher's current debugging port (dynamic; never assumed to be 9222) then
+  reconnects with exponential backoff up to a configurable cap (default 30 s).
+  Results include a `launcherRecovered: boolean` field so callers know a
+  recovery took place.
+- `LauncherService.reconnect(options?)` — explicit reconnect with port
+  re-discovery and bounded backoff; cap configurable via `timeoutMs` option or
+  `LHREMOTE_LAUNCHER_RECOVERY_TIMEOUT_MS` env var.
+- `withLauncherRecovery(launcher, op, options?)` utility exported from core —
+  runs an operation, catches launcher-CDP errors, calls `reconnect()` once, and
+  retries; returns `{ result, launcherRecovered }`.
+- Self-contained ESM bundle (`dist-bundle/lhremote-mcp.mjs`) and matching
+  `.mcpb` package (`dist-mcpb/lhremote-0.21.0.mcpb`) for durable Claude
+  Desktop extension deployment that does not depend on workspace symlinks.
+- `docs/packaging.md` — how to rebuild the bundle and `.mcpb`, install steps,
+  and the invariant that the shipped manifest must point at the bundled path.
+
+### Fixed
+
+- **Instance visibility (R1–R5)** (backport from 0.3.1): `check-status`
+  `instances[]` now reflects OS-process-inspected running processes only
+  (Win32_Process on Windows), not the full 7-account launcher roster.
+  `instances[].cdpPort` / `connectable` carry live-probe values. Identity
+  parsed from `--app-id`/`--user-li-id`/`--user-li` only; `--lh-account`
+  (license-owner decoy) is ignored. Instances array remains correct when
+  launcher CDP is unreachable.
+- **Name-resolution** (backport from 0.3.1): `find-app` role classification
+  uses `--type=` presence for helper-child detection and `resources\out\` path
+  for instance main processes; `helperChildCount` added per entry.
+
+### Security
+
+- Command-line secrets (`--app-credentials`, `--upstream-proxy`, `--sentry` DSN,
+  `socks5://` proxy URLs, encrypted passwords) are never captured, stored, or
+  surfaced in any tool output, log, or auto-recovery path.
+
 ## [0.3.1] — 2026-06-21
 
 ### Fixed

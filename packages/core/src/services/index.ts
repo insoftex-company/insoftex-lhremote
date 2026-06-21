@@ -10,7 +10,12 @@ export {
   waitForInstanceTargets,
   type StartInstanceOutcome,
 } from "./instance-lifecycle.js";
-export { LauncherService } from "./launcher.js";
+export { DEFAULT_LAUNCHER_RECOVERY_TIMEOUT_MS, LauncherService } from "./launcher.js";
+export {
+  type LauncherRecoveryOptions,
+  type LauncherRecoveryResult,
+  withLauncherRecovery,
+} from "./launcher-recovery.js";
 export {
   checkStatus,
   type AccountInstanceStatus,
