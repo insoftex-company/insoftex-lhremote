@@ -242,12 +242,12 @@ All **campaign, campaign-targeting, and people-import** commands additionally ac
 
 #### `find-app`
 
-Detect running LinkedHelper application instances and their CDP connection details.
+Detect running LinkedHelper processes and classify each as `launcher`, `instance`, or `helper-child`. Each entry includes its CDP port, `connectable` status, and `helperChildCount` (number of gpu/renderer/utility/crashpad children). By default helper children are omitted; `--verbose` includes them.
 
 | Parameter | Type | Required | Default | Description |
 |-----------|------|----------|---------|-------------|
 | `json` | boolean | No | false | Output machine-readable JSON |
-| `verbose` | boolean | No | false | Include per-process discovery diagnostics |
+| `verbose` | boolean | No | false | Include `helper-child` processes in output |
 
 #### `launch-app`
 
@@ -300,11 +300,11 @@ Stop a running LinkedHelper instance.
 
 #### `check-status`
 
-Check LinkedHelper connection status, running instances, and database health.
+Report which LinkedHelper account instances are running, their CDP ports, and database health. Instance data comes from OS process inspection — it is accurate and launcher-independent even when the launcher CDP is unreachable. Each entry includes `accountId`, `name`, `email`, `cdpPort`, and `connectable`.
 
 | Parameter | Type | Required | Default | Description |
 |-----------|------|----------|---------|-------------|
-| `cdpPort` | number | No | 9222 | CDP port |
+| `cdpPort` | number | No | auto-discover | Launcher CDP port (optional; instance data is always available regardless) |
 
 ### Campaigns
 
