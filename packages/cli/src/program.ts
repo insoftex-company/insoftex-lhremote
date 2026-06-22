@@ -79,6 +79,7 @@ import {
   handleQuitApp,
   handleReactToPost,
   handleReactToComment,
+  handleRestartInstance,
   handleStartInstance,
   handleStopInstance,
   handleUnfollowFromFeed,
@@ -209,6 +210,21 @@ Examples:
     .option("--cdp-host <host>", "CDP host (default: 127.0.0.1)")
     .option("--allow-remote", "SECURITY: allow non-loopback CDP connections (enables remote code execution on target)")
     .action(handleStopInstance);
+
+  program
+    .command("restart-instance")
+    .description(
+      "Restart a single LinkedHelper account instance. " +
+        "Stops it, waits for exit, starts it, and waits until connectable. " +
+        "No-op when already healthy unless --force is used.",
+    )
+    .argument("<accountId>", "Account ID to restart", parsePositiveInt)
+    .option("--cdp-port <port>", "CDP debugging port (auto-discovered when omitted)", parsePositiveInt)
+    .option("--cdp-host <host>", "CDP host (default: 127.0.0.1)")
+    .option("--allow-remote", "SECURITY: allow non-loopback CDP connections (enables remote code execution on target)")
+    .option("--force", "Restart even when the instance is already healthy")
+    .option("--json", "Output as JSON")
+    .action(handleRestartInstance);
 
   program
     .command("ensure-instances")

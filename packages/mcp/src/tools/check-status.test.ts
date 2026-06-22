@@ -11,14 +11,14 @@ vi.mock("@insoftex/lhremote-core", async (importOriginal) => {
   };
 });
 
-import { type RunningInstance, type StatusReport, checkStatus } from "@insoftex/lhremote-core";
+import { type InstanceReadinessEntry, type StatusReport, checkStatus } from "@insoftex/lhremote-core";
 
 import { registerCheckStatus } from "./check-status.js";
 import { createMockServer } from "./testing/mock-server.js";
 
 const mockedCheckStatus = vi.mocked(checkStatus);
 
-function makeRunningInstance(overrides: Partial<RunningInstance> = {}): RunningInstance {
+function makeRunningInstance(overrides: Partial<InstanceReadinessEntry> = {}): InstanceReadinessEntry {
   return {
     accountId: 1,
     name: "Alice",
@@ -29,6 +29,7 @@ function makeRunningInstance(overrides: Partial<RunningInstance> = {}): RunningI
     helperChildCount: 0,
     source: "cmdline",
     confidence: "high",
+    readiness: "connectable",
     ...overrides,
   };
 }
@@ -80,7 +81,7 @@ describe("registerCheckStatus", () => {
     const { server, getHandler } = createMockServer();
     registerCheckStatus(server);
 
-    const runningInstances: RunningInstance[] = [
+    const runningInstances: InstanceReadinessEntry[] = [
       makeRunningInstance({ accountId: 347559, name: "Vira Lyn", cdpPort: 50297, pid: 13004 }),
       makeRunningInstance({ accountId: 329925, name: "Mike Florko", cdpPort: 56429, pid: 13640 }),
       makeRunningInstance({ accountId: 331874, name: "Michael Fliorko", cdpPort: 49530, pid: 7044 }),

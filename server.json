@@ -6,12 +6,12 @@
     "url": "https://github.com/insoftex-company/insoftex-lhremote",
     "source": "github"
   },
-  "version": "0.21.0",
+  "version": "0.22.0",
   "packages": [
     {
       "registryType": "npm",
       "identifier": "@insoftex/lhremote",
-      "version": "0.21.0",
+      "version": "0.22.0",
       "transport": {
         "type": "stdio"
       },

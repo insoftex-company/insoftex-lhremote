@@ -9,6 +9,13 @@ vi.mock("@insoftex/lhremote-core", async (importOriginal) => {
     ...actual,
     LauncherService: vi.fn(),
     startInstanceWithRecovery: vi.fn(),
+    withLauncherQueue: vi.fn(async (op: () => Promise<unknown>) => op()),
+    withLauncherRecovery: vi.fn(
+      async (_launcher: unknown, op: () => Promise<unknown>) => ({
+        result: await op(),
+        launcherRecovered: false,
+      }),
+    ),
   };
 });
 

@@ -70,6 +70,7 @@ export { handleRemovePeopleFromCollection } from "./remove-people-from-collectio
 export { handleQuitApp } from "./quit-app.js";
 export { handleReactToPost } from "./react-to-post.js";
 export { handleReactToComment } from "./react-to-comment.js";
+export { handleRestartInstance } from "./restart-instance.js";
 export { handleStartInstance } from "./start-instance.js";
 export { handleStopInstance } from "./stop-instance.js";
 export { handleVisitProfile } from "./visit-profile.js";

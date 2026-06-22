@@ -34,15 +34,35 @@ If `find-app` returns nothing, use `launch-app` first.
 
 ### Instance Lifecycle
 
-An instance must be running before any campaign or query operations:
+An instance must be running before campaign/query operations:
 
 ```
 launch-app → start-instance → [work] → stop-instance → quit-app
 ```
 
-- `start-instance` auto-selects the account when only one exists; pass `accountId` when multiple accounts are configured
-- Most tools require a running instance (they will error if not started)
-- `stop-instance` and `quit-app` are separate — stop the instance before quitting the app
+To recycle a single stuck instance, use `restart-instance` (preferred over manual stop+start):
+
+```
+restart-instance(accountId)   # stop → wait for exit → start → wait until connectable → verify
+```
+
+Key rules:
+- `start-instance` auto-selects the account only when one exists; pass `accountId` when multiple are configured.
+- Lifecycle ops (`start/stop/restart/launch/quit`, and `list-accounts`) are **launcher operations** — they go through the single shared launcher and require the launcher CDP to be reachable. They are serialized internally; expect a brief launcher "wobble" during them that self-recovers.
+- `restart-instance` and `stop-instance` affect **only the target account's process**. Other instances' processes and campaigns keep running; their CDP may blip briefly, then recovers.
+- Trust `check-status` (process inspection), not the immediate `start/stop` return payload, to confirm true state — start payloads can report phantom/duplicate ports.
+
+## Instance Connectability & Stability
+
+**Connectability is eventually-consistent, not binary.** A just-started or momentarily-disrupted instance can report `connectable: false` for up to ~30s and then become connectable on its own. Treat a single non-connectable read as **not** a failure.
+
+Rules for reasoning about instance state:
+- **Re-poll before concluding failure.** Poll `check-status` across the ~30s grace window. Only treat an instance as `stuck` if it stays non-connectable for the whole window.
+- **Transient vs stuck.** `degraded` (transiently unreachable, within grace) → wait, do nothing. `stuck` (past grace) → `restart-instance`. Use the `readiness` field in `check-status` when available.
+- **Don't restart healthy instances.** Restarting a merely-transient instance is unnecessary and itself triggers launcher churn. Diagnose first.
+- **Never rapid-fire start/stop.** Use `ensure-instances` (for sets) or `restart-instance` (for one); they serialize and settle between operations. Firing multiple raw `start-instance` calls back-to-back is the known cause of launcher CDP drops.
+- **Reads are launcher-independent; writes are not.** `check-status`/`find-app`/`query-*` work even when the launcher CDP is down (identity comes from process inspection). `start/stop/restart/list-accounts` need the launcher reachable and will auto-recover within ~30s; if a launcher op fails, retry after the recovery window rather than escalating.
+- **Verify lifecycle results by re-poll.** After start/restart, confirm via `check-status` that the account is connectable on a distinct real port. An unlicensed or failed account produces **no** instance process — expect `failed`/`verified:false`, never a phantom "started".
 
 ### Collection Workflow (Primary)
 
@@ -227,6 +247,12 @@ After `launch-app`, LinkedHelper briefly drops its CDP port while reconnecting t
 | "Campaign start timed out" | LinkedHelper unresponsive | Check `check-status`, retry |
 | "Cannot collect — instance is busy" | Another collection in progress | Wait for current collection to finish, then retry |
 | "Collection failed" | Source URL invalid or unsupported | Check URL against source type reference, try explicit `sourceType` |
+| "Instance started but not connectable" | Transient — launcher churn or still initializing | Re-poll `check-status` for ~30s; it usually self-recovers. Do not restart yet. |
+| Instance non-connectable past the ~30s grace window | Genuinely stuck instance | `restart-instance <accountId>` — recycles only that instance; others keep running |
+| `ensure-instances`/`start-instance` returns `verified: false` | Verification ran before the instance settled, or a phantom/duplicate port was reported | Confirm true state with `check-status`; the instance often is up. With v0.22.0 verification polls until the grace window. |
+| Launcher `reachable: false` during a lifecycle op | Launcher CDP dropped (often after rapid starts) | Lifecycle ops auto-recover within ~30s; retry after the window. Reads still work meanwhile. |
+| Multiple `start-instance` calls report the same CDP port | Phantom/duplicate port; instances not yet distinctly bound | Ignore the port in the payload; read real ports from `check-status` once settled |
+| Account requested but no instance process ever appears | Account has no LH license / failed to launch | Reported as `failed`/`verified:false`; not a tooling error — verify the account's license |
 
 ## Action Type Reference
 
@@ -457,3 +483,7 @@ Collection uses LinkedHelper's internal pacing. For large source pages, limit sc
 | Using `import-people-from-urls` when `collect-people` works | Prefer `collect-people` — it handles page navigation and extraction automatically |
 | Multiple accounts configured but no `accountId` passed | Pass `accountId` to all campaign, targeting, and people-import tools; use `list-accounts` to find the ID |
 | Calling `campaign-list` without a running instance | `campaign-list` now connects via CDP — start an instance first; it is not a purely local database query |
+| Judging instance health on a single `connectable` read | Connectability is eventually-consistent; re-poll across the ~30s grace window |
+| Restarting an instance that's just transiently unreachable | Diagnose transient (`degraded`) vs `stuck` first; only restart after the grace window |
+| Raw back-to-back `start-instance` calls | Use `ensure-instances`/`restart-instance` — they serialize and settle, avoiding launcher drops |
+| Trusting the `start-instance` port in its return payload | Confirm real ports via `check-status` after the instance settles |

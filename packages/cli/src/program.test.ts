@@ -110,9 +110,10 @@ describe("createProgram", () => {
     expect(commandNames).toContain("hide-feed-author-profile");
     expect(commandNames).toContain("unfollow-profile");
     expect(commandNames).toContain("ensure-instances");
+    expect(commandNames).toContain("restart-instance");
     expect(commandNames).toContain("list-orphans");
     expect(commandNames).toContain("reap-orphans");
-    expect(commandNames).toHaveLength(77);
+    expect(commandNames).toHaveLength(78);
   });
 
   describe("launch-app", () => {

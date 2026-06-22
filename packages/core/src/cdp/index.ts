@@ -20,6 +20,7 @@ export {
   scanRunningInstances,
   scanOrphans,
   reapOrphans,
+  parseIdentityFromCmdline,
   type IdentitySource,
   type IdentityConfidence,
   type InstanceIdentity,
@@ -32,3 +33,25 @@ export {
   CDPEvaluationError,
   CDPTimeoutError,
 } from "./errors.js";
+export {
+  gatherRawProcesses,
+  invalidateProcessCache,
+  type RawProcess,
+} from "./gather-raw-processes.js";
+export {
+  readinessTracker,
+  waitForConnectable,
+  InstanceReadinessTracker,
+  DEFAULT_GRACE_WINDOW_MS,
+  DEFAULT_CONNECTABLE_TIMEOUT_MS,
+  DEFAULT_CONNECTABLE_INTERVAL_MS,
+  type InstanceReadiness,
+  type WaitForConnectableOptions,
+  type WaitForConnectableResult,
+} from "./instance-readiness.js";
+export {
+  withLauncherQueue,
+  DEFAULT_SETTLE_BARRIER_TIMEOUT_MS,
+  type SettleType,
+  type LauncherQueueSettleOptions,
+} from "./launcher-queue.js";

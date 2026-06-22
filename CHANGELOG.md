@@ -4,6 +4,70 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+## [0.22.0] — 2026-06-22
+
+### Added
+
+- **`restart-instance` MCP tool and CLI command (T3)**: Recycles a single stuck
+  instance — stop → wait for PID exit → start → wait until connectable →
+  verify `--app-id` match on a distinct port. Idempotent: no-op when already
+  healthy unless `force:true`. Only the target account's process is touched;
+  all other instances keep running. Returns
+  `{ accountId, restarted, oldPid, newPid, cdpPort, verified, launcherRecovered }`.
+- **Launcher operation queue (T1)**: All write/lifecycle operations
+  (`start-instance`, `stop-instance`, `restart-instance`, `launch-app`,
+  `quit-app`, and each internal start within `ensure-instances`) are serialised
+  through a single in-process async mutex. After each op, a settle barrier waits
+  for the launcher CDP to be reachable again and (for starts) the target instance
+  to become connectable, before releasing the queue for the next operation. Converts
+  "rapid starts → launcher drop → cascade" into "op → settle → op".
+- **Instance readiness model (T2)**: `InstanceReadinessTracker` tracks per-PID
+  state across successive scans; distinguishes `connectable | starting | degraded |
+  stuck`. `waitForConnectable(accountId, opts)` polls until the account's instance
+  is connectable on a real distinct port (or timeout), with optional cheap
+  `isCdpPort` re-probe when a known port is supplied. `check-status` now includes
+  a `readiness` field per instance.
+- **Process inspection cache (T6)**: `gatherRawProcesses` results are cached for
+  ~1 500 ms (configurable via `LHREMOTE_INSPECTION_CACHE_TTL_MS`) to avoid
+  redundant Win32_Process WMI queries during poll loops. Cache is invalidated
+  immediately after every lifecycle op via `invalidateProcessCache()`.
+- **`waitForPidExit(pid, timeoutMs?)` (T5)**: Polls until a PID fully exits using
+  signal-0 probing; used by `restart-instance` and the hardened `stop-instance`.
+- **`docs/instance-stability.md`**: Explains the launcher-queue + readiness model,
+  grace-window/transient-vs-stuck semantics, all config knobs with defaults and
+  rationale, and the read-vs-write reliability boundary.
+
+### Changed
+
+- **`start-instance` (T5)**: Routes through the launcher queue; the settle barrier
+  waits for the launcher to recover and the instance to become connectable before
+  the next queued op can start. Verification uses `waitForConnectable` so a
+  phantom/duplicate port is only declared `verified:false` after the full
+  connectable timeout.
+- **`stop-instance` (T5)**: Routes through the launcher queue; waits for the
+  instance port to disappear via `waitForInstanceShutdown` before returning.
+- **`ensure-instances` (T4)**: Each internal start is serialised through the
+  launcher queue with a settle barrier between accounts (no more cascade).
+  Verification uses parallel `waitForConnectable` in Phase 2 so accounts that
+  take longer to settle are not mis-reported as `verified:false`. An unlicensed
+  account with no process ever appearing is now reported as `status:"failed"` with
+  a clear reason rather than a phantom success.
+- **`check-status`**: `instances[]` entries now include `readiness:
+  "connectable"|"starting"|"degraded"|"stuck"` alongside existing fields.
+
+### Configuration (T7)
+
+All new timings ship with sane defaults and are overridable via environment variables:
+
+| Env var | Default | Meaning |
+|---------|---------|---------|
+| `LHREMOTE_GRACE_WINDOW_MS` | 30 000 | Grace window before a non-connectable instance is considered `stuck` |
+| `LHREMOTE_CONNECTABLE_TIMEOUT_MS` | 45 000 | `waitForConnectable` overall timeout |
+| `LHREMOTE_CONNECTABLE_INTERVAL_MS` | 1 500 | Poll interval inside `waitForConnectable` |
+| `LHREMOTE_SETTLE_BARRIER_TIMEOUT_MS` | 30 000 | Queue settle barrier timeout |
+| `LHREMOTE_INSPECTION_CACHE_TTL_MS` | 1 500 | Process inspection cache TTL |
+| `LHREMOTE_LAUNCHER_RECOVERY_TIMEOUT_MS` | 30 000 | (existing) Launcher recovery cap |
+
 ## [0.21.0] — 2026-06-21
 
 Baseline: upstream 0.20.1. This fork branches above upstream to eliminate the

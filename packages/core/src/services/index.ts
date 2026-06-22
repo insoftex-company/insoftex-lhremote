@@ -8,8 +8,14 @@ export {
   waitForInstancePort,
   waitForInstanceShutdown,
   waitForInstanceTargets,
+  waitForPidExit,
   type StartInstanceOutcome,
 } from "./instance-lifecycle.js";
+export {
+  restartInstance,
+  type RestartInstanceOptions,
+  type RestartInstanceResult,
+} from "./restart-instance.js";
 export { DEFAULT_LAUNCHER_RECOVERY_TIMEOUT_MS, LauncherService } from "./launcher.js";
 export {
   type LauncherRecoveryOptions,
@@ -20,6 +26,7 @@ export {
   checkStatus,
   type AccountInstanceStatus,
   type DatabaseStatus,
+  type InstanceReadinessEntry,
   type LauncherStatus,
   type StatusReport,
 } from "./status.js";

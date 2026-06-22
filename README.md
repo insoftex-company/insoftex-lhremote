@@ -109,6 +109,7 @@ On Windows, `launch-app` also restores and focuses the LinkedHelper launcher win
 lhremote list-accounts [--cdp-port <port>] [--json]
 lhremote start-instance <accountId> [--cdp-port <port>]
 lhremote stop-instance <accountId> [--cdp-port <port>]
+lhremote restart-instance <accountId> [--cdp-port <port>] [--force]
 lhremote check-status [--cdp-port <port>] [--json]
 ```
 
@@ -298,9 +299,19 @@ Stop a running LinkedHelper instance.
 | `accountId` | number | No | auto-select if single account | Account ID |
 | `cdpPort` | number | No | 9222 | CDP port |
 
+#### `restart-instance`
+
+Restart a single LinkedHelper account instance cleanly. Stops the running process, waits for it to exit, starts it again, and waits until it is connectable on a verified port. Idempotent: if the instance is already healthy, returns `restarted: false` without touching it (unless `force: true`). Only the target account's process is affected — other instances keep running.
+
+| Parameter | Type | Required | Default | Description |
+|-----------|------|----------|---------|-------------|
+| `accountId` | number | **Yes** | — | Account ID to restart |
+| `cdpPort` | number | No | 9222 | CDP port |
+| `force` | boolean | No | false | Restart even when the instance is already connectable |
+
 #### `check-status`
 
-Report which LinkedHelper account instances are running, their CDP ports, and database health. Instance data comes from OS process inspection — it is accurate and launcher-independent even when the launcher CDP is unreachable. Each entry includes `accountId`, `name`, `email`, `cdpPort`, and `connectable`.
+Report which LinkedHelper account instances are running, their CDP ports, and database health. Instance data comes from OS process inspection — it is accurate and launcher-independent even when the launcher CDP is unreachable. Each entry includes `accountId`, `name`, `email`, `cdpPort`, `connectable`, and `readiness` (`connectable` | `starting` | `degraded` | `stuck`).
 
 | Parameter | Type | Required | Default | Description |
 |-----------|------|----------|---------|-------------|

@@ -40,12 +40,12 @@ export function registerListAccounts(server: McpServer): void {
             ? { includeAllWorkspaces: true }
             : undefined;
 
-          const { result: accounts, launcherRecovered } = await withLauncherRecovery(
+          const { result: accounts } = await withLauncherRecovery(
             launcher,
             () => launcher.listAccounts(options),
           );
 
-          return mcpSuccess(JSON.stringify({ accounts, launcherRecovered }, null, 2));
+          return mcpSuccess(JSON.stringify(accounts, null, 2));
         } catch (error) {
           return mcpCatchAll(error, "Failed to list accounts");
         } finally {

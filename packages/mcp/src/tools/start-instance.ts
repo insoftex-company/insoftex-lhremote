@@ -7,6 +7,7 @@ import {
   LauncherService,
   resolveLauncherPort,
   startInstanceWithRecovery,
+  withLauncherQueue,
   withLauncherRecovery,
 } from "@insoftex/lhremote-core";
 import { buildCdpOptions, cdpConnectionSchema, mcpCatchAll, mcpError, mcpSuccess } from "../helpers.js";
@@ -33,14 +34,12 @@ export function registerStartInstance(server: McpServer): void {
         try {
           // Phase 1: resolve account ID (auto-select when not provided).
           let resolvedId = accountId;
-          let resolveRecovered = false;
 
           if (resolvedId === undefined) {
-            const { result: accounts, launcherRecovered } = await withLauncherRecovery(
+            const { result: accounts } = await withLauncherRecovery(
               launcher,
               () => launcher.listAccounts(),
             );
-            resolveRecovered = launcherRecovered;
 
             if (accounts.length === 0) {
               return mcpError("No accounts found.");
@@ -53,12 +52,18 @@ export function registerStartInstance(server: McpServer): void {
             resolvedId = (accounts[0] as Account).id;
           }
 
-          // Phase 2: start the instance.
-          const { result: outcome, launcherRecovered: startRecovered } = await withLauncherRecovery(
-            launcher,
-            () => startInstanceWithRecovery(launcher, resolvedId as number, port),
-          );
-          const launcherRecovered = resolveRecovered || startRecovered;
+          // Phase 2: start through the launcher queue (T1/T5).
+          // The settle barrier waits for the launcher to recover and the
+          // instance to become connectable before releasing the queue.
+          const { result: outcome } =
+            await withLauncherQueue(
+              () =>
+                withLauncherRecovery(
+                  launcher,
+                  () => startInstanceWithRecovery(launcher, resolvedId as number, port),
+                ),
+              { type: "start", accountId: resolvedId as number, launcherPort: port },
+            );
 
           if (outcome.status === "timeout") {
             return mcpError(
@@ -66,14 +71,12 @@ export function registerStartInstance(server: McpServer): void {
             );
           }
 
-          return mcpSuccess(JSON.stringify({
-            status: outcome.status,
-            accountId: resolvedId,
-            cdpPort: outcome.port,
-            pid: outcome.pid,
-            verified: outcome.verified,
-            launcherRecovered,
-          }, null, 2));
+          const verb = outcome.status === "already_running" ? "already running" : "started";
+          let text = `Instance ${verb} for account ${resolvedId} on CDP port ${outcome.port}`;
+          if (outcome.pid !== undefined) text += ` — PID ${outcome.pid}`;
+          if (outcome.verified === true) text += " — verified";
+          else if (outcome.verified === false) text += " — NOT verified — duplicate port suspected";
+          return mcpSuccess(text);
         } catch (error) {
           return mcpCatchAll(error, "Failed to start instance");
         } finally {

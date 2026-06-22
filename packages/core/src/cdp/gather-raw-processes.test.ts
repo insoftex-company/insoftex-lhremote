@@ -12,7 +12,7 @@ import { execFile } from "node:child_process";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import psList from "ps-list";
-import { gatherRawProcesses } from "./gather-raw-processes.js";
+import { gatherRawProcesses, invalidateProcessCache } from "./gather-raw-processes.js";
 
 const mockedPsList = vi.mocked(psList);
 const mockedExecFile = vi.mocked(execFile);
@@ -30,6 +30,7 @@ function setPlatform(platform: NodeJS.Platform): void {
 afterEach(() => {
   setPlatform(originalPlatform);
   vi.clearAllMocks();
+  invalidateProcessCache();
 });
 
 // ---------------------------------------------------------------------------

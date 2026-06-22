@@ -69,6 +69,7 @@ import { registerListCollections } from "./list-collections.js";
 import { registerListAccounts } from "./list-accounts.js";
 import { registerListWorkspaces } from "./list-workspaces.js";
 import { registerQuitApp } from "./quit-app.js";
+import { registerRestartInstance } from "./restart-instance.js";
 import { registerStartInstance } from "./start-instance.js";
 import { registerStopInstance } from "./stop-instance.js";
 import { registerQueryMessages } from "./query-messages.js";
@@ -157,6 +158,7 @@ export {
   registerQueryProfiles,
   registerQueryProfilesBulk,
   registerQuitApp,
+  registerRestartInstance,
   registerReactToPost,
   registerReactToComment,
   registerResolveLinkedInEntity,
@@ -215,6 +217,7 @@ export function registerAllTools(server: McpServer): void {
   registerQuitApp(server);
   registerListAccounts(server);
   registerListWorkspaces(server);
+  registerRestartInstance(server);
   registerStartInstance(server);
   registerStopInstance(server);
   registerQueryMessages(server);

@@ -9,6 +9,9 @@ vi.mock("../cdp/index.js", () => ({
   resolveAppPort: vi.fn(),
   resolveLauncherPort: vi.fn(),
   scanRunningInstances: vi.fn().mockResolvedValue([]),
+  readinessTracker: {
+    update: vi.fn().mockReturnValue(new Map()),
+  },
 }));
 
 // Helper: a minimal RunningInstance (process-inspection based)

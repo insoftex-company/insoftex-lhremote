@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 // Copyright (C) 2026 Oleksii PELYKH
 
-import { CDPConnectionError, discoverInstancePort, discoverTargets, scanRunningInstances } from "../cdp/index.js";
+import { CDPConnectionError, discoverInstancePort, discoverTargets, invalidateProcessCache, scanRunningInstances } from "../cdp/index.js";
 import type { CdpTarget } from "../types/cdp.js";
 import { delay } from "../utils/delay.js";
 import { StartInstanceError } from "./errors.js";
@@ -198,6 +198,51 @@ export async function waitForInstanceShutdown(
       return;
     }
     await delay(PORT_DISCOVERY_INTERVAL);
+  }
+}
+
+/** Maximum time to wait for a PID to exit after a stop call (ms). */
+const PID_EXIT_TIMEOUT = 15_000;
+
+/** Interval between PID-existence checks while waiting for exit (ms). */
+const PID_EXIT_INTERVAL = 500;
+
+/**
+ * Check whether a process with the given PID is still running.
+ *
+ * Uses signal 0 which does not terminate the process — it only probes
+ * existence.  Returns `false` when the process has exited (`ESRCH`).
+ * Returns `true` on `EPERM` (process exists, no permission to signal) or any
+ * other error (conservative: assume process is still alive).
+ */
+function pidExists(pid: number): boolean {
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch (err: unknown) {
+    return (err as NodeJS.ErrnoException).code !== "ESRCH";
+  }
+}
+
+/**
+ * Poll until the process with `pid` has exited, or `timeoutMs` elapses.
+ *
+ * Invalidates the process-inspection cache before each check so polling
+ * reflects the true process state rather than cached data.
+ *
+ * Used by `restart-instance` to confirm the old process is gone before
+ * starting a new one on the same account slot.
+ */
+export async function waitForPidExit(
+  pid: number,
+  timeoutMs = PID_EXIT_TIMEOUT,
+): Promise<void> {
+  const deadline = Date.now() + timeoutMs;
+
+  while (Date.now() < deadline) {
+    invalidateProcessCache();
+    if (!pidExists(pid)) return;
+    await delay(PID_EXIT_INTERVAL);
   }
 }
 

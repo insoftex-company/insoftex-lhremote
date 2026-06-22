@@ -3,8 +3,10 @@
 
 import {
   type DiscoveredApp,
+  type InstanceReadiness,
   type RunningInstance,
   findApp,
+  readinessTracker,
   resolveLauncherPort,
   scanRunningInstances,
 } from "../cdp/index.js";
@@ -35,6 +37,21 @@ export interface DatabaseStatus {
   profileCount: number;
 }
 
+/** Per-instance readiness entry in a status report. */
+export interface InstanceReadinessEntry extends RunningInstance {
+  /**
+   * Readiness state derived from the process-scoped readiness tracker.
+   *
+   * - `"connectable"` — CDP probe succeeds; instance is healthy.
+   * - `"starting"`    — process alive but never yet seen connectable.
+   * - `"degraded"`    — was connectable before; temporarily unreachable
+   *                     within the ~30 s grace window.
+   * - `"stuck"`       — has been non-connectable past the grace window;
+   *                     eligible for `restart-instance`.
+   */
+  readiness: InstanceReadiness;
+}
+
 /** Aggregated health-check result. */
 export interface StatusReport {
   launcher: LauncherStatus;
@@ -43,13 +60,14 @@ export interface StatusReport {
    * "which accounts are started" source.  Works even when the launcher
    * CDP is unreachable.  Never contains --type= helper children.
    * Real CDP ports and identity are wired from live processes.
+   * Each entry includes a `readiness` field.
    */
-  instances: RunningInstance[];
+  instances: InstanceReadinessEntry[];
   /**
    * Backward-compat alias for `instances` — same data, kept for
    * callers that already reference this field name.
    */
-  runningInstances: RunningInstance[];
+  runningInstances: InstanceReadinessEntry[];
   databases: DatabaseStatus[];
   warnings?: string[];
 }
@@ -86,9 +104,15 @@ export async function checkStatus(
   const warnings: string[] = [];
 
   // 1. Process-inspection-based running instances (launcher-independent)
-  let runningInstances: RunningInstance[] = [];
+  let runningInstances: InstanceReadinessEntry[] = [];
   try {
-    runningInstances = await scanRunningInstances();
+    const raw = await scanRunningInstances();
+    // Update the process-scoped readiness tracker and annotate each instance.
+    const readinessMap = readinessTracker.update(raw);
+    runningInstances = raw.map((inst) => ({
+      ...inst,
+      readiness: readinessMap.get(inst.pid) ?? "starting",
+    }));
   } catch (error: unknown) {
     warnings.push(`Failed to scan running instances: ${errorMessage(error)}`);
   }

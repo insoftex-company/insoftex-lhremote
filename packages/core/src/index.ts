@@ -170,6 +170,11 @@ export {
   WrongPortError,
   ensureInstances,
   type EnsureInstanceResult,
+  restartInstance,
+  type RestartInstanceOptions,
+  type RestartInstanceResult,
+  waitForPidExit,
+  type InstanceReadinessEntry,
 } from "./services/index.js";
 
 // Data access
@@ -253,6 +258,16 @@ export {
   type InstanceIdentity,
   type RunningInstance,
   type OrphanProcess,
+  withLauncherQueue,
+  DEFAULT_SETTLE_BARRIER_TIMEOUT_MS,
+  type SettleType,
+  type LauncherQueueSettleOptions,
+  invalidateProcessCache,
+  readinessTracker,
+  waitForConnectable,
+  type InstanceReadiness,
+  type WaitForConnectableOptions,
+  type WaitForConnectableResult,
 } from "./cdp/index.js";
 
 // Operations (shared business logic for CLI + MCP)

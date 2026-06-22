@@ -6,6 +6,8 @@ import {
   type Account,
   LauncherService,
   resolveLauncherPort,
+  waitForInstanceShutdown,
+  withLauncherQueue,
   withLauncherRecovery,
 } from "@insoftex/lhremote-core";
 import { buildCdpOptions, cdpConnectionSchema, mcpCatchAll, mcpError, mcpSuccess } from "../helpers.js";
@@ -32,14 +34,12 @@ export function registerStopInstance(server: McpServer): void {
         try {
           // Phase 1: resolve account ID (auto-select when not provided).
           let resolvedId = accountId;
-          let resolveRecovered = false;
 
           if (resolvedId === undefined) {
-            const { result: accounts, launcherRecovered } = await withLauncherRecovery(
+            const { result: accounts } = await withLauncherRecovery(
               launcher,
               () => launcher.listAccounts(),
             );
-            resolveRecovered = launcherRecovered;
 
             if (accounts.length === 0) {
               return mcpError("No accounts found.");
@@ -52,18 +52,22 @@ export function registerStopInstance(server: McpServer): void {
             resolvedId = (accounts[0] as Account).id;
           }
 
-          // Phase 2: stop the instance.
-          const { launcherRecovered: stopRecovered } = await withLauncherRecovery(
-            launcher,
-            async () => { await launcher.stopInstance(resolvedId as number); },
+          // Phase 2: stop through the launcher queue (T1/T5).
+          // Settle barrier waits for the launcher to recover after the stop.
+          await withLauncherQueue(
+            () =>
+              withLauncherRecovery(
+                launcher,
+                async () => {
+                  await launcher.stopInstance(resolvedId as number);
+                  // Confirm the instance port has actually disappeared (T5).
+                  await waitForInstanceShutdown(port);
+                },
+              ),
+            { type: "stop", launcherPort: port },
           );
-          const launcherRecovered = resolveRecovered || stopRecovered;
 
-          return mcpSuccess(JSON.stringify({
-            status: "stopped",
-            accountId: resolvedId,
-            launcherRecovered,
-          }, null, 2));
+          return mcpSuccess(`Instance stopped for account ${resolvedId}`);
         } catch (error) {
           return mcpCatchAll(error, "Failed to stop instance");
         } finally {

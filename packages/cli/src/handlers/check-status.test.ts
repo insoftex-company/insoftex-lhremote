@@ -11,13 +11,13 @@ vi.mock("@insoftex/lhremote-core", async (importOriginal) => {
   };
 });
 
-import { type RunningInstance, type StatusReport, checkStatus } from "@insoftex/lhremote-core";
+import { type InstanceReadinessEntry, type StatusReport, checkStatus } from "@insoftex/lhremote-core";
 
 import { handleCheckStatus } from "./check-status.js";
 
 const mockedCheckStatus = vi.mocked(checkStatus);
 
-function makeRunningInstance(overrides: Partial<RunningInstance> = {}): RunningInstance {
+function makeRunningInstance(overrides: Partial<InstanceReadinessEntry> = {}): InstanceReadinessEntry {
   return {
     accountId: 1,
     name: "Alice",
@@ -28,6 +28,7 @@ function makeRunningInstance(overrides: Partial<RunningInstance> = {}): RunningI
     helperChildCount: 3,
     source: "cmdline",
     confidence: "high",
+    readiness: "connectable",
     ...overrides,
   };
 }
@@ -104,7 +105,7 @@ describe("handleCheckStatus", () => {
   it("shows 3 running instances from process inspection (not 7 from launcher roster)", async () => {
     const stdoutSpy = vi.spyOn(process.stdout, "write").mockReturnValue(true);
 
-    const instances: RunningInstance[] = [
+    const instances: InstanceReadinessEntry[] = [
       makeRunningInstance({ accountId: 347559, name: "Vira Lyn", email: "viraInsoftex@gmail.com", cdpPort: 50297, pid: 13004 }),
       makeRunningInstance({ accountId: 329925, name: "Mike Florko", email: "mike@insoftex.com", cdpPort: 56429, pid: 13640 }),
       makeRunningInstance({ accountId: 331874, name: "Michael Fliorko", email: "mfliorko@insoftex.com", cdpPort: 49530, pid: 7044 }),
@@ -189,7 +190,7 @@ describe("handleCheckStatus", () => {
   it("launcher CDP down doesn't affect process-inspection instance output", async () => {
     const stdoutSpy = vi.spyOn(process.stdout, "write").mockReturnValue(true);
 
-    const runningInstances: RunningInstance[] = [
+    const runningInstances: InstanceReadinessEntry[] = [
       makeRunningInstance({ accountId: 347559, name: "Vira Lyn", cdpPort: 50297, connectable: true }),
     ];
 
