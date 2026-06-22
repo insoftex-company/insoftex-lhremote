@@ -30,19 +30,19 @@
     "semantic_hash": "dc04ae3dbf3da06176cea30b1c227ca0"
   },
   "/Users/fliorko/Documents/PROJECTS/Insoftex/insoftex-lhremote/dist-bundle/lhremote-mcp.mjs": {
-    "mtime": 1782099401.7537887,
-    "ast_hash": "da1929fa30b1d2ac0cd6f83d86fb761c",
-    "semantic_hash": "da1929fa30b1d2ac0cd6f83d86fb761c"
+    "mtime": 1782100839.2627907,
+    "ast_hash": "dc1178b3d6475c99611e07239fea80aa",
+    "semantic_hash": "dc1178b3d6475c99611e07239fea80aa"
   },
   "/Users/fliorko/Documents/PROJECTS/Insoftex/insoftex-lhremote/dist-mcpb-staging/lhremote-mcp.mjs": {
-    "mtime": 1782099401.7567801,
-    "ast_hash": "da1929fa30b1d2ac0cd6f83d86fb761c",
-    "semantic_hash": "da1929fa30b1d2ac0cd6f83d86fb761c"
+    "mtime": 1782100843.5504012,
+    "ast_hash": "dc1178b3d6475c99611e07239fea80aa",
+    "semantic_hash": "dc1178b3d6475c99611e07239fea80aa"
   },
   "/Users/fliorko/Documents/PROJECTS/Insoftex/insoftex-lhremote/dist-mcpb-staging/manifest.json": {
-    "mtime": 1782099401.7569833,
-    "ast_hash": "7a5712504e85e3c9aafa9a71266629c6",
-    "semantic_hash": "7a5712504e85e3c9aafa9a71266629c6"
+    "mtime": 1782100668.5841227,
+    "ast_hash": "0a41a40c063637c600bf3aeebb057a6f",
+    "semantic_hash": "0a41a40c063637c600bf3aeebb057a6f"
   },
   "/Users/fliorko/Documents/PROJECTS/Insoftex/insoftex-lhremote/eslint.config.js": {
     "mtime": 1781913638.9272394,
@@ -785,24 +785,24 @@
     "semantic_hash": "532930bcfb2ccfe2a48d87f8bb5e4aa3"
   },
   "/Users/fliorko/Documents/PROJECTS/Insoftex/insoftex-lhremote/packages/cli/src/handlers/start-instance.test.ts": {
-    "mtime": 1782099401.7801728,
-    "ast_hash": "17253710d01c49c0e2129a0eb1bb5fd5",
-    "semantic_hash": "17253710d01c49c0e2129a0eb1bb5fd5"
+    "mtime": 1782100724.4662986,
+    "ast_hash": "d3571b84713078de38d1e7276b9af3b0",
+    "semantic_hash": "d3571b84713078de38d1e7276b9af3b0"
   },
   "/Users/fliorko/Documents/PROJECTS/Insoftex/insoftex-lhremote/packages/cli/src/handlers/start-instance.ts": {
-    "mtime": 1782099401.7803237,
-    "ast_hash": "1d8ecaef8f3f06e4ea07cd0c735935f2",
-    "semantic_hash": "1d8ecaef8f3f06e4ea07cd0c735935f2"
+    "mtime": 1782100802.6905174,
+    "ast_hash": "4454fe0dd70c6afac5ab11f0971b2d08",
+    "semantic_hash": "4454fe0dd70c6afac5ab11f0971b2d08"
   },
   "/Users/fliorko/Documents/PROJECTS/Insoftex/insoftex-lhremote/packages/cli/src/handlers/stop-instance.test.ts": {
-    "mtime": 1782099401.7804546,
-    "ast_hash": "0bc728657e8f0ac6f155f6555968c930",
-    "semantic_hash": "0bc728657e8f0ac6f155f6555968c930"
+    "mtime": 1782100724.6057394,
+    "ast_hash": "1f935263f1337c60a3d4ab99114a4ead",
+    "semantic_hash": "1f935263f1337c60a3d4ab99114a4ead"
   },
   "/Users/fliorko/Documents/PROJECTS/Insoftex/insoftex-lhremote/packages/cli/src/handlers/stop-instance.ts": {
-    "mtime": 1782099401.780563,
-    "ast_hash": "8134c4a7a34bb5b1216fb23f8fefbd55",
-    "semantic_hash": "8134c4a7a34bb5b1216fb23f8fefbd55"
+    "mtime": 1782100686.7515993,
+    "ast_hash": "2b6276ba7340a79d7fd73afc15d8f338",
+    "semantic_hash": "2b6276ba7340a79d7fd73afc15d8f338"
   },
   "/Users/fliorko/Documents/PROJECTS/Insoftex/insoftex-lhremote/packages/cli/src/handlers/testing/mock-helpers.ts": {
     "mtime": 1782099401.7806795,
@@ -830,14 +830,14 @@
     "semantic_hash": "ed6633dbe42bf648e6f694f8b73dd01e"
   },
   "/Users/fliorko/Documents/PROJECTS/Insoftex/insoftex-lhremote/packages/cli/src/program.test.ts": {
-    "mtime": 1782099401.781348,
-    "ast_hash": "9a4dcc9dd71342a48cd90bb7e7991b91",
-    "semantic_hash": "9a4dcc9dd71342a48cd90bb7e7991b91"
+    "mtime": 1782100802.8280764,
+    "ast_hash": "b81b73c3bf22d8e44e5af57edc3b0097",
+    "semantic_hash": "b81b73c3bf22d8e44e5af57edc3b0097"
   },
   "/Users/fliorko/Documents/PROJECTS/Insoftex/insoftex-lhremote/packages/cli/src/program.ts": {
-    "mtime": 1782099401.7815773,
-    "ast_hash": "0c6ea361d4f65cc5839982af2bcf3b05",
-    "semantic_hash": "0c6ea361d4f65cc5839982af2bcf3b05"
+    "mtime": 1782100668.8813965,
+    "ast_hash": "727d27b1d3464e2f671734413fc13449",
+    "semantic_hash": "727d27b1d3464e2f671734413fc13449"
   },
   "/Users/fliorko/Documents/PROJECTS/Insoftex/insoftex-lhremote/packages/cli/tsconfig.json": {
     "mtime": 1781913638.9458218,
@@ -860,9 +860,9 @@
     "semantic_hash": "4e512390d061546db2f0d354a1013f94"
   },
   "/Users/fliorko/Documents/PROJECTS/Insoftex/insoftex-lhremote/packages/core/src/cdp/client.integration.test.ts": {
-    "mtime": 1781913638.9464674,
-    "ast_hash": "57fcd72c4610de82bb0957aa26e74fa4",
-    "semantic_hash": "57fcd72c4610de82bb0957aa26e74fa4"
+    "mtime": 1782101130.2297976,
+    "ast_hash": "4c36bba88343a0684fa10319afdb338b",
+    "semantic_hash": "4c36bba88343a0684fa10319afdb338b"
   },
   "/Users/fliorko/Documents/PROJECTS/Insoftex/insoftex-lhremote/packages/core/src/cdp/client.test.ts": {
     "mtime": 1781913638.9465866,
@@ -875,9 +875,9 @@
     "semantic_hash": "8c101eda25457f5cd243b547155b39f4"
   },
   "/Users/fliorko/Documents/PROJECTS/Insoftex/insoftex-lhremote/packages/core/src/cdp/discovery.integration.test.ts": {
-    "mtime": 1781913638.9468606,
-    "ast_hash": "df8676a995f59903dc13074f58cda589",
-    "semantic_hash": "df8676a995f59903dc13074f58cda589"
+    "mtime": 1782101130.3588347,
+    "ast_hash": "8f9f4ce671e3c3d51b5feefd7be468ee",
+    "semantic_hash": "8f9f4ce671e3c3d51b5feefd7be468ee"
   },
   "/Users/fliorko/Documents/PROJECTS/Insoftex/insoftex-lhremote/packages/core/src/cdp/discovery.test.ts": {
     "mtime": 1781913638.946965,
@@ -915,9 +915,9 @@
     "semantic_hash": "7882d33105cf0bc5360e3bf8cabd43e1"
   },
   "/Users/fliorko/Documents/PROJECTS/Insoftex/insoftex-lhremote/packages/core/src/cdp/instance-discovery.integration.test.ts": {
-    "mtime": 1781913638.9474459,
-    "ast_hash": "177de5dae7c99526ba5c938c3805e2f0",
-    "semantic_hash": "177de5dae7c99526ba5c938c3805e2f0"
+    "mtime": 1782101130.4915187,
+    "ast_hash": "1ac752ffb1b2540247b39c9553532315",
+    "semantic_hash": "1ac752ffb1b2540247b39c9553532315"
   },
   "/Users/fliorko/Documents/PROJECTS/Insoftex/insoftex-lhremote/packages/core/src/cdp/instance-discovery.test.ts": {
     "mtime": 1781913638.9475691,
@@ -960,9 +960,9 @@
     "semantic_hash": "31758eabb9ab32eca3be343b22d09cd0"
   },
   "/Users/fliorko/Documents/PROJECTS/Insoftex/insoftex-lhremote/packages/core/src/cdp/testing/launch-chromium.ts": {
-    "mtime": 1781913638.9478264,
-    "ast_hash": "a75dccb1e6849c5f2dd1f4ab559baca3",
-    "semantic_hash": "a75dccb1e6849c5f2dd1f4ab559baca3"
+    "mtime": 1782101074.3127031,
+    "ast_hash": "1a5934330bbab68899f3592fd67ea91b",
+    "semantic_hash": "1a5934330bbab68899f3592fd67ea91b"
   },
   "/Users/fliorko/Documents/PROJECTS/Insoftex/insoftex-lhremote/packages/core/src/cdp/wait-for-post-load.test.ts": {
     "mtime": 1781913638.947972,
@@ -1070,9 +1070,9 @@
     "semantic_hash": "196d2da64e26eb9df5180f261e3d63fb"
   },
   "/Users/fliorko/Documents/PROJECTS/Insoftex/insoftex-lhremote/packages/core/src/db/repositories/action-budget.test.ts": {
-    "mtime": 1781913638.9503672,
-    "ast_hash": "c442f70ac766e80eeeda2b6a3c24df45",
-    "semantic_hash": "c442f70ac766e80eeeda2b6a3c24df45"
+    "mtime": 1782101066.9706497,
+    "ast_hash": "962beaba23ce474ead8cab5bc6ba9ae2",
+    "semantic_hash": "962beaba23ce474ead8cab5bc6ba9ae2"
   },
   "/Users/fliorko/Documents/PROJECTS/Insoftex/insoftex-lhremote/packages/core/src/db/repositories/action-budget.ts": {
     "mtime": 1781913638.9504697,
@@ -1195,9 +1195,9 @@
     "semantic_hash": "7f33f7202736db6c2b72414ef854521d"
   },
   "/Users/fliorko/Documents/PROJECTS/Insoftex/insoftex-lhremote/packages/core/src/linkedin/__tests__/dom-automation.integration.test.ts": {
-    "mtime": 1781913638.9537745,
-    "ast_hash": "af0f42ce04f47aadff115044447c7da0",
-    "semantic_hash": "af0f42ce04f47aadff115044447c7da0"
+    "mtime": 1782101130.6246,
+    "ast_hash": "1e33e0492bfb847f012c7ed5847ae4e1",
+    "semantic_hash": "1e33e0492bfb847f012c7ed5847ae4e1"
   },
   "/Users/fliorko/Documents/PROJECTS/Insoftex/insoftex-lhremote/packages/core/src/linkedin/dom-automation-mentions.test.ts": {
     "mtime": 1781913638.9538717,
@@ -3450,9 +3450,9 @@
     "semantic_hash": "8c49fc5188b6afa17b60cad8c7185d87"
   },
   "/Users/fliorko/Documents/PROJECTS/Insoftex/insoftex-lhremote/scripts/build-bundle.mjs": {
-    "mtime": 1782099401.823411,
-    "ast_hash": "20ccdba85b2bd07e021851084f5a5283",
-    "semantic_hash": "20ccdba85b2bd07e021851084f5a5283"
+    "mtime": 1782100668.7395208,
+    "ast_hash": "01f4628cdf5779f839204c98f6916706",
+    "semantic_hash": "01f4628cdf5779f839204c98f6916706"
   },
   "/Users/fliorko/Documents/PROJECTS/Insoftex/insoftex-lhremote/scripts/check-licenses.js": {
     "mtime": 1781913638.9935308,
@@ -3560,9 +3560,9 @@
     "semantic_hash": "c5c1549d5f53d8aa935608a80d127578"
   },
   "/Users/fliorko/Documents/PROJECTS/Insoftex/insoftex-lhremote/README.md": {
-    "mtime": 1782099401.7388437,
-    "ast_hash": "5482ec6bf832e5d56eb6d6df322a71c7",
-    "semantic_hash": "5482ec6bf832e5d56eb6d6df322a71c7"
+    "mtime": 1782100753.4186797,
+    "ast_hash": "b74c638ad0f84ae22364d41c8257d5ee",
+    "semantic_hash": "b74c638ad0f84ae22364d41c8257d5ee"
   },
   "/Users/fliorko/Documents/PROJECTS/Insoftex/insoftex-lhremote/ROADMAP.md": {
     "mtime": 1781913638.9262483,
@@ -3635,9 +3635,9 @@
     "semantic_hash": "54530bdd6447fc1f7b58588173f06144"
   },
   "/Users/fliorko/Documents/PROJECTS/Insoftex/insoftex-lhremote/docs/packaging.md": {
-    "mtime": 1782099401.7600505,
-    "ast_hash": "086a0961a14f1cb3ae3d8e4fccb44cba",
-    "semantic_hash": "086a0961a14f1cb3ae3d8e4fccb44cba"
+    "mtime": 1782100701.8257983,
+    "ast_hash": "c9b2167c6a096d54125fd801d2d18642",
+    "semantic_hash": "c9b2167c6a096d54125fd801d2d18642"
   },
   "/Users/fliorko/Documents/PROJECTS/Insoftex/insoftex-lhremote/docs/rate-limiting.md": {
     "mtime": 1781913638.9271665,
@@ -3670,13 +3670,13 @@
     "semantic_hash": "2d94b4efb078a3f2849d521b1b4efd84"
   },
   "/Users/fliorko/Documents/PROJECTS/Insoftex/insoftex-lhremote/pnpm-workspace.yaml": {
-    "mtime": 1782099401.8233275,
-    "ast_hash": "5806728800ae9c9616121b9ddba22ae7",
-    "semantic_hash": "5806728800ae9c9616121b9ddba22ae7"
+    "mtime": 1782100775.3583963,
+    "ast_hash": "f1bc3bf52d8300ba1ba9d2cf4abeb736",
+    "semantic_hash": "f1bc3bf52d8300ba1ba9d2cf4abeb736"
   },
   "/Users/fliorko/Documents/PROJECTS/Insoftex/insoftex-lhremote/skills/lhremote-mcp/SKILL.md": {
-    "mtime": 1782099518.3960116,
-    "ast_hash": "32a0c7b18dbe1bbd7d9ae362c2470c7d",
-    "semantic_hash": "32a0c7b18dbe1bbd7d9ae362c2470c7d"
+    "mtime": 1782100702.1041572,
+    "ast_hash": "d328a10db63c1720b852150b14952531",
+    "semantic_hash": "d328a10db63c1720b852150b14952531"
   }
 }
