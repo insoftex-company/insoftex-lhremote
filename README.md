@@ -34,7 +34,7 @@ lhremote lets AI assistants (Claude, etc.) control LinkedHelper through the [Mod
 npm install -g @insoftex/lhremote        # or: npx @insoftex/lhremote --help
 lhremote launch-app            # start LinkedHelper with remote debugging
 lhremote list-accounts         # find your LinkedIn account ID
-lhremote start-instance        # start an instance (auto-selects single account)
+lhremote start-instance        # start an instance (auto-selects when exactly one account exists)
 lhremote campaign-create --file my-campaign.yaml   # create a campaign
 lhremote import-people-from-urls <campaignId> --urls "https://www.linkedin.com/in/..."
 lhremote campaign-start <campaignId> --person-ids <id1,id2,...>
@@ -77,7 +77,7 @@ Add to your Claude Desktop configuration (`claude_desktop_config.json`):
 }
 ```
 
-Once configured, Claude can use all 78 tools directly. A typical workflow:
+Once configured, Claude can use the registered MCP tools directly. A typical workflow:
 
 1. **`find-app`** — Detect a running LinkedHelper instance (or **`launch-app`** to start one)
 2. **`list-accounts`** — See available LinkedIn accounts
@@ -107,8 +107,8 @@ On Windows, `launch-app` also restores and focuses the LinkedHelper launcher win
 
 ```sh
 lhremote list-accounts [--cdp-port <port>] [--json]
-lhremote start-instance <accountId> [--cdp-port <port>]
-lhremote stop-instance <accountId> [--cdp-port <port>]
+lhremote start-instance [accountId] [--cdp-port <port>]
+lhremote stop-instance [accountId] [--cdp-port <port>]
 lhremote restart-instance <accountId> [--cdp-port <port>] [--force]
 lhremote check-status [--cdp-port <port>] [--json]
 ```

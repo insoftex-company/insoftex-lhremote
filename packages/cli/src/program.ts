@@ -196,7 +196,7 @@ Examples:
   program
     .command("start-instance")
     .description("Start a LinkedHelper instance")
-    .argument("<accountId>", "Account ID to start", parsePositiveInt)
+    .argument("[accountId]", "Account ID to start (auto-selects when exactly one account exists)", parsePositiveInt)
     .option("--cdp-port <port>", "CDP debugging port (auto-discovered when omitted)", parsePositiveInt)
     .option("--cdp-host <host>", "CDP host (default: 127.0.0.1)")
     .option("--allow-remote", "SECURITY: allow non-loopback CDP connections (enables remote code execution on target)")
@@ -205,7 +205,7 @@ Examples:
   program
     .command("stop-instance")
     .description("Stop a LinkedHelper instance")
-    .argument("<accountId>", "Account ID to stop", parsePositiveInt)
+    .argument("[accountId]", "Account ID to stop (auto-selects when exactly one account exists)", parsePositiveInt)
     .option("--cdp-port <port>", "CDP debugging port (auto-discovered when omitted)", parsePositiveInt)
     .option("--cdp-host <host>", "CDP host (default: 127.0.0.1)")
     .option("--allow-remote", "SECURITY: allow non-loopback CDP connections (enables remote code execution on target)")

@@ -17,10 +17,11 @@ describe("instance-discovery packages (integration)", () => {
   }, 30_000);
 
   afterAll(async () => {
-    await chromium.close();
+    await chromium?.close();
   });
 
   it("portToPid should find the Chromium process by port", async () => {
+    expect(chromium).toBeDefined();
     const pid = await portToPid({ port: chromium.port, host: "*" });
 
     expect(pid).toEqual(expect.any(Number));
@@ -28,6 +29,7 @@ describe("instance-discovery packages (integration)", () => {
   });
 
   it("psList should include the Chromium process with correct ppid", async () => {
+    expect(chromium).toBeDefined();
     const processes = await psList();
     const chromiumProc = processes.find(
       (p) => p.pid === chromium.process.pid,
@@ -38,6 +40,7 @@ describe("instance-discovery packages (integration)", () => {
   });
 
   it("pidToPorts should include the Chromium CDP port", async () => {
+    expect(chromium).toBeDefined();
     const pid = await portToPid({ port: chromium.port, host: "*" });
     if (pid === undefined) {
       throw new Error("Expected portToPid to return a PID");

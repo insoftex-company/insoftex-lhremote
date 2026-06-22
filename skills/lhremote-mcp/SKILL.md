@@ -89,8 +89,8 @@ ensure-instances(accountIds[])  # serialized starts + settle, skips already-runn
 ```
 
 Key rules:
-- `start-instance` auto-selects the account only when one exists; pass `accountId` when multiple are configured.
-- Lifecycle ops (`start`/`stop`/`restart`/`launch`/`quit`, and `list-accounts`) are **launcher operations** — they go through the single shared launcher and require its CDP reachable. They are **serialized internally with settle barriers**; expect a brief launcher "wobble" during them that self-recovers (~30s).
+- `start-instance` and `stop-instance` auto-select the account only when one exists; pass `accountId` when multiple are configured.
+- Lifecycle ops (`start`/`stop`/`restart`/`launch`/`quit`, and `list-accounts`) are **launcher operations** — they go through the single shared launcher and require its CDP reachable. Instance start/stop/restart flows are **serialized internally with settle barriers**; expect a brief launcher "wobble" during them that self-recovers (~30s).
 - `restart-instance` and `stop-instance` affect **only the target account's process**. Other instances' processes and campaigns keep running; their CDP may blip briefly, then recovers.
 - Confirm true state with `check-status` (process inspection) — **do not** trust the immediate `start`/`stop` return payload, which can report phantom/duplicate ports.
 

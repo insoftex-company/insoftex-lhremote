@@ -163,13 +163,13 @@ describe("createProgram", () => {
   });
 
   describe("start-instance", () => {
-    it("requires accountId argument", () => {
+    it("accepts an optional accountId argument", () => {
       const program = createProgram();
       const cmd = program.commands.find((c) => c.name() === "start-instance");
       const args = cmd?.registeredArguments;
 
       expect(args).toHaveLength(1);
-      expect(args?.[0]?.required).toBe(true);
+      expect(args?.[0]?.required).toBe(false);
     });
 
     it("rejects non-numeric accountId", async () => {

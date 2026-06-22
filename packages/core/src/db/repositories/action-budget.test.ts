@@ -7,6 +7,13 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import type { DatabaseClient } from "../client.js";
 import { ActionBudgetRepository } from "./action-budget.js";
 
+function toSqliteLocalDate(date: Date): string {
+  const year = date.getFullYear().toString().padStart(4, "0");
+  const month = (date.getMonth() + 1).toString().padStart(2, "0");
+  const day = date.getDate().toString().padStart(2, "0");
+  return `${year}-${month}-${day}`;
+}
+
 function createBudgetDb(): DatabaseSync {
   const db = new DatabaseSync(":memory:");
 
@@ -66,7 +73,7 @@ function createBudgetDb(): DatabaseSync {
   `);
 
   // Insert today's results
-  const today = new Date().toISOString().split("T")[0] ?? "";
+  const today = toSqliteLocalDate(new Date());
   db.exec(`
     INSERT INTO action_results (action_version_id, person_id, result, created_at)
     VALUES
@@ -77,7 +84,7 @@ function createBudgetDb(): DatabaseSync {
   `);
 
   // Insert yesterday's results (should NOT be counted)
-  const yesterday = new Date(Date.now() - 86_400_000).toISOString().split("T")[0] ?? "";
+  const yesterday = toSqliteLocalDate(new Date(Date.now() - 86_400_000));
   db.exec(`
     INSERT INTO action_results (action_version_id, person_id, result, created_at)
     VALUES

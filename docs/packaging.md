@@ -39,10 +39,10 @@ The staging directory (`dist-mcpb-staging/`) must contain exactly two files:
 ## Step 3 — Pack the `.mcpb` file
 
 ```
-npx @anthropic-ai/mcpb pack dist-mcpb-staging dist-mcpb/lhremote-0.21.0.mcpb
+npx @anthropic-ai/mcpb pack dist-mcpb-staging dist-mcpb/lhremote-0.22.0.mcpb
 ```
 
-Replace `0.21.0` with the current version string if needed.  The output file is a ZIP archive (`Content-Type: application/zip`) that Claude Desktop unpacks at install time.
+Replace `0.22.0` with the current version string if needed.  The output file is a ZIP archive (`Content-Type: application/zip`) that Claude Desktop unpacks at install time.
 
 ## Step 4 — Install and restart Claude Desktop
 
@@ -63,6 +63,8 @@ Replace `0.21.0` with the current version string if needed.  The output file is 
 `${__dirname}` is a template variable that Claude Desktop resolves to the **extension install directory** at runtime (e.g. `%APPDATA%\Claude\Claude Extensions\…`).  It is **not** a Node.js `__dirname`.
 
 **Never point `args` at the working-tree path** (`C:\Users\…\insoftex-lhremote\…`).  That path is only valid on the developer machine and breaks on every other install.  The packed bundle is the only portable artifact.
+
+Do not hard-code `LINKEDHELPER_PATH` in the manifest. The server auto-detects common LinkedHelper install locations on Windows and still allows users to set `LINKEDHELPER_PATH` in their own environment for non-standard installs.
 
 ## Quick rebuild checklist
 

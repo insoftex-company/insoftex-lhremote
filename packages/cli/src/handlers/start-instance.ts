@@ -2,19 +2,20 @@
 // Copyright (C) 2026 Oleksii PELYKH
 
 import {
+  type Account,
   errorMessage,
   LauncherService,
   resolveAppPort,
   startInstanceWithRecovery,
+  withLauncherQueue,
+  withLauncherRecovery,
 } from "@insoftex/lhremote-core";
 
 /** Handle the {@link https://github.com/insoftex-company/insoftex-lhremote#account--instance | start-instance} CLI command. */
 export async function handleStartInstance(
-  accountIdArg: string,
+  accountIdArg: string | undefined,
   options: { cdpPort?: number; cdpHost?: string; allowRemote?: boolean },
 ): Promise<void> {
-  const accountId = Number(accountIdArg);
-
   let cdpPort: number;
   try {
     cdpPort = options.cdpPort ?? await resolveAppPort("launcher");
@@ -40,10 +41,36 @@ export async function handleStartInstance(
   }
 
   try {
-    const outcome = await startInstanceWithRecovery(
-      launcher,
-      accountId,
-      cdpPort,
+    let accountId = accountIdArg === undefined ? undefined : Number(accountIdArg);
+
+    if (accountId === undefined) {
+      const { result: accounts } = await withLauncherRecovery(
+        launcher,
+        () => launcher.listAccounts(),
+      );
+
+      if (accounts.length === 0) {
+        process.stderr.write("No accounts found.\n");
+        process.exitCode = 1;
+        return;
+      }
+      if (accounts.length > 1) {
+        process.stderr.write(
+          "Multiple accounts found. Specify accountId. Use list-accounts to see available accounts.\n",
+        );
+        process.exitCode = 1;
+        return;
+      }
+      accountId = (accounts[0] as Account).id;
+    }
+
+    const { result: outcome } = await withLauncherQueue(
+      () =>
+        withLauncherRecovery(
+          launcher,
+          () => startInstanceWithRecovery(launcher, accountId as number, cdpPort),
+        ),
+      { type: "start", accountId: accountId as number, launcherPort: cdpPort },
     );
 
     if (outcome.status === "timeout") {

@@ -10,6 +10,11 @@ vi.mock("@insoftex/lhremote-core", async (importOriginal) => {
     LauncherService: vi.fn(),
     resolveAppPort: vi.fn(),
     startInstanceWithRecovery: vi.fn(),
+    withLauncherQueue: vi.fn(async (op: () => Promise<unknown>) => op()),
+    withLauncherRecovery: vi.fn(async (_launcher: unknown, op: () => Promise<unknown>) => ({
+      result: await op(),
+      launcherRecovered: false,
+    })),
   };
 });
 
@@ -18,6 +23,7 @@ import {
   LinkedHelperNotRunningError,
   resolveAppPort,
   startInstanceWithRecovery,
+  withLauncherQueue,
 } from "@insoftex/lhremote-core";
 
 import { handleStartInstance } from "./start-instance.js";
@@ -52,6 +58,10 @@ describe("handleStartInstance", () => {
 
     expect(stdoutSpy).toHaveBeenCalledWith(
       "Instance started for account 42 on CDP port 55123\n",
+    );
+    expect(withLauncherQueue).toHaveBeenCalledWith(
+      expect.any(Function),
+      { type: "start", accountId: 42, launcherPort: 9222 },
     );
     expect(process.exitCode).toBeUndefined();
   });
@@ -141,6 +151,43 @@ describe("handleStartInstance", () => {
     expect(process.exitCode).toBe(1);
     expect(stderrSpy).toHaveBeenCalledWith(
       "Instance started but failed to initialize within timeout.\n",
+    );
+  });
+
+  it("auto-selects a single account when no account ID is supplied", async () => {
+    const stdoutSpy = vi
+      .spyOn(process.stdout, "write")
+      .mockReturnValue(true);
+
+    mockLauncher({
+      listAccounts: vi.fn().mockResolvedValue([{ id: 77 }]),
+    });
+    vi.mocked(startInstanceWithRecovery).mockResolvedValue({
+      status: "started",
+      port: 55123,
+    });
+
+    await handleStartInstance(undefined, {});
+
+    expect(stdoutSpy).toHaveBeenCalledWith(
+      "Instance started for account 77 on CDP port 55123\n",
+    );
+  });
+
+  it("requires an explicit account ID when multiple accounts exist", async () => {
+    const stderrSpy = vi
+      .spyOn(process.stderr, "write")
+      .mockReturnValue(true);
+
+    mockLauncher({
+      listAccounts: vi.fn().mockResolvedValue([{ id: 77 }, { id: 88 }]),
+    });
+
+    await handleStartInstance(undefined, {});
+
+    expect(process.exitCode).toBe(1);
+    expect(stderrSpy).toHaveBeenCalledWith(
+      "Multiple accounts found. Specify accountId. Use list-accounts to see available accounts.\n",
     );
   });
 });

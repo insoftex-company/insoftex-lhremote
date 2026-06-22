@@ -54,17 +54,18 @@ describe("DOM automation (integration)", () => {
   }, 30_000);
 
   afterAll(async () => {
-    await chromium.close();
+    await chromium?.close();
   });
 
   beforeEach(async () => {
+    expect(chromium).toBeDefined();
     client = new CDPClient(chromium.port, { timeout: BEFORE_EACH_TIMEOUT });
     await withTimeout(client.connect(), BEFORE_EACH_TIMEOUT, "client.connect()");
     await withTimeout(resetBody(client), BEFORE_EACH_TIMEOUT, "resetBody()");
   });
 
   afterEach(() => {
-    client.disconnect();
+    client?.disconnect();
   });
 
   // ── waitForElement ──────────────────────────────────────────────

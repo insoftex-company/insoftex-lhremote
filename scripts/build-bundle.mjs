@@ -42,7 +42,7 @@ const result = await build({
   bundle: true,
   platform: "node",
   format: "esm",
-  target: ["node18"],
+  target: ["node24"],
   outfile,
   // Keep all Node.js built-ins external — they are resolved at runtime.
   external: ["node:*"],

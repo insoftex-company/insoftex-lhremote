@@ -18,11 +18,11 @@ describe("CDPClient (integration)", () => {
   }, 30_000);
 
   afterAll(async () => {
-    await chromium.close();
+    await chromium?.close();
   });
 
   afterEach(() => {
-    client.disconnect();
+    client?.disconnect();
   });
 
   describe("connect", () => {

@@ -2,6 +2,7 @@
 // Copyright (C) 2026 Oleksii PELYKH
 
 import { type ChildProcess, spawn } from "node:child_process";
+import { existsSync } from "node:fs";
 import { createServer } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -62,6 +63,12 @@ export async function launchChromium(options?: {
   );
 
   const executablePath = chromium.executablePath();
+  if (!existsSync(executablePath)) {
+    throw new Error(
+      `Playwright Chromium executable was not found at ${executablePath}. Run pnpm exec playwright install chromium before CDP integration tests.`,
+    );
+  }
+
   const child = spawn(
     executablePath,
     [
@@ -75,11 +82,18 @@ export async function launchChromium(options?: {
     ],
     { stdio: "ignore" },
   );
+  let spawnError: Error | undefined;
+  child.once("error", (error) => {
+    spawnError = error;
+  });
 
   // Wait for CDP endpoint to become available
   const deadline = Date.now() + timeout;
   let ready = false;
   while (Date.now() < deadline) {
+    if (spawnError !== undefined) {
+      throw spawnError;
+    }
     try {
       const targets = await discoverTargets(port);
       if (targets.length > 0) {
@@ -93,7 +107,9 @@ export async function launchChromium(options?: {
   }
 
   if (!ready) {
-    child.kill("SIGKILL");
+    if (child.exitCode === null) {
+      child.kill("SIGKILL");
+    }
     throw new Error(
       `Chromium CDP endpoint did not become available on port ${port.toString()} within ${timeout.toString()}ms`,
     );

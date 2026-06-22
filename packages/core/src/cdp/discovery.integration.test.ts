@@ -16,16 +16,18 @@ describe("discoverTargets (integration)", () => {
   }, 30_000);
 
   afterAll(async () => {
-    await chromium.close();
+    await chromium?.close();
   });
 
   it("should return targets from a real Chromium instance", async () => {
+    expect(chromium).toBeDefined();
     const targets = await discoverTargets(chromium.port);
 
     expect(targets.length).toBeGreaterThan(0);
   });
 
   it("should return targets with expected shape", async () => {
+    expect(chromium).toBeDefined();
     const targets = await discoverTargets(chromium.port);
     const page = targets.find((t) => t.type === "page");
 

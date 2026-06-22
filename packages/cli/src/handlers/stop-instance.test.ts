@@ -9,6 +9,12 @@ vi.mock("@insoftex/lhremote-core", async (importOriginal) => {
     ...actual,
     LauncherService: vi.fn(),
     resolveAppPort: vi.fn(),
+    waitForInstanceShutdown: vi.fn(),
+    withLauncherQueue: vi.fn(async (op: () => Promise<unknown>) => op()),
+    withLauncherRecovery: vi.fn(async (_launcher: unknown, op: () => Promise<unknown>) => ({
+      result: await op(),
+      launcherRecovered: false,
+    })),
   };
 });
 
@@ -16,6 +22,8 @@ import {
   LauncherService,
   LinkedHelperNotRunningError,
   resolveAppPort,
+  waitForInstanceShutdown,
+  withLauncherQueue,
 } from "@insoftex/lhremote-core";
 
 import { handleStopInstance } from "./stop-instance.js";
@@ -46,6 +54,11 @@ describe("handleStopInstance", () => {
 
     expect(stdoutSpy).toHaveBeenCalledWith(
       "Instance stopped for account 42\n",
+    );
+    expect(waitForInstanceShutdown).toHaveBeenCalledWith(9222);
+    expect(withLauncherQueue).toHaveBeenCalledWith(
+      expect.any(Function),
+      { type: "stop", launcherPort: 9222 },
     );
     expect(process.exitCode).toBeUndefined();
   });
@@ -94,5 +107,39 @@ describe("handleStopInstance", () => {
     await handleStopInstance("42", { cdpPort: 4567 });
 
     expect(LauncherService).toHaveBeenCalledWith(4567, {});
+  });
+
+  it("auto-selects a single account when no account ID is supplied", async () => {
+    const stdoutSpy = vi
+      .spyOn(process.stdout, "write")
+      .mockReturnValue(true);
+
+    mockLauncher({
+      listAccounts: vi.fn().mockResolvedValue([{ id: 77 }]),
+      stopInstance: vi.fn().mockResolvedValue(undefined),
+    });
+
+    await handleStopInstance(undefined, {});
+
+    expect(stdoutSpy).toHaveBeenCalledWith(
+      "Instance stopped for account 77\n",
+    );
+  });
+
+  it("requires an explicit account ID when multiple accounts exist", async () => {
+    const stderrSpy = vi
+      .spyOn(process.stderr, "write")
+      .mockReturnValue(true);
+
+    mockLauncher({
+      listAccounts: vi.fn().mockResolvedValue([{ id: 77 }, { id: 88 }]),
+    });
+
+    await handleStopInstance(undefined, {});
+
+    expect(process.exitCode).toBe(1);
+    expect(stderrSpy).toHaveBeenCalledWith(
+      "Multiple accounts found. Specify accountId. Use list-accounts to see available accounts.\n",
+    );
   });
 });
