@@ -36,7 +36,7 @@ Organize tests into three tiers with increasing integration scope and decreasing
 
 4. **SQLite test fixtures** — integration tests for database repositories use `createFixture()` / `openFixture()` helpers that create temporary database files with known data, avoiding dependency on real LinkedHelper databases.
 
-5. **Fake timers for time-dependent logic** — unit tests for polling, timeouts, and reconnection use `vi.useFakeTimers()` with explicit timer advancement rather than real-time waits.
+5. **Fake timers for time-dependent logic** — unit tests for polling and timeouts use `vi.useFakeTimers()` with explicit timer advancement rather than real-time waits.
 
 ## Alternatives Considered
 

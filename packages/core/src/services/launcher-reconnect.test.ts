@@ -20,12 +20,15 @@ vi.mock("../cdp/client.js", () => ({
   CDPClient: vi.fn(),
 }));
 
+vi.mock("../utils/delay.js", () => ({ delay: vi.fn().mockResolvedValue(undefined) }));
+
 // ---------------------------------------------------------------------------
 // Imports (after mock declarations so hoisting works)
 // ---------------------------------------------------------------------------
 
 import { resolveAppPort, findApp } from "../cdp/app-discovery.js";
 import { CDPClient } from "../cdp/client.js";
+import { CDPConnectionError } from "../cdp/errors.js";
 import { LauncherService } from "./launcher.js";
 import {
   LinkedHelperNotRunningError,
@@ -183,5 +186,36 @@ describe("LauncherService.reconnect", () => {
 
     expect(mockResolveAppPort).toHaveBeenCalledWith("launcher", 12_000, undefined);
     vi.unstubAllEnvs();
+  });
+
+  it("retries after CDPConnectionError from connect() and succeeds on the second attempt", async () => {
+    mockResolveAppPort.mockResolvedValue(50000);
+
+    // First CDPClient: connect() throws CDPConnectionError (target momentarily taken).
+    // Second CDPClient: connect() succeeds and bindLauncherClient passes.
+    MockCDPClient
+      .mockImplementationOnce(function() {
+        return {
+          connect: vi.fn().mockRejectedValue(
+            new CDPConnectionError("Target has no webSocketDebuggerUrl (another debugger may be attached)"),
+          ),
+          disconnect: vi.fn(),
+          evaluate: vi.fn(),
+          send: vi.fn().mockResolvedValue(undefined),
+          on: vi.fn(),
+          off: vi.fn(),
+          isConnected: false,
+        } as unknown as CDPClient;
+      });
+
+    // Second call: use the normal success path
+    makeMockCDPClient({ isLauncher: true });
+
+    const launcher = new LauncherService(9222);
+    await launcher.reconnect();
+
+    // Two CDPClient instances created: one that failed + one that succeeded
+    expect(MockCDPClient).toHaveBeenCalledTimes(2);
+    expect(launcher.isConnected).toBe(true);
   });
 });
