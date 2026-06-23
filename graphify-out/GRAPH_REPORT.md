@@ -1,47 +1,42 @@
-# Graph Report - insoftex-lhremote  (2026-06-23)
+# Graph Report - .  (2026-06-22)
 
 ## Corpus Check
-- 738 files · ~862,735 words
+- 748 files · ~862,735 words
 - Verdict: corpus is large enough that graph structure adds value.
 
 ## Summary
-- 6085 nodes · 15541 edges · 240 communities (195 shown, 45 thin omitted)
-- Extraction: 100% EXTRACTED · 0% INFERRED · 0% AMBIGUOUS · INFERRED: 17 edges (avg confidence: 0.81)
-- Token cost: 0 input · 0 output
-
-## Graph Freshness
-- Built from commit: `702ec472`
-- Run `git rev-parse HEAD` and compare to check if the graph is stale.
-- Run `graphify update .` after code changes (no API cost).
+- 6039 nodes · 15539 edges · 252 communities (209 shown, 43 thin omitted)
+- Extraction: 100% EXTRACTED · 0% INFERRED · 0% AMBIGUOUS · INFERRED: 16 edges (avg confidence: 0.81)
+- Token cost: 37,045 input · 1,926 output
 
 ## Community Hubs (Navigation)
-- [[_COMMUNITY_Bundle Build Artifacts|Bundle Build Artifacts]]
-- [[_COMMUNITY_Staging Build Artifacts|Staging Build Artifacts]]
-- [[_COMMUNITY_Bundle Tool Functions|Bundle Tool Functions]]
-- [[_COMMUNITY_Staging Tool Functions|Staging Tool Functions]]
-- [[_COMMUNITY_Bundle Utility Functions|Bundle Utility Functions]]
-- [[_COMMUNITY_Staging Utility Functions|Staging Utility Functions]]
+- [[_COMMUNITY_MCP Bundle (dist)|MCP Bundle (dist)]]
+- [[_COMMUNITY_MCP Bundle (staging)|MCP Bundle (staging)]]
+- [[_COMMUNITY_Bundle Operations|Bundle Operations]]
+- [[_COMMUNITY_Bundle Utilities|Bundle Utilities]]
+- [[_COMMUNITY_Bundle Encoding|Bundle Encoding]]
+- [[_COMMUNITY_Staging Encoding|Staging Encoding]]
+- [[_COMMUNITY_MCP Helpers & Types|MCP Helpers & Types]]
+- [[_COMMUNITY_Staging Utilities|Staging Utilities]]
+- [[_COMMUNITY_DB Client & Operations|DB Client & Operations]]
+- [[_COMMUNITY_Staging Operations|Staging Operations]]
+- [[_COMMUNITY_Operation IO Types|Operation I/O Types]]
+- [[_COMMUNITY_Bundle Launcher|Bundle Launcher]]
+- [[_COMMUNITY_Staging Launcher|Staging Launcher]]
+- [[_COMMUNITY_Testing Infrastructure|Testing Infrastructure]]
 - [[_COMMUNITY_Campaign Operations|Campaign Operations]]
-- [[_COMMUNITY_Collection Operations|Collection Operations]]
-- [[_COMMUNITY_Bundle Connection Mgmt|Bundle Connection Mgmt]]
-- [[_COMMUNITY_Staging Connection Mgmt|Staging Connection Mgmt]]
-- [[_COMMUNITY_E2E Testing Helpers|E2E Testing Helpers]]
-- [[_COMMUNITY_CDP App Discovery|CDP App Discovery]]
-- [[_COMMUNITY_Database Client Layer|Database Client Layer]]
-- [[_COMMUNITY_Bundle Server Setup|Bundle Server Setup]]
-- [[_COMMUNITY_Staging Server Setup|Staging Server Setup]]
-- [[_COMMUNITY_MCP Tool Server|MCP Tool Server]]
-- [[_COMMUNITY_Message & InMail|Message & InMail]]
-- [[_COMMUNITY_Instance Lifecycle|Instance Lifecycle]]
-- [[_COMMUNITY_Error Handling|Error Handling]]
-- [[_COMMUNITY_Rate Limiting|Rate Limiting]]
-- [[_COMMUNITY_LinkedIn Profile|LinkedIn Profile]]
-- [[_COMMUNITY_LinkedIn Feed & Posts|LinkedIn Feed & Posts]]
-- [[_COMMUNITY_Account Resolution|Account Resolution]]
-- [[_COMMUNITY_LinkedIn Messaging|LinkedIn Messaging]]
-- [[_COMMUNITY_Profile Navigation|Profile Navigation]]
-- [[_COMMUNITY_LinkedIn Search|LinkedIn Search]]
-- [[_COMMUNITY_LinkedIn URL Building|LinkedIn URL Building]]
+- [[_COMMUNITY_Database Client|Database Client]]
+- [[_COMMUNITY_Bundle MCP Server|Bundle MCP Server]]
+- [[_COMMUNITY_Staging MCP Server|Staging MCP Server]]
+- [[_COMMUNITY_Staging URL Builders|Staging URL Builders]]
+- [[_COMMUNITY_Bundle Error Helpers|Bundle Error Helpers]]
+- [[_COMMUNITY_Community 20|Community 20]]
+- [[_COMMUNITY_Community 21|Community 21]]
+- [[_COMMUNITY_Community 22|Community 22]]
+- [[_COMMUNITY_Community 23|Community 23]]
+- [[_COMMUNITY_Community 24|Community 24]]
+- [[_COMMUNITY_Community 25|Community 25]]
+- [[_COMMUNITY_Community 26|Community 26]]
 - [[_COMMUNITY_Community 27|Community 27]]
 - [[_COMMUNITY_Community 28|Community 28]]
 - [[_COMMUNITY_Community 29|Community 29]]
@@ -131,6 +126,7 @@
 - [[_COMMUNITY_Community 113|Community 113]]
 - [[_COMMUNITY_Community 114|Community 114]]
 - [[_COMMUNITY_Community 115|Community 115]]
+- [[_COMMUNITY_Community 116|Community 116]]
 - [[_COMMUNITY_Community 117|Community 117]]
 - [[_COMMUNITY_Community 118|Community 118]]
 - [[_COMMUNITY_Community 119|Community 119]]
@@ -157,6 +153,7 @@
 - [[_COMMUNITY_Community 140|Community 140]]
 - [[_COMMUNITY_Community 141|Community 141]]
 - [[_COMMUNITY_Community 142|Community 142]]
+- [[_COMMUNITY_Community 143|Community 143]]
 - [[_COMMUNITY_Community 144|Community 144]]
 - [[_COMMUNITY_Community 145|Community 145]]
 - [[_COMMUNITY_Community 146|Community 146]]
@@ -170,6 +167,7 @@
 - [[_COMMUNITY_Community 154|Community 154]]
 - [[_COMMUNITY_Community 155|Community 155]]
 - [[_COMMUNITY_Community 156|Community 156]]
+- [[_COMMUNITY_Community 157|Community 157]]
 - [[_COMMUNITY_Community 158|Community 158]]
 - [[_COMMUNITY_Community 159|Community 159]]
 - [[_COMMUNITY_Community 160|Community 160]]
@@ -178,16 +176,44 @@
 - [[_COMMUNITY_Community 163|Community 163]]
 - [[_COMMUNITY_Community 164|Community 164]]
 - [[_COMMUNITY_Community 165|Community 165]]
+- [[_COMMUNITY_Community 167|Community 167]]
+- [[_COMMUNITY_Community 168|Community 168]]
 - [[_COMMUNITY_Community 169|Community 169]]
+- [[_COMMUNITY_Community 170|Community 170]]
 - [[_COMMUNITY_Community 171|Community 171]]
 - [[_COMMUNITY_Community 172|Community 172]]
 - [[_COMMUNITY_Community 173|Community 173]]
 - [[_COMMUNITY_Community 174|Community 174]]
 - [[_COMMUNITY_Community 175|Community 175]]
 - [[_COMMUNITY_Community 176|Community 176]]
-- [[_COMMUNITY_Community 207|Community 207]]
-- [[_COMMUNITY_Community 208|Community 208]]
-- [[_COMMUNITY_Community 209|Community 209]]
+- [[_COMMUNITY_Community 177|Community 177]]
+- [[_COMMUNITY_Community 178|Community 178]]
+- [[_COMMUNITY_Community 179|Community 179]]
+- [[_COMMUNITY_Community 180|Community 180]]
+- [[_COMMUNITY_Community 181|Community 181]]
+- [[_COMMUNITY_Community 182|Community 182]]
+- [[_COMMUNITY_Community 183|Community 183]]
+- [[_COMMUNITY_Community 184|Community 184]]
+- [[_COMMUNITY_Community 185|Community 185]]
+- [[_COMMUNITY_Community 186|Community 186]]
+- [[_COMMUNITY_Community 187|Community 187]]
+- [[_COMMUNITY_Community 188|Community 188]]
+- [[_COMMUNITY_Community 190|Community 190]]
+- [[_COMMUNITY_Community 191|Community 191]]
+- [[_COMMUNITY_Community 192|Community 192]]
+- [[_COMMUNITY_Community 193|Community 193]]
+- [[_COMMUNITY_Community 194|Community 194]]
+- [[_COMMUNITY_Community 195|Community 195]]
+- [[_COMMUNITY_Community 196|Community 196]]
+- [[_COMMUNITY_Community 197|Community 197]]
+- [[_COMMUNITY_Community 198|Community 198]]
+- [[_COMMUNITY_Community 200|Community 200]]
+- [[_COMMUNITY_Community 201|Community 201]]
+- [[_COMMUNITY_Community 202|Community 202]]
+- [[_COMMUNITY_Community 203|Community 203]]
+- [[_COMMUNITY_Community 204|Community 204]]
+- [[_COMMUNITY_Community 205|Community 205]]
+- [[_COMMUNITY_Community 206|Community 206]]
 - [[_COMMUNITY_Community 210|Community 210]]
 - [[_COMMUNITY_Community 211|Community 211]]
 - [[_COMMUNITY_Community 212|Community 212]]
@@ -195,29 +221,9 @@
 - [[_COMMUNITY_Community 214|Community 214]]
 - [[_COMMUNITY_Community 215|Community 215]]
 - [[_COMMUNITY_Community 216|Community 216]]
-- [[_COMMUNITY_Community 217|Community 217]]
-- [[_COMMUNITY_Community 218|Community 218]]
-- [[_COMMUNITY_Community 219|Community 219]]
-- [[_COMMUNITY_Community 220|Community 220]]
 - [[_COMMUNITY_Community 221|Community 221]]
 - [[_COMMUNITY_Community 222|Community 222]]
-- [[_COMMUNITY_Community 223|Community 223]]
 - [[_COMMUNITY_Community 224|Community 224]]
-- [[_COMMUNITY_Community 225|Community 225]]
-- [[_COMMUNITY_Community 226|Community 226]]
-- [[_COMMUNITY_Community 227|Community 227]]
-- [[_COMMUNITY_Community 228|Community 228]]
-- [[_COMMUNITY_Community 229|Community 229]]
-- [[_COMMUNITY_Community 230|Community 230]]
-- [[_COMMUNITY_Community 231|Community 231]]
-- [[_COMMUNITY_Community 232|Community 232]]
-- [[_COMMUNITY_Community 233|Community 233]]
-- [[_COMMUNITY_Community 234|Community 234]]
-- [[_COMMUNITY_Community 235|Community 235]]
-- [[_COMMUNITY_Community 236|Community 236]]
-- [[_COMMUNITY_Community 237|Community 237]]
-- [[_COMMUNITY_Community 238|Community 238]]
-- [[_COMMUNITY_Community 241|Community 241]]
 
 ## God Nodes (most connected - your core abstractions)
 1. `resolveAccount()` - 129 edges
@@ -232,6 +238,8 @@
 10. `write()` - 87 edges
 
 ## Surprising Connections (you probably didn't know these)
+- `ADR-009: Async Operation Model` --conceptually_related_to--> `OperationRegistry`  [EXTRACTED]
+  docs/adr/009-async-operation-model.md → packages/mcp/src/operation-registry.ts
 - `emitEvent()` --calls--> `Listener`  [INFERRED]
   dist-bundle/lhremote-mcp.mjs → packages/core/src/services/app.test.ts
 - `queryWin32CommandLines()` --calls--> `execFileAsync`  [INFERRED]
@@ -240,666 +248,716 @@
   dist-mcpb-staging/lhremote-mcp.mjs → packages/core/src/services/app.test.ts
 - `queryWin32CommandLines()` --calls--> `execFileAsync`  [INFERRED]
   dist-mcpb-staging/lhremote-mcp.mjs → packages/core/src/cdp/gather-raw-processes.ts
-- `ADR-001: Monorepo Package Structure` --conceptually_related_to--> `CLI Program`  [EXTRACTED]
-  docs/adr/001-monorepo-package-structure.md → packages/cli/README.md
 
 ## Import Cycles
 - 3-file cycle: `packages/core/src/cdp/app-discovery.ts -> packages/core/src/services/errors.ts -> packages/core/src/cdp/index.ts -> packages/core/src/cdp/app-discovery.ts`
 - 4-file cycle: `packages/core/src/cdp/app-discovery.ts -> packages/core/src/services/errors.ts -> packages/core/src/cdp/index.ts -> packages/core/src/cdp/launcher-queue.ts -> packages/core/src/cdp/app-discovery.ts`
 
-## Communities (240 total, 45 thin omitted)
+## Communities (252 total, 43 thin omitted)
 
-### Community 0 - "Bundle Build Artifacts"
+### Community 0 - "MCP Bundle (dist)"
 Cohesion: 0.00
-Nodes (119): ar_default(), assertClientRequestTaskCapability(), assertFileExists(), assertTaskCapability(), assertTaskHandlerCapability(), assertToolsCallTaskCapability(), base64ToUint8Array(), base64urlToUint8Array() (+111 more)
+Nodes (125): ar_default(), assertClientRequestTaskCapability(), assertFileExists(), assertTaskCapability(), assertTaskHandlerCapability(), assertToolsCallTaskCapability(), base64ToUint8Array(), base64urlToUint8Array() (+117 more)
 
-### Community 1 - "Staging Build Artifacts"
+### Community 1 - "MCP Bundle (staging)"
 Cohesion: 0.00
-Nodes (122): ar_default(), assertClientRequestTaskCapability(), assertFileExists(), assertTaskCapability(), assertTaskHandlerCapability(), assertToolsCallTaskCapability(), base64ToUint8Array(), base64urlToUint8Array() (+114 more)
+Nodes (106): ar_default(), assertClientRequestTaskCapability(), assertTaskCapability(), assertTaskHandlerCapability(), assertToolsCallTaskCapability(), base64ToUint8Array(), base64urlToUint8Array(), brand() (+98 more)
 
-### Community 2 - "Bundle Tool Functions"
+### Community 2 - "Bundle Operations"
 Cohesion: 0.03
 Nodes (177): acquireLauncherWithRecovery(), addPeopleToCollection(), applySettleBarrier(), buildCdpOptions(), buildDbPath(), campaignAddAction(), campaignCloneAction(), campaignCreate() (+169 more)
 
-### Community 3 - "Staging Tool Functions"
-Cohesion: 0.03
-Nodes (177): acquireLauncherWithRecovery(), addPeopleToCollection(), applySettleBarrier(), buildCdpOptions(), buildDbPath(), campaignAddAction(), campaignCloneAction(), campaignCreate() (+169 more)
-
-### Community 4 - "Bundle Utility Functions"
+### Community 3 - "Bundle Utilities"
 Cohesion: 0.02
-Nodes (152): _addCheck(), _base64(), base642(), _base64url(), base64url2(), _bigint(), bigint2(), bigint3() (+144 more)
+Nodes (148): abort(), add(), addAction(), addPeople(), addToExcludeList(), and(), args(), _array() (+140 more)
 
-### Community 5 - "Staging Utility Functions"
+### Community 4 - "Bundle Encoding"
 Cohesion: 0.02
-Nodes (152): _addCheck(), _base64(), base642(), _base64url(), base64url2(), _bigint(), bigint2(), bigint3() (+144 more)
+Nodes (146): _addCheck(), _base64(), base642(), _base64url(), base64url2(), _bigint(), bigint2(), bigint3() (+138 more)
 
-### Community 6 - "Campaign Operations"
-Cohesion: 0.12
-Nodes (6): CampaignCreateInput, CampaignService, CampaignConfig, ImportPeopleResult, RemovePeopleResult, errorMessage()
-
-### Community 7 - "Collection Operations"
-Cohesion: 0.05
-Nodes (68): addPeopleToCollection(), AddPeopleToCollectionInput, AddPeopleToCollectionOutput, campaignAddAction(), MOCK_ACTION, campaignCloneAction(), CLONED_ACTION, SOURCE_ACTION (+60 more)
-
-### Community 8 - "Bundle Connection Mgmt"
-Cohesion: 0.06
-Nodes (113): attemptReconnect(), bindLauncherClient(), buildCompanyUrl(), buildProfileUrl(), captureActivityPostUrl(), captureCompanyLoadFailure(), captureNavigationLoadFailure(), captureNavigationLoadFailureInner() (+105 more)
-
-### Community 9 - "Staging Connection Mgmt"
-Cohesion: 0.06
-Nodes (113): attemptReconnect(), bindLauncherClient(), buildCompanyUrl(), buildProfileUrl(), captureActivityPostUrl(), captureCompanyLoadFailure(), captureNavigationLoadFailure(), captureNavigationLoadFailureInner() (+105 more)
-
-### Community 10 - "E2E Testing Helpers"
-Cohesion: 0.06
-Nodes (26): cdpConnectionSchema, describeInfrastructureErrors(), registerCampaignExcludeRemove(), registerCampaignExport(), registerCampaignList(), MOCK_CAMPAIGNS, registerCampaignMoveNext(), MOVE_RESULT (+18 more)
-
-### Community 11 - "CDP App Discovery"
-Cohesion: 0.06
-Nodes (33): AppRole, BINARY_NAMES_LOWERCASE, classifyRole(), DiscoveredApp, FindAppOptions, mockedGatherRawProcesses, mockedIsCdpPort, mockedPidToPorts (+25 more)
-
-### Community 12 - "Database Client Layer"
-Cohesion: 0.06
-Nodes (39): DatabaseClient, DatabaseClientOptions, buildDbPath(), discoverAllDatabases(), discoverDatabase(), getBaseDirectory(), mockedHomedir, mockedExistsSync (+31 more)
-
-### Community 13 - "Bundle Server Setup"
-Cohesion: 0.06
-Nodes (90): createServer(), describe(), nonempty(), registerAddPeopleToCollection(), registerAllTools(), registerBuildLinkedInUrl(), registerCampaignAddAction(), registerCampaignCloneAction() (+82 more)
-
-### Community 14 - "Staging Server Setup"
-Cohesion: 0.06
-Nodes (90): createServer(), describe(), nonempty(), registerAddPeopleToCollection(), registerAllTools(), registerBuildLinkedInUrl(), registerCampaignAddAction(), registerCampaignCloneAction() (+82 more)
-
-### Community 15 - "MCP Tool Server"
-Cohesion: 0.06
-Nodes (44): AccountResolutionError, mockedDiscoverAllDatabases, mockedLauncherService, mockedResolveLauncherPort, { connectMock, reconnectMock, disconnectMock, resolveLauncherPortMock }, MockLauncherService, mockEvaluateUI, mockNavigateLinkedIn (+36 more)
-
-### Community 16 - "Message & InMail"
+### Community 5 - "Staging Encoding"
 Cohesion: 0.02
-Nodes (131): abort(), addAction(), addPeople(), addToExcludeList(), and(), args(), _array(), assembleChat() (+123 more)
+Nodes (146): _addCheck(), _base64(), base642(), _base64url(), base64url2(), _bigint(), bigint2(), bigint3() (+138 more)
 
-### Community 17 - "Instance Lifecycle"
-Cohesion: 0.03
-Nodes (128): abort(), addAction(), addPeople(), addToExcludeList(), and(), args(), _array(), assembleChat() (+120 more)
+### Community 6 - "MCP Helpers & Types"
+Cohesion: 0.05
+Nodes (70): cdpConnectionSchema, mapErrorToMcpResponse(), mcpCatchAll(), mcpError(), McpResult, mcpSuccess(), TextContent, registerAddPeopleToCollection() (+62 more)
 
-### Community 18 - "Error Handling"
+### Community 7 - "Staging Utilities"
+Cohesion: 0.02
+Nodes (132): abort(), addAction(), addPeople(), addToExcludeList(), and(), args(), _array(), assembleChat() (+124 more)
+
+### Community 8 - "DB Client & Operations"
 Cohesion: 0.06
-Nodes (21): mcpSuccess(), registerCampaignValidateActionSettings(), registerCheckStatus(), mockedCheckStatus, registerDescribeActions(), registerDismissFeedPost(), registerFindApp(), mockedFindApp (+13 more)
+Nodes (53): DatabaseClientOptions, addPeopleToCollection(), campaignAddAction(), MOCK_ACTION, campaignCloneAction(), CLONED_ACTION, SOURCE_ACTION, campaignExcludeAdd() (+45 more)
 
-### Community 19 - "Rate Limiting"
-Cohesion: 0.03
-Nodes (84): aborted2(), add(), bringLinkedHelperToFront(), buildBasicSearchUrl(), buildBooleanExpression(), buildLinkedInUrl(), buildParameterisedUrl(), buildSNSearchUrl() (+76 more)
-
-### Community 20 - "LinkedIn Profile"
-Cohesion: 0.03
-Nodes (84): aborted2(), add(), bringLinkedHelperToFront(), buildBasicSearchUrl(), buildBooleanExpression(), buildLinkedInUrl(), buildParameterisedUrl(), buildSNSearchUrl() (+76 more)
-
-### Community 21 - "LinkedIn Feed & Posts"
-Cohesion: 0.08
-Nodes (22): mapErrorToMcpResponse(), mcpCatchAll(), mcpError(), McpResult, TextContent, registerCampaignCloneAction(), MOCK_ACTION, registerCampaignCreate() (+14 more)
-
-### Community 22 - "Account Resolution"
-Cohesion: 0.05
-Nodes (56): addIssueToContext(), apply(), assertNever(), datetimeRegex(), dirty(), emit(), extractBalancedJson(), extractDefs() (+48 more)
-
-### Community 23 - "LinkedIn Messaging"
-Cohesion: 0.05
-Nodes (56): addIssueToContext(), apply(), assertNever(), datetimeRegex(), dirty(), emit(), extractBalancedJson(), extractDefs() (+48 more)
-
-### Community 24 - "Profile Navigation"
+### Community 9 - "Staging Operations"
 Cohesion: 0.04
-Nodes (58): CampaignAddActionInput, CampaignAddActionOutput, campaignGet(), CampaignGetInput, CampaignGetOutput, MOCK_ACTIONS, MOCK_CAMPAIGN, CampaignListOutput (+50 more)
+Nodes (122): acquireLauncherWithRecovery(), applySettleBarrier(), checkStatus(), close(), discoverAllDatabases(), ensureInstances(), errorMessage(), escapeLike() (+114 more)
 
-### Community 25 - "LinkedIn Search"
+### Community 10 - "Operation I/O Types"
+Cohesion: 0.04
+Nodes (91): AddPeopleToCollectionInput, AddPeopleToCollectionOutput, CampaignAddActionInput, CampaignAddActionOutput, CampaignCloneActionInput, CampaignCloneActionOutput, CampaignEraseInput, CampaignEraseOutput (+83 more)
+
+### Community 11 - "Bundle Launcher"
+Cohesion: 0.06
+Nodes (113): attemptReconnect(), bindLauncherClient(), buildCompanyUrl(), buildProfileUrl(), captureActivityPostUrl(), captureCompanyLoadFailure(), captureNavigationLoadFailure(), captureNavigationLoadFailureInner() (+105 more)
+
+### Community 12 - "Staging Launcher"
+Cohesion: 0.06
+Nodes (113): attemptReconnect(), bindLauncherClient(), buildCompanyUrl(), buildProfileUrl(), captureActivityPostUrl(), captureCompanyLoadFailure(), captureNavigationLoadFailure(), captureNavigationLoadFailureInner() (+105 more)
+
+### Community 13 - "Testing Infrastructure"
+Cohesion: 0.07
+Nodes (48): describeAccountIdForwarding(), describeEphemeralActionErrors(), describeInfrastructureErrors(), createMockServer(), ToolEntry, MOCK_RESULT, MOCK_ACTION, JSON_CONFIG (+40 more)
+
+### Community 14 - "Campaign Operations"
+Cohesion: 0.04
+Nodes (49): CampaignCreateInput, CampaignCreateOutput, CampaignGetOutput, CampaignListOutput, CampaignListPeopleOutput, CampaignReorderActionsInput, CampaignReorderActionsOutput, CampaignStatusInput (+41 more)
+
+### Community 15 - "Database Client"
+Cohesion: 0.05
+Nodes (43): DatabaseClient, buildDbPath(), discoverAllDatabases(), discoverDatabase(), getBaseDirectory(), mockedHomedir, mockedExistsSync, mockedHomedir (+35 more)
+
+### Community 16 - "Bundle MCP Server"
+Cohesion: 0.06
+Nodes (90): createServer(), describe(), nonempty(), registerAddPeopleToCollection(), registerAllTools(), registerBuildLinkedInUrl(), registerCampaignAddAction(), registerCampaignCloneAction() (+82 more)
+
+### Community 17 - "Staging MCP Server"
+Cohesion: 0.06
+Nodes (90): createServer(), describe(), nonempty(), registerAddPeopleToCollection(), registerAllTools(), registerBuildLinkedInUrl(), registerCampaignAddAction(), registerCampaignCloneAction() (+82 more)
+
+### Community 18 - "Staging URL Builders"
+Cohesion: 0.03
+Nodes (86): aborted2(), add(), buildBasicSearchUrl(), buildBooleanExpression(), buildLinkedInUrl(), buildParameterisedUrl(), buildSNSearchUrl(), catchall() (+78 more)
+
+### Community 19 - "Bundle Error Helpers"
+Cohesion: 0.04
+Nodes (71): addErrorMessage(), addFormat(), addIssueToContext(), addPattern(), apply(), assertNever(), datetimeRegex(), decideAdditionalProperties() (+63 more)
+
+### Community 20 - "Community 20"
+Cohesion: 0.06
+Nodes (47): VisitProfileInput, VisitProfileOutput, ACTION_TYPE_TO_LIMIT_TYPE, ActionBudgetRepository, ActionCountRow, DailyLimitRow, LimitTypeRow, createBudgetDb() (+39 more)
+
+### Community 21 - "Community 21"
 Cohesion: 0.08
-Nodes (39): VisitProfileOutput, CurrentPositionRow, EducationRow, EmailRow, ExternalIdRow, MiniProfileRow, PositionRow, ProfileRepository (+31 more)
+Nodes (48): click(), dispatchKey(), ElementBounds, ElementCenter, ElementRect, getElementCenter(), getKeyCodeInfo(), getViewportHeight() (+40 more)
 
-### Community 26 - "LinkedIn URL Building"
-Cohesion: 0.09
-Nodes (33): discoverTargets(), CaptureCancellationState, capturePostLoadFailure(), capturePostLoadFailureInner(), POST_INTERACTION_SELECTOR, waitForPostLoad(), CaptureCancellationState, captureReactionsModalFailure() (+25 more)
+### Community 22 - "Community 22"
+Cohesion: 0.07
+Nodes (34): AccountResolutionError, mockedDiscoverAllDatabases, mockedLauncherService, mockedResolveLauncherPort, mockEvaluateUI, mockNavigateLinkedIn, ActionExecutionError, AppLaunchError (+26 more)
+
+### Community 23 - "Community 23"
+Cohesion: 0.05
+Nodes (63): assertCanSetRequestHandler(), assertNotificationCapability(), assertRequestHandlerCapability(), constructor(), createDefaultAjvInstance(), _createRegisteredPrompt(), _createRegisteredResource(), _createRegisteredResourceTemplate() (+55 more)
+
+### Community 24 - "Community 24"
+Cohesion: 0.05
+Nodes (63): assertCanSetRequestHandler(), assertNotificationCapability(), assertRequestHandlerCapability(), constructor(), createDefaultAjvInstance(), _createRegisteredPrompt(), _createRegisteredResource(), _createRegisteredResourceTemplate() (+55 more)
+
+### Community 25 - "Community 25"
+Cohesion: 0.04
+Nodes (62): aborted2(), buildBasicSearchUrl(), buildBooleanExpression(), buildLinkedInUrl(), buildParameterisedUrl(), buildSNSearchUrl(), catchall(), _check() (+54 more)
+
+### Community 26 - "Community 26"
+Cohesion: 0.05
+Nodes (36): getConnectableIntervalMs(), getConnectableTimeoutMs(), InstanceReadiness, InstanceReadinessTracker, readinessTracker, waitForConnectable(), WaitForConnectableOptions, WaitForConnectableResult (+28 more)
 
 ### Community 27 - "Community 27"
-Cohesion: 0.07
-Nodes (45): resolveAppPort(), resolveLauncherPort(), invalidateProcessCache(), getConnectableIntervalMs(), getConnectableTimeoutMs(), InstanceReadiness, InstanceReadinessTracker, readinessTracker (+37 more)
+Cohesion: 0.05
+Nodes (30): campaignCreate(), MOCK_CAMPAIGN, MOCK_CONFIG, campaignDelete(), CampaignDeleteInput, CampaignDeleteOutput, campaignErase(), MOCK_REMOVE_RESULT (+22 more)
 
 ### Community 28 - "Community 28"
-Cohesion: 0.04
-Nodes (93): CampaignCloneActionInput, CampaignCloneActionOutput, CampaignCreateOutput, CampaignDeleteInput, CampaignDeleteOutput, CampaignEraseInput, CampaignEraseOutput, CampaignExcludeAddInput (+85 more)
+Cohesion: 0.09
+Nodes (55): addPeopleToCollection(), buildCdpOptions(), buildDbPath(), campaignAddAction(), campaignCloneAction(), campaignCreate(), campaignDelete(), campaignErase() (+47 more)
 
 ### Community 29 - "Community 29"
-Cohesion: 0.12
-Nodes (45): resolveInstancePort(), humanizedScrollToByIndex(), retryInteraction(), clickNotInterested(), dismissFeedPost(), DismissFeedPostOutput, capturePostUrl(), delay (+37 more)
+Cohesion: 0.15
+Nodes (40): resolveInstancePort(), humanizedScrollToByIndex(), humanizedScrollY(), retryInteraction(), scrollToElementLoop(), clickNotInterested(), dismissFeedPost(), DismissFeedPostInput (+32 more)
 
 ### Community 30 - "Community 30"
-Cohesion: 0.06
-Nodes (49): assertCanSetRequestHandler(), assertNotificationCapability(), assertRequestHandlerCapability(), constructor(), createDefaultAjvInstance(), _createRegisteredPrompt(), _createRegisteredResource(), _createRegisteredResourceTemplate() (+41 more)
+Cohesion: 0.07
+Nodes (18): AsyncOpOutcome, InternalRecord, OperationKind, OperationRecord, OperationRegistry, OperationStatus, ProgressEntry, runAsyncOp() (+10 more)
 
 ### Community 31 - "Community 31"
-Cohesion: 0.06
-Nodes (49): assertCanSetRequestHandler(), assertNotificationCapability(), assertRequestHandlerCapability(), constructor(), createDefaultAjvInstance(), _createRegisteredPrompt(), _createRegisteredResource(), _createRegisteredResourceTemplate() (+41 more)
+Cohesion: 0.09
+Nodes (17): EventListener, PendingRequest, MOCK_TARGETS, discoverTargets(), CDPConnectionError, CDPError, CDPEvaluationError, CDPTimeoutError (+9 more)
 
 ### Community 32 - "Community 32"
-Cohesion: 0.07
-Nodes (50): click(), dispatchKey(), ElementBounds, ElementCenter, ElementRect, getElementCenter(), getKeyCodeInfo(), getViewportHeight() (+42 more)
-
-### Community 33 - "Community 33"
-Cohesion: 0.04
-Nodes (47): author, bin, lhremote-mcp, bugs, dependencies, @insoftex/lhremote-core, @modelcontextprotocol/sdk, zod (+39 more)
-
-### Community 34 - "Community 34"
 Cohesion: 0.04
 Nodes (46): devDependencies, esbuild, eslint, eslint-config-prettier, @eslint/js, eslint-plugin-header, prettier, turbo (+38 more)
 
-### Community 35 - "Community 35"
-Cohesion: 0.05
-Nodes (41): author, bugs, dependencies, devtools-protocol, get-port, pid-port, ps-list, yaml (+33 more)
+### Community 33 - "Community 33"
+Cohesion: 0.08
+Nodes (31): AppRole, BINARY_NAMES_LOWERCASE, classifyRole(), findApp(), FindAppOptions, probeProcess(), resolveAppPort(), resolveLauncherPort() (+23 more)
 
-### Community 36 - "Community 36"
+### Community 34 - "Community 34"
+Cohesion: 0.08
+Nodes (25): escapeLike(), checkReplies(), CheckRepliesInput, CheckRepliesOutput, MOCK_CONVERSATIONS, MOCK_PROFILES, mockCampaignService, ScrapeMessagingHistoryInput (+17 more)
+
+### Community 35 - "Community 35"
 Cohesion: 0.08
 Nodes (18): handleDismissErrors(), mockedDismissErrors, handleDismissFeedPost(), handleEnsureInstances(), handleFindApp(), handleGetActionBudget(), MOCK_BUDGET, handleGetErrors() (+10 more)
 
+### Community 36 - "Community 36"
+Cohesion: 0.10
+Nodes (23): MOCK_TARGETS, scanRunningInstances(), EnsureInstanceResult, ensureInstances(), mockLauncher, checkForStartupPopups(), findRunningInstanceForAccount(), pidExists() (+15 more)
+
 ### Community 37 - "Community 37"
-Cohesion: 0.17
-Nodes (10): EventListener, PendingRequest, MOCK_TARGETS, CDPConnectionError, CDPError, CDPEvaluationError, CDPTimeoutError, ChromiumInstance (+2 more)
+Cohesion: 0.06
+Nodes (39): addErrorMessage(), addFormat(), addPattern(), decideAdditionalProperties(), emoji(), escapeLiteralCheckValue(), escapeNonAlphaNumeric(), _getCached() (+31 more)
 
 ### Community 38 - "Community 38"
 Cohesion: 0.06
-Nodes (30): escapeLike(), CheckRepliesInput, CheckRepliesOutput, MOCK_CONVERSATIONS, MOCK_PROFILES, mockCampaignService, QueryMessagesInput, QueryMessagesOutput (+22 more)
+Nodes (39): addIssueToContext(), apply(), assertNever(), datetimeRegex(), deserializeMessage(), detectVersion(), dirty(), extractBalancedJson() (+31 more)
 
 ### Community 39 - "Community 39"
-Cohesion: 0.05
-Nodes (37): author, bin, lhremote-cli, bugs, dependencies, commander, @insoftex/lhremote-core, description (+29 more)
+Cohesion: 0.10
+Nodes (29): hideFeedAuthorProfile(), HideFeedAuthorProfileInput, HideFeedAuthorProfileOutput, HideFeedAuthorProfileSkip, HideFeedAuthorProfileSkipReason, HideFeedAuthorProfileSuccess, MUTE_CONFIRM_LABEL_PATTERNS, mockClient (+21 more)
 
 ### Community 40 - "Community 40"
 Cohesion: 0.07
 Nodes (7): CDPClient, extractHashtags(), RawDomPost, createEvaluateMock(), setupMocks(), createEvaluateMock(), setupMocks()
 
 ### Community 41 - "Community 41"
-Cohesion: 0.05
-Nodes (36): author, bin, lhremote, bugs, dependencies, @insoftex/lhremote-cli, @insoftex/lhremote-mcp, description (+28 more)
-
-### Community 42 - "Community 42"
 Cohesion: 0.09
 Nodes (25): handleListCollections(), MOCK_COLLECTIONS, mockRepo(), setupSuccessPath(), MOCK_CHAT, MOCK_MESSAGE, MOCK_THREAD, mockRepo() (+17 more)
 
-### Community 43 - "Community 43"
-Cohesion: 0.07
-Nodes (27): Action Type Reference, Building LinkedIn Search URLs, Campaign Action Chain Management, Campaign Creation & Execution, `check-status` — authoritative running state, Collection Workflow (primary targeting), Common Pitfalls, Data Queries (instance required, no campaign) (+19 more)
-
-### Community 44 - "Community 44"
+### Community 42 - "Community 42"
 Cohesion: 0.08
 Nodes (20): AppService, AppServiceOptions, assertFileExists(), CdpVersionResponse, closeBrowserViaCdp(), fileExists(), getDefaultBinaryPath(), getWindowsBinaryPath() (+12 more)
 
-### Community 45 - "Community 45"
-Cohesion: 0.13
-Nodes (24): waitForInstanceShutdown(), TEST_CAMPAIGN_YAML, waitForRunnerIdle(), globalSetup(), Phase, assertDefined(), countByKey(), describeE2E() (+16 more)
+### Community 43 - "Community 43"
+Cohesion: 0.10
+Nodes (28): findCdpPort(), findDescendantPids(), findPidListeningOn(), killInstanceProcesses(), waitForInstanceShutdown(), TEST_CAMPAIGN_YAML, waitForRunnerIdle(), globalSetup() (+20 more)
 
-### Community 46 - "Community 46"
+### Community 44 - "Community 44"
 Cohesion: 0.07
 Nodes (19): handleCheckReplies(), printReplies(), MOCK_CONVERSATIONS, MOCK_RESULT, handleEndorseSkills(), MOCK_RESULT, handleGetPost(), MOCK_RESULT (+11 more)
 
+### Community 45 - "Community 45"
+Cohesion: 0.11
+Nodes (19): CaptureCancellationState, capturePostLoadFailure(), capturePostLoadFailureInner(), ensureSecureDiagnosticDir(), POST_INTERACTION_SELECTOR, CaptureCancellationState, captureReactionsModalFailure(), captureReactionsModalFailureInner() (+11 more)
+
+### Community 46 - "Community 46"
+Cohesion: 0.09
+Nodes (21): discoverInstancePort(), CollectPeopleInput, CollectPeopleOutput, dismissErrors(), DismissErrorsInput, DismissErrorsOutput, detectInstancePopups(), getErrors() (+13 more)
+
 ### Community 47 - "Community 47"
-Cohesion: 0.08
-Nodes (25): Basic Search Keys, Basic Search (`/search/results/people/`), Boolean Expressions (Keywords Field), Builder Modes, Company Size Ranges (Code: Range), Connection Degrees (Code: Meaning), Entity Resolution, Fixed URLs (no params needed) (+17 more)
+Cohesion: 0.13
+Nodes (29): [0.1.0] — 2026-02-04, [0.21.0] — 2026-06-21, [0.22.0] — 2026-06-22, [0.22.1] — 2026-06-22, [0.22.2] — 2026-06-22, [0.23.0] — 2026-06-23, [0.2.0] — 2026-02-16, [0.2.1] — 2026-02-16 (+21 more)
 
 ### Community 48 - "Community 48"
-Cohesion: 0.11
-Nodes (26): ensureSecureDiagnosticDir(), HideFeedAuthorProfileInput, HideFeedAuthorProfileOutput, HideFeedAuthorProfileSkip, HideFeedAuthorProfileSkipReason, HideFeedAuthorProfileSuccess, MUTE_CONFIRM_LABEL_PATTERNS, mockClient (+18 more)
+Cohesion: 0.09
+Nodes (16): EphemeralCampaignService, MOCK_ACTIONS, MOCK_CAMPAIGN, MOCK_PROFILE, MOCK_RESULT, mockCreateActionExcludeLists, mockDeleteCampaign, mockEvaluateUI (+8 more)
 
 ### Community 49 - "Community 49"
-Cohesion: 0.12
-Nodes (21): CampaignDocument, CampaignDocumentAction, CampaignDocumentSettings, CampaignFormatError, extractCommonSettings(), getFiniteNumberField(), parseCampaignDocument(), parseCampaignJson() (+13 more)
+Cohesion: 0.10
+Nodes (25): COMPANY_SIZES, CONNECTION_DEGREES, FUNCTION_BY_ID, FUNCTIONS, getFunctionById(), getIndustryById(), getLinkedInReferenceData(), getSeniorityById() (+17 more)
 
 ### Community 50 - "Community 50"
-Cohesion: 0.60
-Nodes (4): InstanceInfo, InstanceStatus, StartInstanceParams, StartInstanceResult
-
-### Community 51 - "Community 51"
-Cohesion: 0.08
-Nodes (38): ACTION_TYPE_INFOS, ACTION_TYPE_MAP, ActionCategory, ActionSettingsValidationIssue, ActionSettingsValidationResult, ActionType, ActionTypeCatalog, ActionTypeInfo (+30 more)
-
-### Community 52 - "Community 52"
 Cohesion: 0.12
 Nodes (11): handleCampaignExcludeAdd(), handleCampaignExcludeRemove(), handleCampaignMoveNext(), handleCampaignRemovePeople(), MOCK_RESULT, handleCampaignRetry(), handleCampaignStart(), MOCK_RESULT (+3 more)
 
+### Community 51 - "Community 51"
+Cohesion: 0.07
+Nodes (26): author, bin, lhremote, bugs, dependencies, @insoftex/lhremote-cli, @insoftex/lhremote-mcp, description (+18 more)
+
+### Community 52 - "Community 52"
+Cohesion: 0.12
+Nodes (7): isIncorrectContentStateError(), LoggedInStatePersistedError, instance, withLoggedInStateRetry(), withLoggedInStateRetryAtPort(), WithLoggedInStateRetryOptions, InstanceService
+
 ### Community 53 - "Community 53"
-Cohesion: 0.08
-Nodes (9): HumanizedMouse, DismissFeedPostInput, GetFeedInput, GetPostEngagersInput, GetProfileActivityInput, HideFeedAuthorInput, UnfollowFromFeedInput, UnfollowProfileInput (+1 more)
+Cohesion: 0.15
+Nodes (5): LauncherService, CriticalErrorIssueData, DialogIssueData, InstanceIssue, PopupState
 
 ### Community 54 - "Community 54"
-Cohesion: 0.07
-Nodes (20): MOCK_TARGETS, mockClient, LOGGED_IN_PATH_PREFIXES, LoggedInStateTimeoutError, ProbeResult, ProbeShape, WaitForLoggedInStateOptions, isIncorrectContentStateError() (+12 more)
-
-### Community 55 - "Community 55"
 Cohesion: 0.08
 Nodes (25): author, dependencies, @insoftex/lhremote-cli, @insoftex/lhremote-core, @insoftex/lhremote-mcp, yaml, description, devDependencies (+17 more)
 
-### Community 56 - "Community 56"
+### Community 55 - "Community 55"
 Cohesion: 0.10
 Nodes (14): handleCampaignAddAction(), MOCK_RESULT, handleCampaignCreate(), MOCK_CONFIG, MOCK_RESULT, handleCampaignGet(), MOCK_RESULT, handleCampaignUpdate() (+6 more)
 
+### Community 56 - "Community 56"
+Cohesion: 0.13
+Nodes (25): checkUIHealth(), discoverInstancePort(), dismissInstanceDialog(), dismissPopup(), ensureConnected(), findDescendantPids(), findPidListeningOn(), findRunningInstanceForAccount() (+17 more)
+
 ### Community 57 - "Community 57"
-Cohesion: 0.11
-Nodes (9): findApp(), LauncherService, mockedDatabaseClient, mockedDiscoverAllDatabases, mockedDiscoverInstancePort, mockedFindApp, mockedLauncherService, mockedResolveLauncherPort (+1 more)
+Cohesion: 0.15
+Nodes (18): waitForPostLoad(), parseTimestamp(), GetPostEngagersOutput, extractPublicId(), getPost(), GetPostOutput, RawComment, RawPostDetail (+10 more)
 
 ### Community 58 - "Community 58"
-Cohesion: 0.08
-Nodes (32): addErrorMessage(), addFormat(), addPattern(), decideAdditionalProperties(), emoji(), escapeLiteralCheckValue(), escapeNonAlphaNumeric(), _getCached() (+24 more)
+Cohesion: 0.14
+Nodes (24): checkUIHealth(), discoverInstancePort(), dismissInstanceDialog(), dismissPopup(), ensureConnected(), findPidListeningOn(), findRunningInstanceForAccount(), getInstanceIssues() (+16 more)
 
 ### Community 59 - "Community 59"
-Cohesion: 0.11
-Nodes (15): Action Settings Safety, Current Boundaries, MCP Agent Capabilities, Recommended Workflow, Source URL Imports, Example: rate-limited campaign, Rate Limiting, Recommended limits for VisitAndExtract (+7 more)
+Cohesion: 0.08
+Nodes (23): author, bin, lhremote-mcp, bugs, dependencies, @insoftex/lhremote-core, @modelcontextprotocol/sdk, zod (+15 more)
 
 ### Community 60 - "Community 60"
-Cohesion: 0.11
-Nodes (15): Commands, Development Notes, @insoftex/lhremote-cli, Installation, License, Programmatic Usage, Usage, App Lifecycle Requirements (+7 more)
+Cohesion: 0.17
+Nodes (17): CampaignDocument, CampaignDocumentAction, CampaignDocumentSettings, CampaignFormatError, extractCommonSettings(), getFiniteNumberField(), parseCampaignDocument(), parseCampaignJson() (+9 more)
 
 ### Community 61 - "Community 61"
 Cohesion: 0.11
 Nodes (12): handleCampaignUpdateAction(), MOCK_RESULT, handleCheckStatus(), mockedCheckStatus, collectPositiveInt(), createProgram(), CreateProgramOptions, parsePositiveInt() (+4 more)
 
 ### Community 62 - "Community 62"
-Cohesion: 0.07
-Nodes (43): buildLinkedInUrl(), BuildLinkedInUrlInput, BuildLinkedInUrlOutput, buildBooleanExpression(), isRawExpression(), quoteTerm(), CollectionService, BASIC_SEARCH_ONLY_FILTER_TYPES (+35 more)
+Cohesion: 0.10
+Nodes (23): Account & Instance, App Management, `build-linkedin-url`, `check-status`, CLI Usage, Common Parameters, `describe-actions`, `dismiss-errors` (+15 more)
 
 ### Community 63 - "Community 63"
+Cohesion: 0.15
+Nodes (17): buildBooleanExpression(), isRawExpression(), quoteTerm(), BASIC_SEARCH_ONLY_FILTER_TYPES, buildSNSearchUrl(), encodeFilterValue(), encodeRestLiValue(), resolveKeywords() (+9 more)
+
+### Community 64 - "Community 64"
 Cohesion: 0.13
 Nodes (8): handleCampaignExcludeList(), MOCK_RESULT, handleListAccounts(), handleListWorkspaces(), SAMPLE_WORKSPACES, handleStartInstance(), handleStopInstance(), mockLauncher()
 
-### Community 64 - "Community 64"
-Cohesion: 0.10
-Nodes (19): author, name, url, compatibility, platforms, runtimes, description, license (+11 more)
-
 ### Community 65 - "Community 65"
-Cohesion: 0.08
-Nodes (32): addErrorMessage(), addFormat(), addPattern(), decideAdditionalProperties(), emoji(), escapeLiteralCheckValue(), escapeNonAlphaNumeric(), _getCached() (+24 more)
+Cohesion: 0.10
+Nodes (20): author, bin, lhremote-cli, bugs, dependencies, commander, @insoftex/lhremote-core, description (+12 more)
 
 ### Community 66 - "Community 66"
+Cohesion: 0.24
+Nodes (17): buildLinkedInUrl(), BuildLinkedInUrlInput, BuildLinkedInUrlOutput, validateSourceType(), buildParameterisedUrl(), FIXED_URLS, getFixedUrl(), getParameterType() (+9 more)
+
+### Community 67 - "Community 67"
 Cohesion: 0.10
 Nodes (20): compilerOptions, declaration, declarationMap, exactOptionalPropertyTypes, forceConsistentCasingInFileNames, isolatedModules, lib, module (+12 more)
 
-### Community 67 - "Community 67"
-Cohesion: 0.15
-Nodes (11): detectInstancePopups(), getErrors(), GetErrorsInput, GetErrorsOutput, CriticalErrorIssueData, DialogIssueData, InstanceIssue, InstancePopup (+3 more)
-
 ### Community 68 - "Community 68"
+Cohesion: 0.14
+Nodes (12): DiscoveredApp, InstanceIdentity, { connectMock, reconnectMock, disconnectMock, resolveLauncherPortMock }, MockLauncherService, LinkedHelperUnreachableError, AcquireLauncherResult, acquireLauncherWithRecovery(), isLauncherConnectionError() (+4 more)
+
+### Community 69 - "Community 69"
+Cohesion: 0.11
+Nodes (17): Commands, Development Notes, @insoftex/lhremote-cli, Installation, License, Programmatic Usage, Usage, Development Notes (+9 more)
+
+### Community 70 - "Community 70"
+Cohesion: 0.10
+Nodes (19): author, name, url, compatibility, platforms, runtimes, description, license (+11 more)
+
+### Community 71 - "Community 71"
+Cohesion: 0.18
+Nodes (9): CollectionService, detectSourceType(), SOURCE_TYPE_INTERNAL, SOURCE_TYPE_PATTERNS, SourceTypePattern, toInternalSourceType(), VALID_SOURCE_TYPES, SourceTier (+1 more)
+
+### Community 72 - "Community 72"
+Cohesion: 0.15
+Nodes (6): importPeopleFromCollection(), ImportPeopleFromCollectionInput, ImportPeopleFromCollectionOutput, MOCK_IMPORT_RESULT, MOCK_URLS, CollectionListRepository
+
+### Community 73 - "Community 73"
+Cohesion: 0.12
+Nodes (9): registerCheckStatus(), mockedCheckStatus, registerGetProfileActivity(), MOCK_ACTIVITY, registerListOrphans(), mockedScanOrphans, mockedScanRunningInstances, registerSearchPosts() (+1 more)
+
+### Community 74 - "Community 74"
+Cohesion: 0.24
+Nodes (13): ACTION_TYPE_INFOS, ACTION_TYPE_MAP, ActionCategory, ActionSettingsValidationIssue, ActionSettingsValidationResult, ActionType, ActionTypeCatalog, ActionTypeInfo (+5 more)
+
+### Community 75 - "Community 75"
 Cohesion: 0.12
 Nodes (16): 1. Launcher (`role: "launcher"`), 2. Account-instance main process (`role: "instance"`), 3. Chromium helper children (`role: "helper-child"`), Allowlisted fields (safe to extract), Classification rules (applied in order), File locations, Identity fields on the instance command line, Instance Visibility: Process-Role Taxonomy and Identity Resolution (+8 more)
 
-### Community 69 - "Community 69"
-Cohesion: 0.12
-Nodes (17): App Management, `build-linkedin-url`, Campaign Actions, `campaign-add-action`, `campaign-move-next`, `campaign-remove-action`, `campaign-reorder-actions`, `campaign-update-action` (+9 more)
-
-### Community 70 - "Community 70"
-Cohesion: 0.13
-Nodes (14): ADR-009: Async Operation Model, Alternatives Considered, Consequences, Context, Decision, Longer grace window (30 s), Persistent operation store (SQLite), Queue depth visible in `list-operations` (+6 more)
-
-### Community 71 - "Community 71"
-Cohesion: 0.08
-Nodes (19): MOCK_RESULT, mockExecute, EphemeralCampaignService, MOCK_ACTIONS, MOCK_CAMPAIGN, MOCK_PROFILE, MOCK_RESULT, mockCreateActionExcludeLists (+11 more)
-
-### Community 72 - "Community 72"
-Cohesion: 0.13
-Nodes (15): [0.22.1] — 2026-06-22, [0.22.2] — 2026-06-22, [0.2.1] — 2026-02-16, [0.3.0] — 2026-03-02, [0.5.0] — 2026-03-17, [0.6.0] — 2026-03-17, Added, Added (+7 more)
-
-### Community 73 - "Community 73"
-Cohesion: 0.15
-Nodes (10): checkOnly, cliCommands, cliProgramPath, cliReadmePath, mcpReadmePath, mcpTools, mcpToolsDir, replaceGeneratedSection() (+2 more)
-
-### Community 74 - "Community 74"
-Cohesion: 0.13
-Nodes (25): checkUIHealth(), discoverInstancePort(), dismissInstanceDialog(), dismissPopup(), ensureConnected(), findDescendantPids(), findPidListeningOn(), findRunningInstanceForAccount() (+17 more)
-
-### Community 75 - "Community 75"
-Cohesion: 0.13
-Nodes (25): checkUIHealth(), discoverInstancePort(), dismissInstanceDialog(), dismissPopup(), ensureConnected(), findDescendantPids(), findPidListeningOn(), findRunningInstanceForAccount() (+17 more)
-
 ### Community 76 - "Community 76"
-Cohesion: 0.17
-Nodes (11): Async Operations, `cancel-operation`, `get-operation`, How it works, `list-operations`, Management tools, MCP progress and cancellation, Operation lifecycle (+3 more)
+Cohesion: 0.12
+Nodes (16): LinkedHelper Desktop Application, CLI Tool, Disclaimer, Ethical Use, Installation, Known Limitations, lhremote: LinkedHelper Automation Toolkit, License (+8 more)
 
 ### Community 77 - "Community 77"
 Cohesion: 0.12
-Nodes (15): probeProcess(), discoverInstancePort(), findCdpPort(), findDescendantPids(), findPidListeningOn(), killInstanceProcesses(), resolveInstancePort(), mockedDatabaseClient (+7 more)
+Nodes (15): author, bugs, description, engines, node, files, homepage, license (+7 more)
 
 ### Community 78 - "Community 78"
-Cohesion: 0.10
-Nodes (17): createServer(), { name, version }, require, connectPair(), require, { version }, runStdioServer(), booleanExpressionSchema (+9 more)
+Cohesion: 0.17
+Nodes (8): HumanizedMouse, GetFeedInput, GetPostEngagersInput, GetProfileActivityInput, HideFeedAuthorInput, SearchPostsInput, UnfollowFromFeedInput, UnfollowProfileInput
 
 ### Community 79 - "Community 79"
-Cohesion: 0.29
-Nodes (8): parsePublicTypeaheadResponse(), PUBLIC_TYPEAHEAD_TYPE, PublicTypeaheadEntry, resolveLinkedInEntity(), ResolveLinkedInEntityInput, ResolveLinkedInEntityOutput, EntityMatch, EntityType
+Cohesion: 0.15
+Nodes (15): ADR-001: Monorepo Package Structure, Alternatives Considered, Consequences, Context, Decision, Separate repositories, Single package, Status (+7 more)
 
 ### Community 80 - "Community 80"
-Cohesion: 0.18
-Nodes (6): campaignExcludeList(), CampaignExcludeListInput, CampaignExcludeListOutput, MOCK_ENTRIES, CampaignExcludeListRepository, ExcludeListEntry
+Cohesion: 0.13
+Nodes (14): ADR-009: Async Operation Model, Alternatives Considered, Consequences, Context, Decision, Longer grace window (30 s), Persistent operation store (SQLite), Queue depth visible in `list-operations` (+6 more)
 
 ### Community 81 - "Community 81"
-Cohesion: 0.22
-Nodes (8): compilerOptions, composite, outDir, rootDir, exclude, extends, include, references
+Cohesion: 0.13
+Nodes (15): exports, ./server, ./stdio, ./testing, ./tools, import, import, types (+7 more)
 
 ### Community 82 - "Community 82"
-Cohesion: 0.22
-Nodes (8): description, name, packages, repository, source, url, $schema, version
+Cohesion: 0.14
+Nodes (8): registerDescribeActions(), mockedGetActionTypeCatalog, mockedGetActionTypeInfo, __dirname, FIXTURE_ORIGIN, registerQueryMessages(), registerVisitProfile(), MOCK_PROFILE
 
 ### Community 83 - "Community 83"
-Cohesion: 0.25
-Nodes (7): compilerOptions, composite, outDir, rootDir, extends, include, references
-
-### Community 84 - "Community 84"
-Cohesion: 0.25
-Nodes (7): compilerOptions, composite, outDir, rootDir, exclude, extends, include
-
-### Community 85 - "Community 85"
-Cohesion: 0.25
-Nodes (7): entryPoints, excludeInternal, excludePrivate, name, out, readme, $schema
-
-### Community 86 - "Community 86"
-Cohesion: 0.39
-Nodes (6): handleQueryMessages(), __dirname, FIXTURE_ORIGIN, printConversationList(), printSearchResults(), printThread()
-
-### Community 87 - "Community 87"
-Cohesion: 0.25
-Nodes (7): compilerOptions, composite, outDir, rootDir, extends, include, references
-
-### Community 88 - "Community 88"
-Cohesion: 0.25
-Nodes (7): compilerOptions, composite, outDir, rootDir, extends, include, references
-
-### Community 89 - "Community 89"
-Cohesion: 0.32
-Nodes (6): registerQueryProfilesBulk(), mockDb(), PROFILE_BOB, PROFILE_JANE, PROFILE_JANE_WITH_POSITIONS, setupSuccessPath()
-
-### Community 91 - "Community 91"
-Cohesion: 0.38
-Nodes (4): cancelExecution(), findings, getRunnerState(), probeExpression()
-
-### Community 92 - "Community 92"
-Cohesion: 0.24
-Nodes (7): IsCollectingProbeResult, isRecoverablePopup(), monitorCollectingSaga(), MonitorCollectingSagaOptions, MonitorCollectingSagaTimeoutError, RECOVERABLE_POPUP_PATTERNS, ProbeShape
-
-### Community 93 - "Community 93"
-Cohesion: 0.50
-Nodes (3): registerCampaignGet(), MOCK_ACTIONS, MOCK_CAMPAIGN
-
-### Community 94 - "Community 94"
-Cohesion: 0.31
-Nodes (6): registerQueryProfile(), MOCK_PROFILE, MOCK_PROFILE_WITH_POSITIONS, mockDb(), mockRepo(), setupSuccessPath()
-
-### Community 95 - "Community 95"
-Cohesion: 0.53
-Nodes (6): isDuplexStream(), isReadableStream(), isStream(), isWritableStream(), native(), nodeStream()
-
-### Community 96 - "Community 96"
-Cohesion: 0.53
-Nodes (6): isDuplexStream(), isReadableStream(), isStream(), isWritableStream(), native(), nodeStream()
-
-### Community 97 - "Community 97"
-Cohesion: 0.53
-Nodes (3): handleAddPeopleToCollection(), parsePersonIds(), readPersonIdsFile()
-
-### Community 98 - "Community 98"
-Cohesion: 0.53
-Nodes (4): handleImportPeopleFromUrls(), parseUrls(), readUrlsFile(), MOCK_RESULT
-
-### Community 99 - "Community 99"
-Cohesion: 0.53
-Nodes (4): handleRemovePeopleFromCollection(), parsePersonIds(), readPersonIdsFile(), MOCK_RESULT
-
-### Community 100 - "Community 100"
-Cohesion: 0.47
-Nodes (4): handleScrapeMessagingHistory(), printStats(), MOCK_RESULT, MOCK_STATS
-
-### Community 101 - "Community 101"
-Cohesion: 0.47
-Nodes (4): handleVisitProfile(), printProfile(), MOCK_PROFILE, MOCK_RESULT
-
-### Community 102 - "Community 102"
-Cohesion: 0.11
-Nodes (17): LinkedHelper Desktop Application, CLI Tool, Disclaimer, Ethical Use, Installation, Known Limitations, lhremote: LinkedHelper Automation Toolkit, License (+9 more)
-
-### Community 103 - "Community 103"
-Cohesion: 0.18
-Nodes (13): ADR-001: Monorepo Package Structure, Alternatives Considered, Consequences, Context, Decision, Separate repositories, Single package, Status (+5 more)
-
-### Community 104 - "Community 104"
-Cohesion: 0.50
-Nodes (3): handleCampaignDelete(), MOCK_HARD_RESULT, MOCK_RESULT
-
-### Community 105 - "Community 105"
-Cohesion: 0.50
-Nodes (3): handleCampaignExport(), MOCK_JSON_RESULT, MOCK_YAML_RESULT
-
-### Community 106 - "Community 106"
-Cohesion: 0.50
-Nodes (3): handleCampaignList(), MOCK_CAMPAIGNS, MOCK_RESULT
-
-### Community 107 - "Community 107"
-Cohesion: 0.50
-Nodes (3): handleCampaignStatistics(), MOCK_ACTION, MOCK_RESULT
-
-### Community 108 - "Community 108"
-Cohesion: 0.50
-Nodes (3): handleCampaignStatus(), MOCK_RESULTS, MOCK_STATUS_RESULT
-
-### Community 109 - "Community 109"
-Cohesion: 0.50
-Nodes (3): handleDeleteCollection(), MOCK_DELETED, MOCK_NOT_FOUND
-
-### Community 110 - "Community 110"
-Cohesion: 0.50
-Nodes (3): handleListReferenceData(), MOCK_ITEMS, VALID_DATA_TYPES
-
-### Community 111 - "Community 111"
-Cohesion: 0.50
-Nodes (3): handleResolveEntity(), MOCK_RESULT, VALID_ENTITY_TYPES
-
-### Community 113 - "Community 113"
-Cohesion: 0.40
-Nodes (4): __dirname, lhremotePkg, outfile, root
-
-### Community 114 - "Community 114"
-Cohesion: 0.40
-Nodes (4): ALLOWED_LICENSES, licenseMap, output, violations
-
-### Community 115 - "Community 115"
-Cohesion: 0.40
-Nodes (3): claudeAvailable, ClaudeJsonResult, mcpServerPath
-
-### Community 118 - "Community 118"
-Cohesion: 0.09
-Nodes (22): describeEphemeralActionErrors(), createMockServer(), ToolEntry, mockedGetActionTypeCatalog, mockedGetActionTypeInfo, registerEndorseSkills(), MOCK_RESULT, enrichmentCategorySchema (+14 more)
-
-### Community 121 - "Community 121"
-Cohesion: 0.21
-Nodes (8): registerCampaignStatus(), defaultResults, defaultStatusResult, registerQueryProfiles(), MOCK_SEARCH_RESULT, mockDb(), mockRepo(), setupSuccessPath()
-
-### Community 122 - "Community 122"
-Cohesion: 0.07
-Nodes (18): AsyncOpOutcome, InternalRecord, OperationKind, OperationRecord, OperationRegistry, OperationStatus, ProgressEntry, runAsyncOp() (+10 more)
-
-### Community 123 - "Community 123"
-Cohesion: 0.50
-Nodes (4): ADR-008: Launcher Queue and Readiness, Instance readiness model, Launcher operation queue, restart-instance MCP tool
-
-### Community 130 - "Community 130"
 Cohesion: 0.14
 Nodes (13): ADR-008: Launcher Queue and Instance Readiness Model, Alternatives Considered, Consequences, Context, Debounce threshold instead of grace window, Decision, Per-operation mutex (lock per account), Persisted readiness store (SQLite or file) (+5 more)
 
-### Community 135 - "Community 135"
-Cohesion: 0.29
-Nodes (4): handleEnrichProfile(), MOCK_RESULT, handleGetFeed(), MOCK_RESULT
-
-### Community 141 - "Community 141"
-Cohesion: 0.50
-Nodes (3): program, require, { version }
-
-### Community 145 - "Community 145"
-Cohesion: 0.50
-Nodes (3): db, __dirname, FIXTURE_PATH
-
-### Community 146 - "Community 146"
-Cohesion: 0.06
-Nodes (24): describeAccountIdForwarding(), JSON_CONFIG, MOCK_CAMPAIGN, PARSED_CONFIG, registerCampaignRetry(), RETRY_RESULT, registerDismissErrors(), mockedDismissErrors (+16 more)
-
-### Community 152 - "Community 152"
-Cohesion: 0.24
-Nodes (6): __dirname, FIXTURE_ORIGIN, registerQueryMessages(), MOCK_CHAT, MOCK_MESSAGE, MOCK_THREAD
-
-### Community 171 - "Community 171"
+### Community 84 - "Community 84"
 Cohesion: 0.14
 Nodes (13): Code of Conduct, Contributing to lhremote, Contributor License Agreement (CLA), Conventions, Development, E2E Tests, How to Agree, Prerequisites (+5 more)
 
-### Community 207 - "Community 207"
-Cohesion: 0.14
-Nodes (14): Action Catalog, Campaign Formats, CDP, Constants & Utilities, Data Access, Development Notes, Error Types, @insoftex/lhremote-core (+6 more)
-
-### Community 208 - "Community 208"
+### Community 85 - "Community 85"
 Cohesion: 0.14
 Nodes (13): 1. Launcher Operation Queue (`launcher-queue.ts`), 2. Instance Readiness Model (`instance-readiness.ts`), 3. `waitForConnectable(accountId, opts)`, 4. Process Inspection Cache (`gather-raw-processes.ts`), 5. `waitForPidExit(pid, timeoutMs?)`, `check-status` Readiness Field, Configuration Knobs, `ensure-instances` Two-Phase Flow (+5 more)
 
-### Community 209 - "Community 209"
-Cohesion: 0.14
-Nodes (14): `campaign-clone-action`, `campaign-create`, `campaign-delete`, `campaign-erase`, `campaign-export`, `campaign-get`, `campaign-list`, `campaign-retry` (+6 more)
+### Community 86 - "Community 86"
+Cohesion: 0.15
+Nodes (10): checkOnly, cliCommands, cliProgramPath, cliReadmePath, mcpReadmePath, mcpTools, mcpToolsDir, replaceGeneratedSection() (+2 more)
 
-### Community 210 - "Community 210"
+### Community 87 - "Community 87"
+Cohesion: 0.18
+Nodes (13): assertFileExists(), bringLinkedHelperToFront(), fileExists(), findBinary(), getDefaultBinaryPath(), getWindowsBinaryPath(), isRunning(), killProcesses() (+5 more)
+
+### Community 88 - "Community 88"
 Cohesion: 0.15
 Nodes (12): `allowRemote` Interaction, CDP Access Implications, Localhost Trust Boundary, MCP Trust Model, Prompt Injection Risk, Recommendations, Reporting a Vulnerability, Security Model (+4 more)
 
-### Community 211 - "Community 211"
+### Community 89 - "Community 89"
 Cohesion: 0.17
 Nodes (8): ADR-006: Operations Layer, Alternatives Considered, Consequences, Context, Decision, Keep duplication in handlers, Put orchestration in services, Status
 
-### Community 212 - "Community 212"
+### Community 90 - "Community 90"
 Cohesion: 0.17
-Nodes (12): Account & Instance, App Management, Campaign Actions, Campaign Targeting, Campaigns, CLI Usage, Collections, Feed & Posts (+4 more)
+Nodes (11): Async Operations, `cancel-operation`, `get-operation`, How it works, `list-operations`, Management tools, MCP progress and cancellation, Operation lifecycle (+3 more)
 
-### Community 213 - "Community 213"
-Cohesion: 0.16
-Nodes (6): listCollections(), ListCollectionsInput, ListCollectionsOutput, MOCK_COLLECTIONS, CollectionListRepository, CollectionSummary
+### Community 91 - "Community 91"
+Cohesion: 0.17
+Nodes (8): Action Settings Safety, Current Boundaries, MCP Agent Capabilities, Recommended Workflow, Source URL Imports, Example: rate-limited campaign, Rate Limiting, Recommended limits for VisitAndExtract
 
-### Community 214 - "Community 214"
+### Community 92 - "Community 92"
+Cohesion: 0.17
+Nodes (11): Action Type Reference, Building LinkedIn Search URLs, Common Pitfalls, Error Patterns, lhremote MCP — Tool Surface & Workflow Guide, Parameter Conventions, Prerequisites, Rate Limiting (+3 more)
+
+### Community 93 - "Community 93"
+Cohesion: 0.17
+Nodes (11): Basic Search Keys, Basic Search (`/search/results/people/`), Fixed URLs (no params needed), LinkedIn Search URL Construction, Parameterized Templates, Rich Builders (filter support), Sales Navigator (`/sales/search/people`), SN Filter Types (+3 more)
+
+### Community 94 - "Community 94"
+Cohesion: 0.17
+Nodes (12): `campaign-clone-action`, `campaign-create`, `campaign-delete`, `campaign-erase`, `campaign-export`, `campaign-get`, `campaign-retry`, `campaign-start` (+4 more)
+
+### Community 95 - "Community 95"
 Cohesion: 0.18
 Nodes (10): ADR-002: CDP-Based Automation via Electron Remote Debugging, Alternatives Considered, Consequences, Context, Decision, Electron IPC via preload injection, File-based IPC (named pipes, Unix sockets), HTTP API wrapper (+2 more)
 
-### Community 215 - "Community 215"
+### Community 96 - "Community 96"
 Cohesion: 0.18
 Nodes (10): ADR-004: Three-Tier Testing Strategy, Alternatives Considered, Consequences, Context, Decision, Docker-based LinkedHelper for CI, Record/replay for CDP interactions, Separate test directories (+2 more)
 
-### Community 216 - "Community 216"
+### Community 97 - "Community 97"
 Cohesion: 0.18
 Nodes (10): ADR-005: Error Hierarchy Design, Alternatives Considered, Consequences, Context, Decision, Error codes (string/numeric) on a single error class, No custom errors, Result types (discriminated unions) (+2 more)
 
-### Community 217 - "Community 217"
+### Community 98 - "Community 98"
 Cohesion: 0.18
-Nodes (11): 2026-04-29 — Company-page coverage (`navigateToCompany`), 2026-05-05 — Diagnostic directory layout (TOCTOU mitigation), ADR-007: Profile and Company Page Readiness Selector Strategy, Alternatives considered, Amendments, Consequences, Context, Decision (+3 more)
+Nodes (11): ADR-007: Profile and Company Page Readiness Selector Strategy, 2026-04-29 — Company-page coverage (`navigateToCompany`), 2026-05-05 — Diagnostic directory layout (TOCTOU mitigation), Alternatives considered, Amendments, Consequences, Context, Decision (+3 more)
 
-### Community 218 - "Community 218"
+### Community 99 - "Community 99"
+Cohesion: 0.18
+Nodes (11): Campaign Action Chain Management, Campaign Creation & Execution, Collection Workflow (primary targeting), Data Queries (instance required, no campaign), Discovery Flow, Instance Connectability & Stability, Instance Lifecycle, Lists Management (+3 more)
+
+### Community 100 - "Community 100"
+Cohesion: 0.27
+Nodes (7): createServer(), { name, version }, require, connectPair(), require, { version }, runStdioServer()
+
+### Community 101 - "Community 101"
 Cohesion: 0.20
 Nodes (9): ADR-003: SQLite Database Access via Direct File System, Alternatives Considered, Consequences, Context, Custom HTTP wrapper service, Decision, ORM / query builder, Query via CDP Runtime.evaluate (+1 more)
 
-### Community 219 - "Community 219"
+### Community 102 - "Community 102"
 Cohesion: 0.20
 Nodes (10): Commits, Conventions, Copilot Review Cycle, Design Decisions, Infrastructure, lhremote — Claude Instructions, Naming, PR Workflow (+2 more)
 
-### Community 220 - "Community 220"
+### Community 103 - "Community 103"
 Cohesion: 0.20
 Nodes (9): Manifest notes, Packaging — lhremote `.mcpb` extension, Prerequisites, Quick rebuild checklist, Step 1 — Rebuild the server bundle, Step 2 — Copy the bundle into the staging directory, Step 3 — Pack the `.mcpb` file, Step 4 — Install and restart Claude Desktop (+1 more)
 
-### Community 221 - "Community 221"
+### Community 104 - "Community 104"
+Cohesion: 0.29
+Nodes (8): parsePublicTypeaheadResponse(), PUBLIC_TYPEAHEAD_TYPE, PublicTypeaheadEntry, resolveLinkedInEntity(), ResolveLinkedInEntityInput, ResolveLinkedInEntityOutput, EntityMatch, EntityType
+
+### Community 105 - "Community 105"
 Cohesion: 0.20
 Nodes (10): `comment-on-post`, Feed & Posts, `get-feed`, `get-post`, `get-post-engagers`, `get-post-stats`, `get-profile-activity`, `react-to-comment` (+2 more)
 
-### Community 222 - "Community 222"
+### Community 106 - "Community 106"
 Cohesion: 0.20
 Nodes (10): `endorse-skills`, `enrich-profile`, `follow-person`, `like-person-posts`, LinkedIn Actions, `message-person`, `remove-connection`, `send-inmail` (+2 more)
 
-### Community 223 - "Community 223"
+### Community 107 - "Community 107"
+Cohesion: 0.20
+Nodes (7): mockedDatabaseClient, mockedDiscoverAllDatabases, mockedDiscoverInstancePort, mockedFindApp, mockedLauncherService, mockedResolveLauncherPort, mockedScanRunningInstances
+
+### Community 108 - "Community 108"
+Cohesion: 0.22
+Nodes (9): Action Catalog, Campaign Formats, CDP, Constants & Utilities, Data Access, Error Types, Key Exports, Operations (+1 more)
+
+### Community 109 - "Community 109"
+Cohesion: 0.22
+Nodes (8): compilerOptions, composite, outDir, rootDir, exclude, extends, include, references
+
+### Community 110 - "Community 110"
 Cohesion: 0.22
 Nodes (9): Application binary not found, Database not found, Instance initialization timeout, LinkedHelper is not running, LinkedHelper is unreachable, Multiple accounts found, No accounts found, No instance running (+1 more)
 
-### Community 224 - "Community 224"
+### Community 111 - "Community 111"
 Cohesion: 0.22
 Nodes (9): `campaign-exclude-add`, `campaign-exclude-list`, `campaign-exclude-remove`, `campaign-import-from-source-url`, `campaign-list-people`, `campaign-remove-people`, Campaign Targeting, `collect-people` (+1 more)
 
-### Community 225 - "Community 225"
+### Community 112 - "Community 112"
+Cohesion: 0.22
+Nodes (8): description, name, packages, repository, source, url, $schema, version
+
+### Community 113 - "Community 113"
+Cohesion: 0.22
+Nodes (6): clientInstances, ClientMocks, clientsByTargetId, LINKEDIN_TARGET, mockedDiscoverTargets, UI_TARGET
+
+### Community 114 - "Community 114"
+Cohesion: 0.31
+Nodes (6): registerQueryProfile(), MOCK_PROFILE, MOCK_PROFILE_WITH_POSITIONS, mockDb(), mockRepo(), setupSuccessPath()
+
+### Community 115 - "Community 115"
+Cohesion: 0.25
+Nodes (7): compilerOptions, composite, outDir, rootDir, extends, include, references
+
+### Community 116 - "Community 116"
+Cohesion: 0.25
+Nodes (7): compilerOptions, composite, outDir, rootDir, exclude, extends, include
+
+### Community 117 - "Community 117"
+Cohesion: 0.25
+Nodes (7): entryPoints, excludeInternal, excludePrivate, name, out, readme, $schema
+
+### Community 118 - "Community 118"
+Cohesion: 0.29
+Nodes (8): findCdpPort(), getConnectableIntervalMs(), getConnectableTimeoutMs(), isCdpPort(), pidToPorts(), probeCdp(), probeProcess(), waitForConnectable()
+
+### Community 119 - "Community 119"
+Cohesion: 0.25
+Nodes (8): App Lifecycle Requirements, Development Specification, Documentation, Error Handling, Process Discovery, Runtime Architecture, Testing, Windows Visibility
+
+### Community 120 - "Community 120"
+Cohesion: 0.29
+Nodes (4): handleEnrichProfile(), MOCK_RESULT, handleGetFeed(), MOCK_RESULT
+
+### Community 121 - "Community 121"
+Cohesion: 0.39
+Nodes (6): handleQueryMessages(), __dirname, FIXTURE_ORIGIN, printConversationList(), printSearchResults(), printThread()
+
+### Community 122 - "Community 122"
+Cohesion: 0.25
+Nodes (7): compilerOptions, composite, outDir, rootDir, extends, include, references
+
+### Community 123 - "Community 123"
+Cohesion: 0.25
+Nodes (7): compilerOptions, composite, outDir, rootDir, extends, include, references
+
+### Community 124 - "Community 124"
+Cohesion: 0.29
+Nodes (4): registerCommentOnPost(), MOCK_RESULT, registerGetActionBudget(), MOCK_BUDGET
+
+### Community 125 - "Community 125"
+Cohesion: 0.29
+Nodes (4): registerGetFeed(), MOCK_RESULT, registerGetPostStats(), MOCK_STATS
+
+### Community 126 - "Community 126"
+Cohesion: 0.32
+Nodes (6): registerQueryProfilesBulk(), mockDb(), PROFILE_BOB, PROFILE_JANE, PROFILE_JANE_WITH_POSITIONS, setupSuccessPath()
+
+### Community 128 - "Community 128"
+Cohesion: 0.29
+Nodes (7): devDependencies, eslint, playwright-core, typedoc, @types/node, typescript, vitest
+
+### Community 129 - "Community 129"
+Cohesion: 0.29
+Nodes (7): scripts, build, dev, docs, lint, test, test:e2e
+
+### Community 130 - "Community 130"
 Cohesion: 0.29
 Nodes (6): Code Patterns, Commit Message Format, Copilot Review Instructions — lhremote, Naming Conventions, Project Structure, What to Flag
 
-### Community 226 - "Community 226"
+### Community 131 - "Community 131"
+Cohesion: 0.29
+Nodes (7): `check-status` — authoritative running state, `find-app` — process/role view, Identity resolution, Instance & Account Visibility, Process model (how lhremote classifies LH processes), Public (No Auth) — Primary, Voyager (Session Auth via CDP) — Fallback + SCHOOL
+
+### Community 132 - "Community 132"
 Cohesion: 0.29
 Nodes (7): `add-people-to-collection`, Collections, `create-collection`, `delete-collection`, `import-people-from-collection`, `list-collections`, `remove-people-from-collection`
 
-### Community 227 - "Community 227"
+### Community 133 - "Community 133"
+Cohesion: 0.29
+Nodes (7): Campaign Actions, `campaign-add-action`, `campaign-move-next`, `campaign-remove-action`, `campaign-reorder-actions`, `campaign-update-action`, `campaign-validate-action-settings`
+
+### Community 134 - "Community 134"
 Cohesion: 0.29
 Nodes (7): `check-replies`, Profiles & Messaging, `query-messages`, `query-profile`, `query-profiles`, `query-profiles-bulk`, `scrape-messaging-history`
 
-### Community 228 - "Community 228"
+### Community 135 - "Community 135"
+Cohesion: 0.38
+Nodes (4): cancelExecution(), findings, getRunnerState(), probeExpression()
+
+### Community 136 - "Community 136"
+Cohesion: 0.43
+Nodes (5): registerQueryProfiles(), MOCK_SEARCH_RESULT, mockDb(), mockRepo(), setupSuccessPath()
+
+### Community 137 - "Community 137"
 Cohesion: 0.33
-Nodes (4): Latest Release: v0.8.0, Near-Term Priorities, Out of Scope (Near-Term), Roadmap
+Nodes (6): exports, ./handlers, import, types, import, types
 
-### Community 229 - "Community 229"
+### Community 138 - "Community 138"
 Cohesion: 0.33
-Nodes (6): Account & Instance, `check-status`, `list-accounts`, `restart-instance`, `start-instance`, `stop-instance`
+Nodes (6): scripts, build, dev, lint, test, test:e2e
 
-### Community 230 - "Community 230"
+### Community 139 - "Community 139"
 Cohesion: 0.33
-Nodes (6): `describe-actions`, `dismiss-errors`, `get-action-budget`, `get-errors`, `get-throttle-status`, Utilities
+Nodes (6): dependencies, devtools-protocol, get-port, pid-port, ps-list, yaml
 
-### Community 231 - "Community 231"
-Cohesion: 0.25
-Nodes (8): [0.1.0] — 2026-02-04, [0.2.0] — 2026-02-16, Added, Added, Changed, Fixed, Fixed, Removed
-
-### Community 232 - "Community 232"
-Cohesion: 0.50
-Nodes (4): [0.21.0] — 2026-06-21, Added, Fixed, Security
-
-### Community 233 - "Community 233"
+### Community 140 - "Community 140"
 Cohesion: 0.33
-Nodes (7): [0.22.0] — 2026-06-22, [0.23.0] — 2026-06-23, Added, Added, Changed, Changed, Configuration (T7)
+Nodes (6): exports, ./testing, import, import, types, types
 
-### Community 234 - "Community 234"
-Cohesion: 0.29
-Nodes (7): [0.2.2] — 2026-02-19, [0.4.0] — 2026-03-03, Added, Added, Changed, Fixed, Fixed
+### Community 141 - "Community 141"
+Cohesion: 0.53
+Nodes (6): isDuplexStream(), isReadableStream(), isStream(), isWritableStream(), native(), nodeStream()
 
-### Community 235 - "Community 235"
+### Community 142 - "Community 142"
+Cohesion: 0.53
+Nodes (6): isDuplexStream(), isReadableStream(), isStream(), isWritableStream(), native(), nodeStream()
+
+### Community 143 - "Community 143"
+Cohesion: 0.53
+Nodes (3): handleAddPeopleToCollection(), parsePersonIds(), readPersonIdsFile()
+
+### Community 144 - "Community 144"
+Cohesion: 0.53
+Nodes (4): handleImportPeopleFromUrls(), parseUrls(), readUrlsFile(), MOCK_RESULT
+
+### Community 145 - "Community 145"
+Cohesion: 0.53
+Nodes (4): handleRemovePeopleFromCollection(), parsePersonIds(), readPersonIdsFile(), MOCK_RESULT
+
+### Community 146 - "Community 146"
+Cohesion: 0.47
+Nodes (4): handleScrapeMessagingHistory(), printStats(), MOCK_RESULT, MOCK_STATS
+
+### Community 147 - "Community 147"
+Cohesion: 0.47
+Nodes (4): handleVisitProfile(), printProfile(), MOCK_PROFILE, MOCK_RESULT
+
+### Community 148 - "Community 148"
+Cohesion: 0.33
+Nodes (6): scripts, build, dev, lint, prepack, test
+
+### Community 149 - "Community 149"
+Cohesion: 0.33
+Nodes (6): Company Size Ranges (Code: Range), Connection Degrees (Code: Meaning), Industries, Job Functions, Reference Data (Embeddable Constants), Seniority Levels (ID: Name)
+
+### Community 150 - "Community 150"
+Cohesion: 0.60
+Nodes (4): InstanceInfo, InstanceStatus, StartInstanceParams, StartInstanceResult
+
+### Community 151 - "Community 151"
+Cohesion: 0.40
+Nodes (5): devDependencies, eslint, @types/node, typescript, vitest
+
+### Community 152 - "Community 152"
 Cohesion: 0.50
-Nodes (4): [0.3.1] — 2026-06-21, Added, Fixed, Security
+Nodes (3): handleCampaignDelete(), MOCK_HARD_RESULT, MOCK_RESULT
 
-### Community 236 - "Community 236"
+### Community 153 - "Community 153"
 Cohesion: 0.50
-Nodes (4): [0.8.0] — 2026-03-22, Added, Changed, Fixed
+Nodes (3): handleCampaignExport(), MOCK_JSON_RESULT, MOCK_YAML_RESULT
 
-### Community 237 - "Community 237"
+### Community 154 - "Community 154"
 Cohesion: 0.50
-Nodes (4): [0.9.0] — 2026-04-01, Added, Changed, Fixed
+Nodes (3): handleCampaignList(), MOCK_CAMPAIGNS, MOCK_RESULT
 
-### Community 238 - "Community 238"
+### Community 155 - "Community 155"
+Cohesion: 0.50
+Nodes (3): handleCampaignStatistics(), MOCK_ACTION, MOCK_RESULT
+
+### Community 156 - "Community 156"
+Cohesion: 0.50
+Nodes (3): handleCampaignStatus(), MOCK_RESULTS, MOCK_STATUS_RESULT
+
+### Community 157 - "Community 157"
+Cohesion: 0.50
+Nodes (3): handleDeleteCollection(), MOCK_DELETED, MOCK_NOT_FOUND
+
+### Community 158 - "Community 158"
+Cohesion: 0.50
+Nodes (3): handleListReferenceData(), MOCK_ITEMS, VALID_DATA_TYPES
+
+### Community 159 - "Community 159"
+Cohesion: 0.50
+Nodes (3): handleResolveEntity(), MOCK_RESULT, VALID_ENTITY_TYPES
+
+### Community 161 - "Community 161"
+Cohesion: 0.40
+Nodes (5): Boolean Expressions (Keywords Field), Builder Modes, Not Supported, Operators (MUST be UPPERCASE), Precedence (highest to lowest)
+
+### Community 162 - "Community 162"
+Cohesion: 0.40
+Nodes (5): devDependencies, eslint, @types/node, typescript, vitest
+
+### Community 163 - "Community 163"
+Cohesion: 0.40
+Nodes (4): __dirname, lhremotePkg, outfile, root
+
+### Community 164 - "Community 164"
+Cohesion: 0.40
+Nodes (4): ALLOWED_LICENSES, licenseMap, output, violations
+
+### Community 165 - "Community 165"
+Cohesion: 0.40
+Nodes (3): claudeAvailable, ClaudeJsonResult, mcpServerPath
+
+### Community 167 - "Community 167"
+Cohesion: 0.50
+Nodes (3): registerCampaignReorderActions(), MOCK_ACTIONS, REORDER_RESULT
+
+### Community 184 - "Community 184"
 Cohesion: 0.50
 Nodes (3): Rules, Test Review Instructions, Three-Tier Testing Model
 
-### Community 241 - "Community 241"
+### Community 185 - "Community 185"
+Cohesion: 0.50
+Nodes (4): repository, directory, type, url
+
+### Community 186 - "Community 186"
+Cohesion: 0.50
+Nodes (4): repository, directory, type, url
+
+### Community 187 - "Community 187"
+Cohesion: 0.50
+Nodes (3): program, require, { version }
+
+### Community 191 - "Community 191"
+Cohesion: 0.50
+Nodes (3): db, __dirname, FIXTURE_PATH
+
+### Community 197 - "Community 197"
 Cohesion: 0.67
-Nodes (3): [0.7.0] — 2026-03-20, Added, Fixed
+Nodes (3): Instance readiness model, Launcher operation queue, restart-instance MCP tool
 
 ## Knowledge Gaps
-- **1095 isolated node(s):** `manifest_version`, `name`, `version`, `description`, `name` (+1090 more)
+- **1053 isolated node(s):** `manifest_version`, `name`, `version`, `description`, `name` (+1048 more)
   These have ≤1 connection - possible missing edges or undocumented components.
-- **45 thin communities (<3 nodes) omitted from report** — run `graphify query` to explore isolated nodes.
+- **43 thin communities (<3 nodes) omitted from report** — run `graphify query` to explore isolated nodes.
 
 ## Suggested Questions
 _Questions this graph is uniquely positioned to answer:_
 
-- **Why does `Listener` connect `Community 44` to `Community 40`, `Message & InMail`, `Instance Lifecycle`?**
-  _High betweenness centrality (0.251) - this node is a cross-community bridge._
-- **Why does `emitEvent()` connect `Message & InMail` to `Bundle Build Artifacts`, `Bundle Connection Mgmt`, `Community 44`?**
-  _High betweenness centrality (0.157) - this node is a cross-community bridge._
-- **Why does `emitEvent()` connect `Instance Lifecycle` to `Staging Build Artifacts`, `Community 44`, `Staging Connection Mgmt`?**
-  _High betweenness centrality (0.152) - this node is a cross-community bridge._
+- **Why does `Listener` connect `Community 42` to `Community 40`, `Bundle Utilities`, `Staging Utilities`?**
+  _High betweenness centrality (0.253) - this node is a cross-community bridge._
+- **Why does `emitEvent()` connect `Bundle Utilities` to `MCP Bundle (dist)`, `Community 42`, `Bundle Launcher`?**
+  _High betweenness centrality (0.158) - this node is a cross-community bridge._
+- **Why does `emitEvent()` connect `Staging Utilities` to `MCP Bundle (staging)`, `Community 42`, `Staging Launcher`?**
+  _High betweenness centrality (0.153) - this node is a cross-community bridge._
 - **What connects `manifest_version`, `name`, `version` to the rest of the system?**
-  _1098 weakly-connected nodes found - possible documentation gaps or missing edges._
-- **Should `Bundle Build Artifacts` be split into smaller, more focused modules?**
-  _Cohesion score 0.004772597403642626 - nodes in this community are weakly interconnected._
-- **Should `Staging Build Artifacts` be split into smaller, more focused modules?**
-  _Cohesion score 0.004755429380283258 - nodes in this community are weakly interconnected._
-- **Should `Bundle Tool Functions` be split into smaller, more focused modules?**
+  _1056 weakly-connected nodes found - possible documentation gaps or missing edges._
+- **Should `MCP Bundle (dist)` be split into smaller, more focused modules?**
+  _Cohesion score 0.004738330975954739 - nodes in this community are weakly interconnected._
+- **Should `MCP Bundle (staging)` be split into smaller, more focused modules?**
+  _Cohesion score 0.004819481566331509 - nodes in this community are weakly interconnected._
+- **Should `Bundle Operations` be split into smaller, more focused modules?**
   _Cohesion score 0.027863379558294814 - nodes in this community are weakly interconnected._

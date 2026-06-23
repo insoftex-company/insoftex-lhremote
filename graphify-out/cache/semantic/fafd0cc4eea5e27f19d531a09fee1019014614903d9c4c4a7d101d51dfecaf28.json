@@ -1,0 +1,1 @@
+{"nodes": [], "edges": [{"source": "adr_008", "target": "core_launcher_service", "relation": "conceptually_related_to", "confidence": "EXTRACTED", "confidence_score": 1.0, "source_file": "docs/instance-stability.md", "source_location": null, "weight": 1.0}], "hyperedges": []}

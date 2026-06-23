@@ -1,0 +1,1 @@
+{"nodes": [], "edges": [{"source": "mcp_package", "target": "core_package", "relation": "references", "confidence": "EXTRACTED", "confidence_score": 1.0, "source_file": "packages/mcp/README.md", "source_location": null, "weight": 1.0}], "hyperedges": []}
