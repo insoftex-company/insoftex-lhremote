@@ -9,7 +9,7 @@ import {
   withLauncherQueue,
   withLauncherRecovery,
 } from "@insoftex/lhremote-core";
-import { buildCdpOptions, cdpConnectionSchema, mcpCatchAll, mcpError, mcpSuccess } from "../helpers.js";
+import { buildCdpOptions, cdpConnectionSchema, mcpCatchAll, mcpError, mcpSuccess, wrapProgress } from "../helpers.js";
 import { operationRegistry, runAsyncOp } from "../operation-registry.js";
 
 /** Register the {@link https://github.com/insoftex-company/insoftex-lhremote#stop-instance | stop-instance} MCP tool. */
@@ -33,23 +33,17 @@ export function registerStopInstance(server: McpServer): void {
           );
         }
 
-        const mcpSignal = extra?.signal;
-
         const outcome = await runAsyncOp(
           operationRegistry,
           "stop-instance",
-          async (signal, progress) => {
-            const controller = new AbortController();
-            const merged = controller.signal;
-            const forward = () => controller.abort();
-            signal.addEventListener("abort", forward, { once: true });
-            if (mcpSignal) mcpSignal.addEventListener("abort", forward, { once: true });
+          async (signal, registryProgress) => {
+            const progress = wrapProgress(registryProgress, extra);
 
             progress("Acquiring launcher connection");
             const { launcher } = await acquireLauncherWithRecovery(
               cdpPort,
               buildCdpOptions({ cdpHost, allowRemote }),
-              { signal: merged },
+              { signal },
             );
 
             try {
@@ -59,7 +53,7 @@ export function registerStopInstance(server: McpServer): void {
                 const { result: accounts } = await withLauncherRecovery(
                   launcher,
                   () => launcher.listAccounts(),
-                  { signal: merged },
+                  { signal },
                 );
                 if (accounts.length === 0) throw new Error("No accounts found.");
                 if (accounts.length > 1) {
@@ -80,7 +74,7 @@ export function registerStopInstance(server: McpServer): void {
                       await launcher.stopInstance(resolvedId as number);
                       await waitForInstanceShutdown(port);
                     },
-                    { signal: merged },
+                    { signal },
                   ),
                 { type: "stop", launcherPort: port },
               );
@@ -88,10 +82,9 @@ export function registerStopInstance(server: McpServer): void {
               return `Instance stopped for account ${resolvedId}`;
             } finally {
               launcher.disconnect();
-              signal.removeEventListener("abort", forward);
-              mcpSignal?.removeEventListener("abort", forward);
             }
           },
+          extra?.signal !== undefined ? { signal: extra.signal } : undefined,
         );
 
         if (outcome.status === "rejected") {

@@ -220,18 +220,21 @@ export const FAST_PATH_GRACE_MS = 2_000;
  *   `{ status: "in_progress", operationId }` if it is still running.
  *
  * The work function receives:
- *   - `signal`   — AbortSignal; fired by cancel-operation or when the MCP
- *                  request is cancelled by the client.
+ *   - `signal`   — AbortSignal merged from the registry signal (cancel-operation)
+ *                  and any external signal supplied via `options.signal` (e.g. MCP
+ *                  request cancellation). Fires when either source aborts.
  *   - `progress` — Append a human-readable progress message to the record.
  *
  * @param registry - Typically the module-level {@link operationRegistry}.
  * @param kind     - Operation kind label for the registry record.
  * @param work     - The async work to perform.
+ * @param options  - Optional external signal (e.g. `extra.signal` from MCP handler).
  */
 export async function runAsyncOp<T>(
   registry: OperationRegistry,
   kind: OperationKind,
   work: (signal: AbortSignal, progress: (message: string) => void) => Promise<T>,
+  options?: { signal?: AbortSignal | undefined },
 ): Promise<AsyncOpOutcome<T>> {
   // Single-writer check
   const active = registry.getActiveWriteOp();
@@ -244,7 +247,19 @@ export async function runAsyncOp<T>(
     };
   }
 
-  const { operationId, signal, progress } = registry.create(kind);
+  const { operationId, signal: registrySignal, progress } = registry.create(kind);
+
+  // Merge registry signal + optional external (MCP) signal into one.
+  // The work function always receives this merged signal.
+  const controller = new AbortController();
+  const merged = controller.signal;
+  const forwardRegistry = () => controller.abort();
+  registrySignal.addEventListener("abort", forwardRegistry, { once: true });
+  const externalSignal = options?.signal;
+  const forwardExternal = externalSignal ? () => controller.abort() : undefined;
+  if (externalSignal && forwardExternal) {
+    externalSignal.addEventListener("abort", forwardExternal, { once: true });
+  }
 
   // Track settlement via closure (avoids double-catching typed errors).
   let settled = false;
@@ -256,7 +271,7 @@ export async function runAsyncOp<T>(
   // closure) so they run even after runAsyncOp returns for background ops.
   const workPromise: Promise<void> = (async () => {
     try {
-      const result = await work(signal, progress);
+      const result = await work(merged, progress);
       settled = true;
       settledResult = result;
       registry.succeed(operationId, result);
@@ -264,10 +279,21 @@ export async function runAsyncOp<T>(
       settled = true;
       settledError = error;
       didError = true;
-      if (!signal.aborted) {
+      if (registrySignal.aborted) {
+        // cancel-operation was called — registry.cancel() already set the status.
+      } else if (externalSignal?.aborted || (error instanceof Error && error.name === "AbortError")) {
+        // MCP request cancelled or merged signal fired — treat as cancellation.
+        // Note: aborted core functions throw domain errors (e.g. LinkedHelperUnreachableError),
+        // not AbortError. Checking externalSignal.aborted is the reliable path.
+        registry.cancel(operationId);
+      } else {
         registry.fail(operationId, error);
       }
-      // If signal is aborted, registry.cancel() already set the status.
+    } finally {
+      registrySignal.removeEventListener("abort", forwardRegistry);
+      if (externalSignal && forwardExternal) {
+        externalSignal.removeEventListener("abort", forwardExternal);
+      }
     }
   })();
 

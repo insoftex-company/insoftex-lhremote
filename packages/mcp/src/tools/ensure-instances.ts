@@ -4,7 +4,7 @@
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { acquireLauncherWithRecovery, ensureInstances } from "@insoftex/lhremote-core";
 import { z } from "zod";
-import { buildCdpOptions, cdpConnectionSchema, mcpCatchAll, mcpError, mcpSuccess } from "../helpers.js";
+import { buildCdpOptions, cdpConnectionSchema, mcpCatchAll, mcpError, mcpSuccess, wrapProgress } from "../helpers.js";
 import { operationRegistry, runAsyncOp } from "../operation-registry.js";
 
 /** Register the ensure-instances MCP tool. */
@@ -33,23 +33,17 @@ export function registerEnsureInstances(server: McpServer): void {
           );
         }
 
-        const mcpSignal = extra?.signal;
-
         const outcome = await runAsyncOp(
           operationRegistry,
           "ensure-instances",
-          async (signal, progress) => {
-            const controller = new AbortController();
-            const merged = controller.signal;
-            const forward = () => controller.abort();
-            signal.addEventListener("abort", forward, { once: true });
-            if (mcpSignal) mcpSignal.addEventListener("abort", forward, { once: true });
+          async (signal, registryProgress) => {
+            const progress = wrapProgress(registryProgress, extra);
 
             progress("Acquiring launcher connection");
             const { launcher } = await acquireLauncherWithRecovery(
               cdpPort,
               buildCdpOptions({ cdpHost, allowRemote }),
-              { signal: merged },
+              { signal },
             );
 
             try {
@@ -58,10 +52,9 @@ export function registerEnsureInstances(server: McpServer): void {
               return results;
             } finally {
               launcher.disconnect();
-              signal.removeEventListener("abort", forward);
-              mcpSignal?.removeEventListener("abort", forward);
             }
           },
+          extra?.signal !== undefined ? { signal: extra.signal } : undefined,
         );
 
         if (outcome.status === "rejected") {

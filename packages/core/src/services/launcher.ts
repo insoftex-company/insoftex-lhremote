@@ -182,21 +182,42 @@ export class LauncherService {
         ? Number(process.env["LHREMOTE_LAUNCHER_RECOVERY_TIMEOUT_MS"])
         : DEFAULT_LAUNCHER_RECOVERY_TIMEOUT_MS);
 
-    const newPort = await resolveAppPort("launcher", timeoutMs, options?.signal);
+    const deadline = Date.now() + timeoutMs;
 
-    const client = new CDPClient(newPort, { host: this.host, allowRemote: this.allowRemote });
-    try {
-      await client.connect();
-    } catch (error) {
-      if (error instanceof CDPConnectionError) {
-        const apps = await findApp();
-        throw apps.length > 0
-          ? new LinkedHelperUnreachableError(apps)
-          : new LinkedHelperNotRunningError(newPort);
+    // Retry the resolve+connect cycle within the timeout budget.
+    // The launcher briefly drops its port after a write op (port-hop):
+    // resolveAppPort may return port X just before the hop; connect() then
+    // fails because the launcher has moved to port Y.  Retrying the whole
+    // cycle with the remaining budget lets us discover the new port.
+    //
+    // resolveAppPort itself throws LinkedHelperNotRunningError or
+    // LinkedHelperUnreachableError on failure — those propagate immediately.
+    // Only CDPConnectionError from connect() (port-hop race) triggers a retry.
+    while (Date.now() < deadline) {
+      const remaining = deadline - Date.now();
+      if (remaining <= 0) break;
+
+      const newPort = await resolveAppPort("launcher", remaining, options?.signal);
+
+      const client = new CDPClient(newPort, { host: this.host, allowRemote: this.allowRemote });
+      try {
+        await client.connect();
+        await this.bindLauncherClient(client, newPort);
+        return; // success
+      } catch (error) {
+        if (error instanceof CDPConnectionError) {
+          // Port hopped between resolve and connect — retry immediately.
+          continue;
+        }
+        throw error;
       }
-      throw error;
     }
-    await this.bindLauncherClient(client, newPort);
+
+    // Budget exhausted via repeated port-hops without a stable landing port.
+    const apps = await findApp();
+    throw apps.length > 0
+      ? new LinkedHelperUnreachableError(apps)
+      : new LinkedHelperNotRunningError(0);
   }
 
   /**

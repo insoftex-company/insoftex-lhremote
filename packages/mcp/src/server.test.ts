@@ -5,8 +5,19 @@ import { createRequire } from "node:module";
 
 import type { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
+vi.mock("@insoftex/lhremote-core", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@insoftex/lhremote-core")>();
+  return {
+    ...actual,
+    acquireLauncherWithRecovery: vi.fn(),
+    scanRunningInstances: vi.fn(),
+    findApp: vi.fn(),
+  };
+});
+
+import { acquireLauncherWithRecovery, findApp, scanRunningInstances } from "@insoftex/lhremote-core";
 import { createServer } from "./server.js";
 
 const require = createRequire(import.meta.url);
@@ -45,13 +56,16 @@ async function connectPair() {
 
 describe("T1 — non-blocking startup", () => {
   it("createServer() + registerAllTools() perform no I/O", () => {
-    // This test is intentionally synchronous: createServer() must be a plain
-    // synchronous function. If tool registration touched the network or FS,
-    // it would need to be async and this call would return a Promise instead
-    // of an McpServer.
+    // Intentionally synchronous: createServer() must not await anything.
+    // If tool registration touched the network or FS it would need to be async
+    // and this call would return a Promise instead of an McpServer.
     server = createServer();
     expect(server).toBeDefined();
     expect(typeof server.tool).toBe("function");
+    // Verify no CDP or process discovery functions were invoked at registration time.
+    expect(vi.mocked(acquireLauncherWithRecovery)).not.toHaveBeenCalled();
+    expect(vi.mocked(scanRunningInstances)).not.toHaveBeenCalled();
+    expect(vi.mocked(findApp)).not.toHaveBeenCalled();
   });
 });
 

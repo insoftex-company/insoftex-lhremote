@@ -4,7 +4,7 @@
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { AppLaunchError, AppNotFoundError, AppService } from "@insoftex/lhremote-core";
 import { z } from "zod";
-import { mcpCatchAll, mcpError, mcpSuccess } from "../helpers.js";
+import { mcpCatchAll, mcpError, mcpSuccess, wrapProgress } from "../helpers.js";
 import { operationRegistry, runAsyncOp } from "../operation-registry.js";
 
 /** Register the {@link https://github.com/insoftex-company/insoftex-lhremote#launch-app | launch-app} MCP tool. */
@@ -30,7 +30,7 @@ export function registerLaunchApp(server: McpServer): void {
         .optional()
         .describe("Restore and focus the LinkedHelper launcher window on Windows"),
     },
-    async ({ cdpPort, force, visible }) => {
+    async ({ cdpPort, force, visible }, extra) => {
       try {
         // Single-writer check.
         const active = operationRegistry.getActiveWriteOp();
@@ -44,7 +44,8 @@ export function registerLaunchApp(server: McpServer): void {
         const outcome = await runAsyncOp(
           operationRegistry,
           "launch-app",
-          async (_signal, progress) => {
+          async (_signal, registryProgress) => {
+            const progress = wrapProgress(registryProgress, extra);
             const app = new AppService(cdpPort, {
               ...(force !== undefined && { force }),
               ...(visible !== undefined && { visible }),
@@ -62,6 +63,7 @@ export function registerLaunchApp(server: McpServer): void {
 
             return `LinkedHelper launched on CDP port ${String(app.cdpPort)}`;
           },
+          extra?.signal !== undefined ? { signal: extra.signal } : undefined,
         );
 
         if (outcome.status === "rejected") {

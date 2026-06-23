@@ -10,7 +10,7 @@ import {
   withLauncherQueue,
   withLauncherRecovery,
 } from "@insoftex/lhremote-core";
-import { buildCdpOptions, cdpConnectionSchema, mcpCatchAll, mcpError, mcpSuccess } from "../helpers.js";
+import { buildCdpOptions, cdpConnectionSchema, mcpCatchAll, mcpError, mcpSuccess, wrapProgress } from "../helpers.js";
 import { operationRegistry, runAsyncOp } from "../operation-registry.js";
 
 /** Register the {@link https://github.com/insoftex-company/insoftex-lhremote#start-instance | start-instance} MCP tool. */
@@ -34,23 +34,17 @@ export function registerStartInstance(server: McpServer): void {
           );
         }
 
-        const mcpSignal = extra?.signal;
-
         const outcome = await runAsyncOp(
           operationRegistry,
           "start-instance",
-          async (signal, progress) => {
-            const controller = new AbortController();
-            const merged = controller.signal;
-            const forward = () => controller.abort();
-            signal.addEventListener("abort", forward, { once: true });
-            if (mcpSignal) mcpSignal.addEventListener("abort", forward, { once: true });
+          async (signal, registryProgress) => {
+            const progress = wrapProgress(registryProgress, extra);
 
             progress("Acquiring launcher connection");
             const { launcher } = await acquireLauncherWithRecovery(
               cdpPort,
               buildCdpOptions({ cdpHost, allowRemote }),
-              { signal: merged },
+              { signal },
             );
 
             try {
@@ -61,7 +55,7 @@ export function registerStartInstance(server: McpServer): void {
                 const { result: accounts } = await withLauncherRecovery(
                   launcher,
                   () => launcher.listAccounts(),
-                  { signal: merged },
+                  { signal },
                 );
 
                 if (accounts.length === 0) {
@@ -83,13 +77,13 @@ export function registerStartInstance(server: McpServer): void {
                   withLauncherRecovery(
                     launcher,
                     () => startInstanceWithRecovery(launcher, resolvedId as number, launcher.currentPort),
-                    { signal: merged },
+                    { signal },
                   ),
                 { type: "start", accountId: resolvedId as number, launcherPort: port },
               );
 
               if (opOutcome.status === "timeout") {
-                const waitResult = await waitForConnectable(resolvedId as number, { signal: merged });
+                const waitResult = await waitForConnectable(resolvedId as number, { signal });
                 if (waitResult.verified && waitResult.cdpPort !== null) {
                   return {
                     text:
@@ -110,10 +104,9 @@ export function registerStartInstance(server: McpServer): void {
               return { text, type: "text" as const };
             } finally {
               launcher.disconnect();
-              signal.removeEventListener("abort", forward);
-              mcpSignal?.removeEventListener("abort", forward);
             }
           },
+          extra?.signal !== undefined ? { signal: extra.signal } : undefined,
         );
 
         if (outcome.status === "rejected") {

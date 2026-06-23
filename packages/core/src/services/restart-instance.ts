@@ -127,6 +127,7 @@ export async function restartInstance(
         const { launcherRecovered: stopRecovered } = await withLauncherRecovery(
           launcher,
           () => launcher.stopInstance(accountId),
+          options?.signal !== undefined ? { signal: options.signal } : undefined,
         );
         launcherRecovered = stopRecovered;
       } catch {

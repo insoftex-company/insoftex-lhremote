@@ -7,7 +7,7 @@ import {
   acquireLauncherWithRecovery,
   restartInstance,
 } from "@insoftex/lhremote-core";
-import { buildCdpOptions, cdpConnectionSchema, mcpCatchAll, mcpError, mcpSuccess } from "../helpers.js";
+import { buildCdpOptions, cdpConnectionSchema, mcpCatchAll, mcpError, mcpSuccess, wrapProgress } from "../helpers.js";
 import { operationRegistry, runAsyncOp } from "../operation-registry.js";
 
 /** Register the restart-instance MCP tool. */
@@ -46,25 +46,17 @@ export function registerRestartInstance(server: McpServer): void {
           );
         }
 
-        // MCP-level cancellation signal (fires when client sends notifications/cancelled).
-        const mcpSignal = extra?.signal;
-
         const outcome = await runAsyncOp(
           operationRegistry,
           "restart-instance",
-          async (signal, progress) => {
-            // Merge MCP signal + operation signal: abort on either.
-            const controller = new AbortController();
-            const merged = controller.signal;
-            const forward = () => controller.abort();
-            signal.addEventListener("abort", forward, { once: true });
-            if (mcpSignal) mcpSignal.addEventListener("abort", forward, { once: true });
+          async (signal, registryProgress) => {
+            const progress = wrapProgress(registryProgress, extra);
 
             progress("Acquiring launcher connection");
             const { launcher } = await acquireLauncherWithRecovery(
               cdpPort,
               buildCdpOptions({ cdpHost, allowRemote }),
-              { signal: merged },
+              { signal },
             );
 
             try {
@@ -73,15 +65,14 @@ export function registerRestartInstance(server: McpServer): void {
                 launcher,
                 accountId,
                 launcher.currentPort,
-                { force: force ?? false, signal: merged },
+                { force: force ?? false, signal },
               );
               return result;
             } finally {
               launcher.disconnect();
-              signal.removeEventListener("abort", forward);
-              mcpSignal?.removeEventListener("abort", forward);
             }
           },
+          extra?.signal !== undefined ? { signal: extra.signal } : undefined,
         );
 
         if (outcome.status === "rejected") {

@@ -121,8 +121,8 @@ function parseNonNegativeInt(value: string): number {
 }
 
 /** Collect repeatable positive integer values into an array. */
-function collectPositiveInt(value: string, previous: number[]): number[] {
-  return [...previous, parsePositiveInt(value)];
+function collectPositiveInt(value: string, previous: number[] | undefined): number[] {
+  return [...(previous ?? []), parsePositiveInt(value)];
 }
 
 /** Collect repeatable string values into an array. */

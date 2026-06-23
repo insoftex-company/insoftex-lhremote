@@ -311,4 +311,66 @@ describe("runAsyncOp", () => {
     expect(record?.status).toBe("failed");
     expect(record?.error).toBe("background-error");
   });
+
+  it("external signal abort cancels the operation even when work throws a non-AbortError", async () => {
+    // This simulates the MCP scenario: the client fires notifications/cancelled,
+    // which aborts extra.signal (passed as options.signal). The work function's
+    // aborted blocking call throws LinkedHelperUnreachableError (not AbortError).
+    // The operation must land as "cancelled", not "failed".
+    const externalController = new AbortController();
+    let rejectWork!: (e: Error) => void;
+    const work = vi.fn(
+      () =>
+        new Promise<string>((_resolve, reject) => {
+          rejectWork = reject;
+        }),
+    );
+
+    const promise = runAsyncOp(
+      registry,
+      "start-instance",
+      work,
+      { signal: externalController.signal },
+    );
+    await vi.advanceTimersByTimeAsync(FAST_PATH_GRACE_MS + 1);
+    const outcome = await promise;
+
+    expect(outcome.status).toBe("in_progress");
+    const { operationId } = outcome as { operationId: string; status: "in_progress" };
+
+    // Fire the external (MCP) signal, then the work throws a domain error.
+    externalController.abort();
+    rejectWork(new Error("LinkedHelperUnreachableError-style domain error"));
+    await vi.runAllTimersAsync();
+
+    const record = registry.get(operationId);
+    expect(record?.status).toBe("cancelled");
+  });
+
+  it("work signals the merged signal receives both registry cancel and external abort", async () => {
+    const externalController = new AbortController();
+    let capturedSignal!: AbortSignal;
+    let resolveWork!: () => void;
+    const work = vi.fn((signal: AbortSignal) => {
+      capturedSignal = signal;
+      return new Promise<void>((resolve) => { resolveWork = resolve; });
+    });
+
+    const promise = runAsyncOp(registry, "stop-instance", work, { signal: externalController.signal });
+    await vi.advanceTimersByTimeAsync(FAST_PATH_GRACE_MS + 1);
+    const outcome = await promise;
+    expect(outcome.status).toBe("in_progress");
+    const { operationId } = outcome as { operationId: string; status: "in_progress" };
+
+    expect(capturedSignal.aborted).toBe(false);
+
+    // External abort fires the merged signal.
+    externalController.abort();
+    expect(capturedSignal.aborted).toBe(true);
+
+    resolveWork();
+    await vi.runAllTimersAsync();
+    // Operation resolved normally after signal fired (work didn't throw).
+    expect(registry.get(operationId)?.status).toBe("succeeded");
+  });
 });

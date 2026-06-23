@@ -86,32 +86,37 @@ error, and start/finish timestamps.  10-minute TTL on completed records.
 | `withLauncherRecovery` | `packages/core/src/services/launcher-recovery.ts` |
 | `acquireLauncherWithRecovery` | `packages/core/src/services/launcher-recovery.ts` |
 
-Each tool handler creates a local `AbortController` and wires both the operation signal and the
-MCP `extra.signal` to it via a single `forward = () => controller.abort()` listener:
+Signal merging is owned by `runAsyncOp`.  Each tool handler passes its MCP `extra.signal` as
+`options.signal`; `runAsyncOp` creates a single merged `AbortController` internally and hands
+the merged signal to the work function:
 
 ```typescript
+// Inside runAsyncOp:
 const controller = new AbortController();
-const merged = controller.signal;
-const forward = () => controller.abort();
-signal.addEventListener("abort", forward, { once: true });
-if (mcpSignal) mcpSignal.addEventListener("abort", forward, { once: true });
+registrySignal.addEventListener("abort", () => controller.abort(), { once: true });
+externalSignal?.addEventListener("abort", () => controller.abort(), { once: true });
+// work receives controller.signal — fires on either cancel-operation or MCP cancellation
 ```
 
-The `merged` signal is passed to `acquireLauncherWithRecovery` and flows down the stack.
+The merged signal is passed to `acquireLauncherWithRecovery` and flows down the entire stack.
 
-**Why merge at the tool layer, not inside `runAsyncOp`?** The MCP `extra.signal` is only
-available inside the tool handler callback, not in `runAsyncOp`'s generic interface.  Merging
-at the tool layer keeps `runAsyncOp` signal-agnostic and testable without MCP machinery.
+**Why merge inside `runAsyncOp` rather than at the tool layer?**  Core blocking functions
+(e.g. `resolveAppPort`) detect an aborted signal and throw *domain errors*
+(`LinkedHelperUnreachableError`), not `AbortError`.  The `runAsyncOp` catch block must know
+whether the *external* signal was aborted to classify the outcome as `cancelled` vs `failed`.
+Owning the signal reference inside `runAsyncOp` makes that check reliable regardless of what
+error the aborted call raises.  Tool handlers remain signal-agnostic.
 
 ### T4 — MCP progress and protocol cancellation
 
 Progress messages emitted via the `progress(message)` callback inside a work function are
 forwarded as `notifications/progress` to the MCP client when a `progressToken` is present in
-the request.  This is wired at the tool handler level, not inside `runAsyncOp`, for the same
-reason as T3 — the progress token is only available in the handler context.
+the request.  This is wired at the tool handler level via `wrapProgress(registryProgress, extra)`.
 
-`notifications/cancelled` (MCP 2025-11 §6.8) triggers `extra.signal.abort()`, which is
-forwarded to the merged signal via the T3 wiring above.
+`notifications/cancelled` (MCP 2025-11 §6.8) triggers `extra.signal.abort()`.  Tool handlers
+pass `extra.signal` to `runAsyncOp` as `options.signal`; `runAsyncOp` wires it to the merged
+controller (T3) and checks `options.signal.aborted` in the catch block to record
+`status: "cancelled"` rather than `status: "failed"`.
 
 ## Alternatives Considered
 

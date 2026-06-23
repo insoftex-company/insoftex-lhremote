@@ -4,7 +4,7 @@
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { AppService, DEFAULT_CDP_PORT, resolveLauncherPort } from "@insoftex/lhremote-core";
 import { z } from "zod";
-import { mcpCatchAll, mcpError, mcpSuccess } from "../helpers.js";
+import { mcpCatchAll, mcpError, mcpSuccess, wrapProgress } from "../helpers.js";
 import { operationRegistry, runAsyncOp } from "../operation-registry.js";
 
 /** Register the {@link https://github.com/insoftex-company/insoftex-lhremote#quit-app | quit-app} MCP tool. */
@@ -22,7 +22,7 @@ export function registerQuitApp(server: McpServer): void {
         .optional()
         .describe("CDP port (auto-discovered from the launcher when omitted)"),
     },
-    async ({ cdpPort }) => {
+    async ({ cdpPort }, extra) => {
       try {
         // Single-writer check.
         const active = operationRegistry.getActiveWriteOp();
@@ -36,7 +36,8 @@ export function registerQuitApp(server: McpServer): void {
         const outcome = await runAsyncOp(
           operationRegistry,
           "quit-app",
-          async (_signal, progress) => {
+          async (_signal, registryProgress) => {
+            const progress = wrapProgress(registryProgress, extra);
             progress("Resolving CDP port");
             let port = cdpPort;
             try {
@@ -50,6 +51,7 @@ export function registerQuitApp(server: McpServer): void {
             await app.quit();
             return "LinkedHelper quit successfully";
           },
+          extra?.signal !== undefined ? { signal: extra.signal } : undefined,
         );
 
         if (outcome.status === "rejected") {

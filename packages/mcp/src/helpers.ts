@@ -117,6 +117,33 @@ export function mapErrorToMcpResponse(error: unknown): McpResult | undefined {
   return undefined;
 }
 
+/** Minimal subset of RequestHandlerExtra needed to forward progress notifications. */
+interface ProgressCapableExtra {
+  _meta?: { progressToken?: string | number | undefined };
+  sendNotification: (notification: { method: "notifications/progress"; params: { progressToken: string | number; progress: number; message: string } }) => Promise<void>;
+}
+
+/**
+ * Wraps a registry progress callback to also forward messages as MCP
+ * notifications/progress when the caller supplied a progressToken.
+ * If no progressToken is present, returns the original callback unchanged.
+ */
+export function wrapProgress(
+  registryProgress: (message: string) => void,
+  extra: ProgressCapableExtra | undefined,
+): (message: string) => void {
+  const token = extra?._meta?.progressToken;
+  if (token === undefined || extra === undefined) return registryProgress;
+  let seq = 0;
+  return (message: string): void => {
+    registryProgress(message);
+    void extra.sendNotification({
+      method: "notifications/progress",
+      params: { progressToken: token, progress: seq++, message },
+    });
+  };
+}
+
 /**
  * Map an arbitrary caught error to an MCP error response with a
  * contextual prefix (e.g. "Failed to create campaign").
