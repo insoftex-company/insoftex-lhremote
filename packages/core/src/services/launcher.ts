@@ -2,6 +2,7 @@
 // Copyright (C) 2026 Oleksii PELYKH
 
 import { CDPClient, CDPConnectionError, findApp, resolveAppPort } from "../cdp/index.js";
+import { delay } from "../utils/delay.js";
 import { DEFAULT_CDP_PORT } from "../constants.js";
 
 /** Default cap for launcher CDP recovery attempts in milliseconds. */
@@ -185,14 +186,13 @@ export class LauncherService {
     const deadline = Date.now() + timeoutMs;
 
     // Retry the resolve+connect cycle within the timeout budget.
-    // The launcher briefly drops its port after a write op (port-hop):
-    // resolveAppPort may return port X just before the hop; connect() then
-    // fails because the launcher has moved to port Y.  Retrying the whole
-    // cycle with the remaining budget lets us discover the new port.
-    //
     // resolveAppPort itself throws LinkedHelperNotRunningError or
     // LinkedHelperUnreachableError on failure — those propagate immediately.
-    // Only CDPConnectionError from connect() (port-hop race) triggers a retry.
+    // CDPConnectionError from connect() retries with a 500ms pause.  The
+    // two scenarios that produce CDPConnectionError here are:
+    //   (a) Port-hop: launcher moved to a new port between resolve and connect;
+    //       the next resolveAppPort call discovers the new port.
+    //   (b) Target momentarily taken by an external debugger session.
     while (Date.now() < deadline) {
       const remaining = deadline - Date.now();
       if (remaining <= 0) break;
@@ -206,7 +206,10 @@ export class LauncherService {
         return; // success
       } catch (error) {
         if (error instanceof CDPConnectionError) {
-          // Port hopped between resolve and connect — retry immediately.
+          // Two cases: port-hop race (launcher moved to a new port between
+          // resolve and connect) or target temporarily taken by another
+          // debugger session. Brief pause before retry avoids busy-looping.
+          await delay(500);
           continue;
         }
         throw error;

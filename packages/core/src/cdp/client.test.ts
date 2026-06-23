@@ -498,227 +498,47 @@ describe("CDPClient", () => {
     });
   });
 
-  describe("reconnection", () => {
-    beforeEach(() => {
-      vi.useFakeTimers({ shouldAdvanceTime: true });
-    });
-
-    afterEach(() => {
-      vi.useRealTimers();
-    });
-
-    it("should attempt reconnection after WebSocket close on a connected client", async () => {
+  describe("unexpected close — no auto-reconnect", () => {
+    it("does NOT create a new WebSocket when the connection closes unexpectedly", async () => {
       await client.connect();
-      const ws = lastMockWs();
       expect(MockWebSocket.instances).toHaveLength(1);
 
-      // Simulate unexpected close — reconnection auto-opens (default behaviour)
-      ws.emit("close", {});
-
-      // Advance past the first backoff delay (500ms)
-      await vi.advanceTimersByTimeAsync(500);
-
-      // A second MockWebSocket should have been created for the reconnection
-      expect(MockWebSocket.instances).toHaveLength(2);
-      expect(client.isConnected).toBe(true);
-    });
-
-    it("should use exponential backoff timing", async () => {
-      await client.connect();
       const ws = lastMockWs();
-
-      const setTimeoutSpy = vi.spyOn(globalThis, "setTimeout");
-
-      // All reconnection attempts will fail, so we can observe all 5 delays
-      MockWebSocket.nextBehaviors = ["error", "error", "error", "error", "error"];
-
       ws.emit("close", {});
 
-      // Advance past all backoff delays to let all 5 attempts complete
-      await vi.advanceTimersByTimeAsync(15_500);
+      // Flush microtasks; verify no second WebSocket was spawned
+      await Promise.resolve();
 
-      // Extract the backoff delay values passed to setTimeout by the
-      // reconnection loop.  The loop calls: await new Promise(r => setTimeout(r, delay))
-      // We look for calls with the expected exponential backoff values.
-      const backoffDelays = setTimeoutSpy.mock.calls
-        .map((call) => call[1])
-        .filter((ms): ms is number => typeof ms === "number" && ms >= 500);
-
-      expect(backoffDelays).toEqual([500, 1000, 2000, 4000, 8000]);
-
-      setTimeoutSpy.mockRestore();
-    });
-
-    it("should restore functionality after successful reconnection", async () => {
-      await client.connect();
-      const ws = lastMockWs();
-
-      // Close the connection — next WebSocket will auto-open (default)
-      ws.emit("close", {});
-      expect(client.isConnected).toBe(false);
-
-      // Advance past the first backoff (500ms) to allow reconnection
-      await vi.advanceTimersByTimeAsync(500);
-
-      expect(client.isConnected).toBe(true);
-
-      // Verify the client can send messages on the new connection
-      const newWs = lastMockWs();
-      let sentMessage: string | undefined;
-      newWs.send = (data: string) => {
-        sentMessage = data;
-      };
-
-      const resultPromise = client.send("Runtime.evaluate", {
-        expression: "1+1",
-      });
-
-      await vi.waitFor(() => expect(sentMessage).toBeDefined());
-
-      const parsed = JSON.parse(sentMessage as string) as { id: number };
-      newWs.receiveMessage({
-        id: parsed.id,
-        result: { result: { value: 2 } },
-      });
-
-      const result = await resultPromise;
-      expect(result).toEqual({ result: { value: 2 } });
-    });
-
-    it("should transition to disconnected after exhausting max attempts", async () => {
-      await client.connect();
-      const ws = lastMockWs();
-
-      // All 5 reconnection attempts will fail
-      MockWebSocket.nextBehaviors = ["error", "error", "error", "error", "error"];
-
-      ws.emit("close", {});
-
-      // Advance past all 5 backoff delays: 500 + 1000 + 2000 + 4000 + 8000 = 15500
-      await vi.advanceTimersByTimeAsync(15_500);
-
-      // All 5 attempts exhausted (+ 1 original = 6 total instances)
-      expect(MockWebSocket.instances).toHaveLength(6);
+      expect(MockWebSocket.instances).toHaveLength(1);
       expect(client.isConnected).toBe(false);
     });
 
-    it("should emit reconnect-exhausted event after all attempts fail", async () => {
+    it("rejects in-flight requests when the WebSocket closes unexpectedly", async () => {
       await client.connect();
       const ws = lastMockWs();
+      ws.send = () => { /* swallow — never respond */ };
 
-      const exhaustedEvents: unknown[] = [];
-      client.on("reconnect-exhausted", (params) => {
-        exhaustedEvents.push(params);
-      });
+      const pendingPromise = client.send("Runtime.evaluate", { expression: "1" });
 
-      // All 5 reconnection attempts will fail
-      MockWebSocket.nextBehaviors = ["error", "error", "error", "error", "error"];
-
-      ws.emit("close", {});
-
-      // Advance past all 5 backoff delays: 500 + 1000 + 2000 + 4000 + 8000 = 15500
-      await vi.advanceTimersByTimeAsync(15_500);
-
-      expect(exhaustedEvents).toHaveLength(1);
-      expect(exhaustedEvents[0]).toEqual({ attempts: 5 });
-    });
-
-    it("should not emit reconnect-exhausted event when reconnection succeeds", async () => {
-      await client.connect();
-      const ws = lastMockWs();
-
-      const exhaustedEvents: unknown[] = [];
-      client.on("reconnect-exhausted", (params) => {
-        exhaustedEvents.push(params);
-      });
-
-      // Reconnection will succeed on first attempt (default auto-open)
-      ws.emit("close", {});
-
-      await vi.advanceTimersByTimeAsync(500);
-
-      expect(client.isConnected).toBe(true);
-      expect(exhaustedEvents).toHaveLength(0);
-    });
-
-    it("should reject pending requests when reconnection fails", async () => {
-      await client.connect();
-      const ws = lastMockWs();
-      ws.send = () => {
-        /* swallow */
-      };
-
-      // Create a pending request before the close
-      const pendingPromise = client.send("Runtime.evaluate", {
-        expression: "1",
-      });
-
-      // Close fires rejectAllPending with "WebSocket closed"
       ws.emit("close", {});
 
       await expect(pendingPromise).rejects.toThrow(CDPConnectionError);
       await expect(pendingPromise).rejects.toThrow(/WebSocket closed/);
     });
 
-    it("should guard against concurrent reconnection attempts", async () => {
+    it("does NOT create a new WebSocket when close fires multiple times", async () => {
       await client.connect();
       const ws = lastMockWs();
 
-      // First close triggers reconnection — make the first attempt slow (will
-      // still be in progress when we trigger the second close)
-      // All attempts error out so we can count them
-      MockWebSocket.nextBehaviors = ["error", "error", "error", "error", "error"];
-
-      // Trigger two close events in quick succession
+      ws.emit("close", {});
       ws.emit("close", {});
       ws.emit("close", {});
 
-      // Advance past all possible backoff time
-      await vi.advanceTimersByTimeAsync(15_500);
+      await Promise.resolve();
 
-      // Should only have the original + 5 reconnection attempts, not 10
-      expect(MockWebSocket.instances).toHaveLength(6);
-    });
-
-    it("should not attempt reconnection when targetId is null", async () => {
-      // The targetId guard is defense-in-depth. We test it by connecting
-      // (so wasConnected becomes true), then nullifying targetId before
-      // triggering close.
-      await client.connect();
-      const ws = lastMockWs();
-
-      // Null out targetId to test the guard
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any -- accessing private field for testing
-      (client as any).targetId = null;
-
-      ws.emit("close", {});
-
-      // Advance past potential backoff time
-      await vi.advanceTimersByTimeAsync(15_500);
-
-      // No reconnection attempts should have been made
+      // Still exactly the original WebSocket — no background reconnect
       expect(MockWebSocket.instances).toHaveLength(1);
-    });
-
-    it("should succeed on a later attempt after initial failures", async () => {
-      await client.connect();
-      const ws = lastMockWs();
-
-      // First two reconnection attempts fail, third succeeds (auto-open)
-      MockWebSocket.nextBehaviors = ["error", "error", "open"];
-
-      ws.emit("close", {});
-
-      // Advance past first two backoff delays: 500 + 1000 = 1500
-      await vi.advanceTimersByTimeAsync(1500);
       expect(client.isConnected).toBe(false);
-
-      // Advance past third backoff delay: 2000
-      await vi.advanceTimersByTimeAsync(2000);
-      expect(client.isConnected).toBe(true);
-
-      // Only original + 3 attempts (2 failed + 1 succeeded)
-      expect(MockWebSocket.instances).toHaveLength(4);
     });
   });
 });

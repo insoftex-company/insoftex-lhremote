@@ -4,6 +4,24 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+## [0.23.1] — 2026-06-23
+
+### Fixed
+
+- **Long-running server could not acquire launcher CDP after prior ops** — `CDPClient` had a
+  fire-and-forget auto-reconnect that ran after any unexpected WebSocket close.  When
+  `LauncherService.reconnect()` replaced the old `CDPClient` with a fresh one, the orphaned old
+  client's background reconnect would eventually succeed (after the new connection was properly
+  disconnected in the operation's `finally` block), grabbing the launcher's CDP target
+  indefinitely.  All subsequent `acquireLauncherWithRecovery` calls saw
+  `webSocketDebuggerUrl: null` ("another debugger may be attached") and busy-looped in
+  `reconnect()` for the full 60-second budget before failing with "LinkedHelper is running but
+  CDP is not reachable."  Fresh CLI processes worked because they had no orphaned
+  `CDPClient`s.  Fix: removed `CDPClient` auto-reconnect entirely — `LauncherService` and
+  `withLauncherRecovery` manage all reconnection explicitly.  Also added a 500 ms pause
+  between `reconnect()` loop iterations to prevent busy-looping when the target is
+  momentarily taken.
+
 ## [0.23.0] — 2026-06-23
 
 ### Added
