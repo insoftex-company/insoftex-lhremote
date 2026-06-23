@@ -3,35 +3,58 @@
 
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+// ---------------------------------------------------------------------------
+// Mocks
+// ---------------------------------------------------------------------------
+
 vi.mock("@insoftex/lhremote-core", async (importOriginal) => {
   const actual = await importOriginal<typeof import("@insoftex/lhremote-core")>();
   return {
     ...actual,
-    LauncherService: vi.fn(),
+    acquireLauncherWithRecovery: vi.fn(),
+    withLauncherRecovery: vi.fn(
+      async (_launcher: unknown, op: () => Promise<unknown>) => ({
+        result: await op(),
+        launcherRecovered: false,
+      }),
+    ),
   };
 });
 
 import {
   type Account,
-  LauncherService,
   LinkedHelperNotRunningError,
+  acquireLauncherWithRecovery,
 } from "@insoftex/lhremote-core";
 
 import { registerListAccounts } from "./list-accounts.js";
 import { createMockServer } from "./testing/mock-server.js";
 
-function mockLauncher(overrides: Partial<LauncherService> = {}) {
-  const disconnect = vi.fn();
-  vi.mocked(LauncherService).mockImplementation(function () {
-    return {
-      connect: vi.fn().mockResolvedValue(undefined),
-      disconnect,
-      listAccounts: vi.fn().mockResolvedValue([]),
-      ...overrides,
-    } as unknown as LauncherService;
-  });
-  return { disconnect };
+// ---------------------------------------------------------------------------
+// Helpers
+// ---------------------------------------------------------------------------
+
+function mockLauncherConnection(overrides: Partial<{
+  disconnect: ReturnType<typeof vi.fn>;
+  listAccounts: ReturnType<typeof vi.fn>;
+  [key: string]: unknown;
+}> = {}) {
+  const disconnect = overrides.disconnect ?? vi.fn();
+  const mockLauncher = {
+    disconnect,
+    currentPort: 9222,
+    listAccounts: vi.fn().mockResolvedValue([]),
+    ...overrides,
+  };
+  vi.mocked(acquireLauncherWithRecovery).mockResolvedValue(
+    { launcher: mockLauncher } as unknown as Awaited<ReturnType<typeof acquireLauncherWithRecovery>>,
+  );
+  return { disconnect, mockLauncher };
 }
+
+// ---------------------------------------------------------------------------
+// Tests
+// ---------------------------------------------------------------------------
 
 describe("registerListAccounts", () => {
   beforeEach(() => {
@@ -64,7 +87,7 @@ describe("registerListAccounts", () => {
       { id: 2, liId: 200, name: "Bob", email: "bob@example.com" },
     ];
 
-    mockLauncher({
+    mockLauncherConnection({
       listAccounts: vi.fn().mockResolvedValue(accounts),
     });
 
@@ -80,7 +103,7 @@ describe("registerListAccounts", () => {
     const { server, getHandler } = createMockServer();
     registerListAccounts(server);
 
-    mockLauncher({ listAccounts: vi.fn().mockResolvedValue([]) });
+    mockLauncherConnection({ listAccounts: vi.fn().mockResolvedValue([]) });
 
     const handler = getHandler("list-accounts");
     const result = (await handler({ cdpPort: 9222 })) as {
@@ -94,14 +117,9 @@ describe("registerListAccounts", () => {
     const { server, getHandler } = createMockServer();
     registerListAccounts(server);
 
-    vi.mocked(LauncherService).mockImplementation(function () {
-      return {
-        connect: vi
-          .fn()
-          .mockRejectedValue(new LinkedHelperNotRunningError(9222)),
-        disconnect: vi.fn(),
-      } as unknown as LauncherService;
-    });
+    vi.mocked(acquireLauncherWithRecovery).mockRejectedValue(
+      new LinkedHelperNotRunningError(9222),
+    );
 
     const handler = getHandler("list-accounts");
     const result = await handler({ cdpPort: 9222 });
@@ -121,7 +139,7 @@ describe("registerListAccounts", () => {
     const { server, getHandler } = createMockServer();
     registerListAccounts(server);
 
-    const { disconnect } = mockLauncher();
+    const { disconnect } = mockLauncherConnection();
 
     const handler = getHandler("list-accounts");
     await handler({ cdpPort: 9222 });
@@ -129,28 +147,31 @@ describe("registerListAccounts", () => {
     expect(disconnect).toHaveBeenCalledOnce();
   });
 
-  it("passes cdpPort to LauncherService", async () => {
+  it("passes cdpPort to acquireLauncherWithRecovery", async () => {
     const { server, getHandler } = createMockServer();
     registerListAccounts(server);
 
-    mockLauncher();
+    mockLauncherConnection();
 
     const handler = getHandler("list-accounts");
     await handler({ cdpPort: 4567 });
 
-    expect(LauncherService).toHaveBeenCalledWith(4567, {});
+    expect(vi.mocked(acquireLauncherWithRecovery)).toHaveBeenCalledWith(
+      4567,
+      expect.any(Object),
+    );
   });
 
-  it("forwards accountId via buildCdpOptions to LauncherService when supplied (regression #793)", async () => {
+  it("forwards accountId via buildCdpOptions to acquireLauncherWithRecovery when supplied (regression #793)", async () => {
     const { server, getHandler } = createMockServer();
     registerListAccounts(server);
 
-    mockLauncher();
+    mockLauncherConnection();
 
     const handler = getHandler("list-accounts");
     await handler({ cdpPort: 9222, accountId: 12345 });
 
-    expect(LauncherService).toHaveBeenCalledWith(
+    expect(vi.mocked(acquireLauncherWithRecovery)).toHaveBeenCalledWith(
       9222,
       expect.objectContaining({ accountId: 12345 }),
     );

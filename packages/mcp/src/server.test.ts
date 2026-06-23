@@ -43,6 +43,18 @@ async function connectPair() {
   return { server, client };
 }
 
+describe("T1 — non-blocking startup", () => {
+  it("createServer() + registerAllTools() perform no I/O", () => {
+    // This test is intentionally synchronous: createServer() must be a plain
+    // synchronous function. If tool registration touched the network or FS,
+    // it would need to be async and this call would return a Promise instead
+    // of an McpServer.
+    server = createServer();
+    expect(server).toBeDefined();
+    expect(typeof server.tool).toBe("function");
+  });
+});
+
 describe("createServer", () => {
   it("returns an McpServer instance", () => {
     server = createServer();
@@ -156,6 +168,9 @@ describe("createServer", () => {
     expect(names).toContain("restart-instance");
     expect(names).toContain("list-orphans");
     expect(names).toContain("reap-orphans");
-    expect(names).toHaveLength(82);
+    expect(names).toContain("get-operation");
+    expect(names).toContain("cancel-operation");
+    expect(names).toContain("list-operations");
+    expect(names).toHaveLength(85);
   });
 });

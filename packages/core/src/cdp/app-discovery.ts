@@ -206,11 +206,16 @@ const REACHABILITY_RETRY_INTERVAL = 1_000;
 export async function resolveAppPort(
   role: "launcher" | "instance",
   retryTimeout = REACHABILITY_RETRY_TIMEOUT,
+  signal?: AbortSignal,
 ): Promise<number> {
   const deadline = Date.now() + retryTimeout;
   let lastApps: Awaited<ReturnType<typeof findApp>> = [];
 
   while (true) {
+    if (signal?.aborted) {
+      throw new LinkedHelperUnreachableError(lastApps);
+    }
+
     const apps = await findApp();
 
     if (apps.length === 0) {
@@ -276,12 +281,13 @@ export async function resolveLauncherPort(
   cdpPort?: number,
   cdpHost?: string,
   retryTimeout = REACHABILITY_RETRY_TIMEOUT,
+  signal?: AbortSignal,
 ): Promise<number> {
   if (cdpPort !== undefined) return cdpPort;
   if (cdpHost !== undefined && !isLoopbackAddress(cdpHost)) {
     throw new Error("cdpPort is required when using a non-loopback cdpHost — auto-discovery only works locally");
   }
-  return resolveAppPort("launcher", retryTimeout);
+  return resolveAppPort("launcher", retryTimeout, signal);
 }
 
 /**

@@ -19354,9 +19354,12 @@ async function queryWin32CommandLines() {
       "-NoProfile",
       "-NonInteractive",
       "-Command",
+      // Force UTF-8 output so multi-byte / emoji names (e.g. 🇺🇦) survive
+      // the stdout pipe.  Windows PowerShell 5.x defaults to OEM encoding;
+      // without this, non-ASCII characters are replaced with '?'.
       // ConvertTo-Json may return a single object (not array) when there is
       // exactly one result, so we wrap in @() to force an array.
-      "Get-WmiObject -Query 'SELECT ProcessId,CommandLine FROM Win32_Process' | Select-Object ProcessId,CommandLine | ConvertTo-Json -Compress"
+      "[Console]::OutputEncoding = $OutputEncoding = [System.Text.Encoding]::UTF8; Get-WmiObject -Query 'SELECT ProcessId,CommandLine FROM Win32_Process' | Select-Object ProcessId,CommandLine | ConvertTo-Json -Compress"
     ], { timeout: 15e3 }), raw = JSON.parse(stdout.trim()), rows = Array.isArray(raw) ? raw : [raw];
     for (let row of rows)
       if (row !== null && typeof row == "object" && "ProcessId" in row && "CommandLine" in row) {
@@ -19551,9 +19554,11 @@ async function findApp(options = {}) {
   return discovered;
 }
 var REACHABILITY_RETRY_TIMEOUT = 3e4, REACHABILITY_RETRY_INTERVAL = 1e3;
-async function resolveAppPort(role, retryTimeout = REACHABILITY_RETRY_TIMEOUT) {
+async function resolveAppPort(role, retryTimeout = REACHABILITY_RETRY_TIMEOUT, signal) {
   let deadline = Date.now() + retryTimeout, lastApps = [];
   for (; ; ) {
+    if (signal?.aborted)
+      throw new LinkedHelperUnreachableError(lastApps);
     let apps = await findApp();
     if (apps.length === 0)
       throw new LinkedHelperNotRunningError();
@@ -19573,12 +19578,12 @@ async function resolveInstancePort(cdpPort, cdpHost, retryTimeout = REACHABILITY
     throw new Error("cdpPort is required when using a non-loopback cdpHost \u2014 auto-discovery only works locally");
   return resolveAppPort("instance", retryTimeout);
 }
-async function resolveLauncherPort(cdpPort, cdpHost, retryTimeout = REACHABILITY_RETRY_TIMEOUT) {
+async function resolveLauncherPort(cdpPort, cdpHost, retryTimeout = REACHABILITY_RETRY_TIMEOUT, signal) {
   if (cdpPort !== void 0)
     return cdpPort;
   if (cdpHost !== void 0 && !isLoopbackAddress(cdpHost))
     throw new Error("cdpPort is required when using a non-loopback cdpHost \u2014 auto-discovery only works locally");
-  return resolveAppPort("launcher", retryTimeout);
+  return resolveAppPort("launcher", retryTimeout, signal);
 }
 function classifyRole(proc, lhPids) {
   return proc.cmdline ? /--type=/.test(proc.cmdline) ? "helper-child" : /resources[/\\]out[/\\]/i.test(proc.cmdline) ? "instance" : "launcher" : lhPids.has(proc.ppid) ? "instance" : "launcher";
@@ -19652,8 +19657,8 @@ var InstanceReadinessTracker = class {
   }
 }, readinessTracker = new InstanceReadinessTracker();
 async function waitForConnectable(accountId, options) {
-  let timeoutMs = options?.timeoutMs ?? getConnectableTimeoutMs(), intervalMs = options?.intervalMs ?? getConnectableIntervalMs(), deadline = Date.now() + timeoutMs;
-  for (; Date.now() < deadline; ) {
+  let timeoutMs = options?.timeoutMs ?? getConnectableTimeoutMs(), intervalMs = options?.intervalMs ?? getConnectableIntervalMs(), deadline = Date.now() + timeoutMs, signal = options?.signal;
+  for (; Date.now() < deadline && !signal?.aborted; ) {
     if (options?.knownPort !== void 0 && await isCdpPort(options.knownPort)) {
       let instances2 = await scanRunningInstances();
       readinessTracker.update(instances2);
@@ -19666,6 +19671,8 @@ async function waitForConnectable(accountId, options) {
     let match = instances.find((i2) => i2.accountId === accountId && i2.connectable);
     if (match)
       return { cdpPort: match.cdpPort, pid: match.pid, verified: !0 };
+    if (signal?.aborted)
+      break;
     await delay(intervalMs);
   }
   return { cdpPort: null, pid: void 0, verified: !1 };
@@ -20539,13 +20546,22 @@ function isUiTarget(target) {
 
 // packages/core/dist/services/instance-lifecycle.js
 var PORT_DISCOVERY_TIMEOUT = 45e3, PORT_SHUTDOWN_TIMEOUT = 15e3, PORT_DISCOVERY_INTERVAL = 1e3, TARGET_DISCOVERY_TIMEOUT = 3e4, TARGET_DISCOVERY_INTERVAL = 1e3, CRASH_RECOVERY_DELAY = 2e3;
+async function findRunningInstanceForAccount(accountId) {
+  return (await scanRunningInstances()).find((instance) => instance.accountId === accountId && instance.connectable) ?? null;
+}
 async function startInstanceWithRecovery(launcher, accountId, launcherPort) {
   try {
     await launcher.startInstance(accountId);
   } catch (error51) {
     if (error51 instanceof StartInstanceError && error51.message.includes("already running")) {
-      let existingPort = await discoverInstancePort(launcherPort);
-      if (existingPort !== null) {
+      let existingInstance = null, accountScanFailed = !1;
+      try {
+        existingInstance = await findRunningInstanceForAccount(accountId);
+      } catch {
+        accountScanFailed = !0;
+      }
+      let existingPort = existingInstance?.cdpPort ?? null;
+      if (existingPort === null && accountScanFailed && (existingPort = await discoverInstancePort(launcherPort)), existingPort !== null) {
         if (!await waitForInstanceTargets(existingPort))
           return await checkForStartupPopups(existingPort, accountId), { status: "timeout" };
         await checkForStartupPopups(existingPort, accountId);
@@ -20561,9 +20577,12 @@ async function startInstanceWithRecovery(launcher, accountId, launcherPort) {
     } else
       throw error51;
   }
-  let port = await waitForInstancePort(launcherPort);
-  if (port === null)
+  let startedInstance = await waitForInstanceForAccount(accountId, {
+    launcherPort
+  });
+  if (startedInstance === null || startedInstance.cdpPort === null)
     return { status: "timeout" };
+  let port = startedInstance.cdpPort;
   if (!await waitForInstanceTargets(port))
     return await checkForStartupPopups(port, accountId), { status: "timeout" };
   await checkForStartupPopups(port, accountId);
@@ -20583,12 +20602,32 @@ async function verifyInstanceStarted(accountId, expectedPort) {
     return { pid: void 0, verified: !1 };
   }
 }
-async function waitForInstancePort(launcherPort) {
-  let deadline = Date.now() + PORT_DISCOVERY_TIMEOUT;
+async function waitForInstanceForAccount(accountId, options) {
+  let deadline = Date.now() + PORT_DISCOVERY_TIMEOUT, launcherPort = options?.launcherPort ?? 9222;
   for (; Date.now() < deadline; ) {
-    let port = await discoverInstancePort(launcherPort);
-    if (port !== null)
-      return port;
+    invalidateProcessCache();
+    let scanFailed = !1, byAccount = await findRunningInstanceForAccount(accountId).catch(() => (scanFailed = !0, null));
+    if (byAccount?.cdpPort != null)
+      return byAccount;
+    let fallbackPort = await discoverInstancePort(launcherPort).catch(() => null);
+    if (fallbackPort !== null) {
+      let verified = await verifyInstanceStarted(accountId, fallbackPort);
+      if (verified.verified) {
+        let refreshed = await findRunningInstanceForAccount(accountId).catch(() => null);
+        if (refreshed?.cdpPort != null)
+          return refreshed;
+      }
+      if (scanFailed)
+        return {
+          pid: verified.pid ?? -1,
+          accountId,
+          cdpPort: fallbackPort,
+          connectable: !0,
+          helperChildCount: 0,
+          source: "cmdline",
+          confidence: "unknown"
+        };
+    }
     await delay(PORT_DISCOVERY_INTERVAL);
   }
   return null;
@@ -20609,10 +20648,10 @@ function pidExists(pid) {
     return err.code !== "ESRCH";
   }
 }
-async function waitForPidExit(pid, timeoutMs = PID_EXIT_TIMEOUT) {
+async function waitForPidExit(pid, timeoutMs = PID_EXIT_TIMEOUT, signal) {
   let deadline = Date.now() + timeoutMs;
   for (; Date.now() < deadline; ) {
-    if (invalidateProcessCache(), !pidExists(pid))
+    if (signal?.aborted || (invalidateProcessCache(), !pidExists(pid)))
       return;
     await delay(PID_EXIT_INTERVAL);
   }
@@ -20656,7 +20695,7 @@ async function checkForStartupPopups(port, accountId) {
 }
 
 // packages/core/dist/services/launcher.js
-var DEFAULT_LAUNCHER_RECOVERY_TIMEOUT_MS = 3e4, LauncherService = class _LauncherService {
+var DEFAULT_LAUNCHER_RECOVERY_TIMEOUT_MS = 6e4, LauncherService = class _LauncherService {
   /**
    * CDP snippet that resolves LinkedHelper frontend service singletons
    * via the webpack module registry and exposes them on `lhSvc`.
@@ -20788,7 +20827,7 @@ var DEFAULT_LAUNCHER_RECOVERY_TIMEOUT_MS = 3e4, LauncherService = class _Launche
    */
   async reconnect(options) {
     this.disconnect();
-    let timeoutMs = options?.timeoutMs ?? (process.env.LHREMOTE_LAUNCHER_RECOVERY_TIMEOUT_MS ? Number(process.env.LHREMOTE_LAUNCHER_RECOVERY_TIMEOUT_MS) : DEFAULT_LAUNCHER_RECOVERY_TIMEOUT_MS), newPort = await resolveAppPort("launcher", timeoutMs), client = new CDPClient(newPort, { host: this.host, allowRemote: this.allowRemote });
+    let timeoutMs = options?.timeoutMs ?? (process.env.LHREMOTE_LAUNCHER_RECOVERY_TIMEOUT_MS ? Number(process.env.LHREMOTE_LAUNCHER_RECOVERY_TIMEOUT_MS) : DEFAULT_LAUNCHER_RECOVERY_TIMEOUT_MS), newPort = await resolveAppPort("launcher", timeoutMs, options?.signal), client = new CDPClient(newPort, { host: this.host, allowRemote: this.allowRemote });
     try {
       await client.connect();
     } catch (error51) {
@@ -21251,6 +21290,14 @@ var DEFAULT_LAUNCHER_RECOVERY_TIMEOUT_MS = 3e4, LauncherService = class _Launche
   get isConnected() {
     return this.client !== null && this.client.isConnected;
   }
+  /**
+   * The launcher CDP port most recently established by {@link connect} or
+   * {@link reconnect}.  Use this after {@link reconnect} to get the
+   * (potentially-changed) current port rather than the original discovery result.
+   */
+  get currentPort() {
+    return this.port;
+  }
   ensureConnected() {
     if (!this.client)
       throw new ServiceError("LauncherService is not connected");
@@ -21316,8 +21363,31 @@ async function withLauncherRecovery(launcher, op, options) {
     if (!isLauncherConnectionError(error51))
       throw error51;
   }
+  options?.signal?.throwIfAborted?.();
   let timeoutMs = options?.timeoutMs ?? (process.env.LHREMOTE_LAUNCHER_RECOVERY_TIMEOUT_MS ? Number(process.env.LHREMOTE_LAUNCHER_RECOVERY_TIMEOUT_MS) : DEFAULT_LAUNCHER_RECOVERY_TIMEOUT_MS);
-  return await launcher.reconnect({ timeoutMs }), { result: await op(), launcherRecovered: !0 };
+  return await launcher.reconnect({ timeoutMs, ...options?.signal !== void 0 ? { signal: options.signal } : {} }), options?.signal?.throwIfAborted?.(), { result: await op(), launcherRecovered: !0 };
+}
+async function acquireLauncherWithRecovery(cdpPort, cdpOptions = {}, recoveryOptions) {
+  let resolvedPort, fastPathFailed = !1;
+  recoveryOptions?.signal?.throwIfAborted?.();
+  try {
+    resolvedPort = await resolveLauncherPort(cdpPort, cdpOptions.host, 0);
+  } catch (err) {
+    if (!(err instanceof LinkedHelperUnreachableError))
+      throw err;
+    fastPathFailed = !0;
+  }
+  let launcher = new LauncherService(resolvedPort ?? cdpPort ?? 0, cdpOptions);
+  if (!fastPathFailed) {
+    recoveryOptions?.signal?.throwIfAborted?.();
+    try {
+      return await launcher.connect(), { launcher, launcherPreRecovered: !1 };
+    } catch (error51) {
+      if (!isLauncherConnectionError(error51))
+        throw error51;
+    }
+  }
+  return await launcher.reconnect(recoveryOptions), { launcher, launcherPreRecovered: !0 };
 }
 
 // packages/core/dist/services/restart-instance.js
@@ -21342,9 +21412,26 @@ async function restartInstance(launcher, accountId, launcherPort, options) {
         launcherRecovered = stopRecovered;
       } catch {
       }
-      oldPid !== void 0 && await waitForPidExit(oldPid);
-      let { result: outcome, launcherRecovered: startRecovered } = await withLauncherRecovery(launcher, () => startInstanceWithRecovery(launcher, accountId, launcherPort));
-      if (launcherRecovered = launcherRecovered || startRecovered, outcome.status === "timeout")
+      oldPid !== void 0 && await waitForPidExit(oldPid, void 0, options?.signal);
+      let startCommandIssued = !1, knownPort;
+      try {
+        let { result: outcome, launcherRecovered: startRecovered } = await withLauncherRecovery(
+          launcher,
+          // Use launcher.currentPort (not the snapshot captured at call time) so
+          // that if the launcher port hopped during recovery the fresh port is used.
+          () => startInstanceWithRecovery(launcher, accountId, launcher.currentPort),
+          options?.signal !== void 0 ? { signal: options.signal } : void 0
+        );
+        launcherRecovered = launcherRecovered || startRecovered, startCommandIssued = !0, outcome.status !== "timeout" && (knownPort = outcome.port);
+      } catch {
+        launcherRecovered = !0;
+      }
+      let waitResult = await waitForConnectable(accountId, {
+        ...options?.connectableTimeoutMs !== void 0 ? { timeoutMs: options.connectableTimeoutMs } : {},
+        ...knownPort !== void 0 ? { knownPort } : {},
+        ...options?.signal !== void 0 ? { signal: options.signal } : {}
+      });
+      if (!waitResult.verified)
         return {
           accountId,
           restarted: !0,
@@ -21352,19 +21439,19 @@ async function restartInstance(launcher, accountId, launcherPort, options) {
           newPid: void 0,
           cdpPort: null,
           verified: !1,
-          launcherRecovered
+          launcherRecovered,
+          ...startCommandIssued ? {} : {
+            note: "launcher CDP dropped before start command was confirmed accepted; instance not found via process inspection within timeout"
+          }
         };
-      let waitResult = await waitForConnectable(accountId, {
-        ...options?.connectableTimeoutMs !== void 0 ? { timeoutMs: options.connectableTimeoutMs } : {},
-        knownPort: outcome.port
-      }), distinctPort = waitResult.cdpPort !== null && (existing === void 0 || waitResult.cdpPort !== existing.cdpPort || oldPid === void 0);
+      let distinctPort = waitResult.cdpPort !== null && (existing === void 0 || waitResult.cdpPort !== existing.cdpPort || oldPid === void 0);
       return {
         accountId,
         restarted: !0,
         oldPid,
         newPid: waitResult.pid,
         cdpPort: waitResult.cdpPort,
-        verified: waitResult.verified && distinctPort,
+        verified: distinctPort,
         launcherRecovered
       };
     },
@@ -23120,7 +23207,12 @@ async function ensureInstances(accountIds, launcher, launcherPort) {
     }
     let outcome;
     try {
-      outcome = await withLauncherQueue(() => withLauncherRecovery(launcher, () => startInstanceWithRecovery(launcher, accountId, launcherPort)).then((r) => r.result), { type: "start", accountId, launcherPort });
+      outcome = await withLauncherQueue(() => withLauncherRecovery(
+        launcher,
+        // Use launcher.currentPort (live value) so post-recovery re-runs
+        // use the new port, not the snapshot captured at ensureInstances call time.
+        () => startInstanceWithRecovery(launcher, accountId, launcher.currentPort)
+      ).then((r) => r.result), { type: "start", accountId, launcherPort });
     } catch (error51) {
       results.push({
         accountId,
@@ -23130,7 +23222,8 @@ async function ensureInstances(accountIds, launcher, launcherPort) {
       continue;
     }
     if (outcome.status === "timeout") {
-      results.push({ accountId, status: "timeout" });
+      let resultIdx2 = results.length;
+      results.push({ accountId, status: "timeout" }), pendingVerification.push({ accountId, knownPort: void 0, resultIdx: resultIdx2 });
       continue;
     }
     let resultIdx = results.length, entry = {
@@ -23147,7 +23240,7 @@ async function ensureInstances(accountIds, launcher, launcherPort) {
     let waitResult = await waitForConnectable(accountId, {
       ...knownPort !== void 0 ? { knownPort } : {}
     }), entry = results[resultIdx];
-    entry !== void 0 && (entry.verified = waitResult.verified, waitResult.cdpPort !== null && (entry.cdpPort = waitResult.cdpPort), waitResult.pid !== void 0 && (entry.pid = waitResult.pid), !waitResult.verified && entry.status === "started" && (entry.status = "failed", entry.error = "Instance process never became connectable within the timeout. Verify the account has a valid LinkedHelper license."));
+    entry !== void 0 && (entry.verified = waitResult.verified, waitResult.cdpPort !== null && (entry.cdpPort = waitResult.cdpPort), waitResult.pid !== void 0 && (entry.pid = waitResult.pid), waitResult.verified && entry.status === "timeout" && (entry.status = "started"), !waitResult.verified && (entry.status === "started" || entry.status === "timeout") && (entry.status = "failed", entry.error = "Instance process never became connectable within the timeout. Verify the account has a valid LinkedHelper license."));
   })), results;
 }
 
@@ -52425,27 +52518,138 @@ function registerCheckStatus(server) {
   });
 }
 
+// packages/mcp/dist/operation-registry.js
+import { randomUUID } from "node:crypto";
+var TTL_MS = 600 * 1e3, OperationRegistry = class {
+  records = /* @__PURE__ */ new Map();
+  /** Retrieve a public snapshot of an operation by ID. */
+  get(operationId) {
+    let r = this.records.get(operationId);
+    if (r)
+      return this.toPublic(r);
+  }
+  /** The currently running write op, or undefined. */
+  getActiveWriteOp() {
+    for (let r of this.records.values())
+      if (r.status === "running")
+        return this.toPublic(r);
+  }
+  /**
+   * Register a new operation.
+   *
+   * Returns the operationId, the AbortSignal for work cancellation,
+   * and a `progress` function to record progress messages.
+   */
+  create(kind) {
+    this.cleanup();
+    let operationId = `op_${randomUUID().replace(/-/g, "").slice(0, 16)}`, abortController = new AbortController(), startedAt = (/* @__PURE__ */ new Date()).toISOString(), record2 = {
+      operationId,
+      kind,
+      status: "running",
+      startedAt,
+      progress: [],
+      abortController
+    };
+    this.records.set(operationId, record2);
+    let progress = (message) => {
+      let r = this.records.get(operationId);
+      r?.status === "running" && r.progress.push({ at: (/* @__PURE__ */ new Date()).toISOString(), message });
+    };
+    return { operationId, signal: abortController.signal, progress };
+  }
+  /** Mark an operation as succeeded with the given result. */
+  succeed(operationId, result) {
+    let r = this.records.get(operationId);
+    r?.status === "running" && (r.status = "succeeded", r.finishedAt = (/* @__PURE__ */ new Date()).toISOString(), r.result = result);
+  }
+  /** Mark an operation as failed with an error message. */
+  fail(operationId, error51) {
+    let r = this.records.get(operationId);
+    r?.status === "running" && (r.status = "failed", r.finishedAt = (/* @__PURE__ */ new Date()).toISOString(), r.error = error51 instanceof Error ? error51.message : String(error51));
+  }
+  /**
+   * Cancel a running operation.
+   *
+   * Fires the AbortController and marks status as "cancelled".
+   * Returns `false` if the operation is not found or not running.
+   */
+  cancel(operationId) {
+    let r = this.records.get(operationId);
+    return !r || r.status !== "running" ? !1 : (r.abortController.abort(), r.status = "cancelled", r.finishedAt = (/* @__PURE__ */ new Date()).toISOString(), !0);
+  }
+  /** List all tracked operations (running and recently completed). */
+  list() {
+    return [...this.records.values()].map((r) => this.toPublic(r));
+  }
+  toPublic(r) {
+    let pub = { ...r };
+    return delete pub.abortController, pub;
+  }
+  cleanup() {
+    let cutoff = Date.now() - TTL_MS;
+    for (let [id, r] of this.records)
+      r.status !== "running" && r.finishedAt !== void 0 && new Date(r.finishedAt).getTime() < cutoff && this.records.delete(id);
+  }
+}, operationRegistry = new OperationRegistry(), FAST_PATH_GRACE_MS = 2e3;
+async function runAsyncOp(registry2, kind, work) {
+  let active = registry2.getActiveWriteOp();
+  if (active)
+    return {
+      status: "rejected",
+      reason: `Operation ${active.operationId} (${active.kind}) is already running. Cancel it first with cancel-operation, or poll get-operation for completion.`
+    };
+  let { operationId, signal, progress } = registry2.create(kind), settled = !1, settledResult, settledError, didError = !1, workPromise = (async () => {
+    try {
+      let result = await work(signal, progress);
+      settled = !0, settledResult = result, registry2.succeed(operationId, result);
+    } catch (error51) {
+      settled = !0, settledError = error51, didError = !0, signal.aborted || registry2.fail(operationId, error51);
+    }
+  })();
+  if (await Promise.race([
+    workPromise,
+    new Promise((r) => setTimeout(r, FAST_PATH_GRACE_MS))
+  ]), settled) {
+    if (didError)
+      throw settledError;
+    return { status: "completed", result: settledResult };
+  }
+  let record2 = registry2.get(operationId);
+  return {
+    status: "in_progress",
+    operationId,
+    kind,
+    startedAt: record2?.startedAt ?? (/* @__PURE__ */ new Date()).toISOString()
+  };
+}
+
 // packages/mcp/dist/tools/ensure-instances.js
 function registerEnsureInstances(server) {
-  server.tool("ensure-instances", "Idempotently bring up the specified set of LinkedHelper account instances. Skips accounts that already have a verified-running instance; starts the rest one at a time with verification between each. Returns a per-account result table.", {
+  server.tool("ensure-instances", "Idempotently bring up the specified set of LinkedHelper account instances. Skips accounts that already have a verified-running instance; starts the rest one at a time with verification between each. Returns a per-account result table, or { status:'in_progress', operationId } if the operation takes >2 s. Poll get-operation for status. Cancel with cancel-operation.", {
     accountIds: external_exports.array(external_exports.number().int().positive()).min(1).describe("List of account IDs that should be running."),
     ...cdpConnectionSchema
-  }, async ({ accountIds, cdpPort, cdpHost, allowRemote }) => {
+  }, async ({ accountIds, cdpPort, cdpHost, allowRemote }, extra) => {
     try {
-      let port = await resolveLauncherPort(cdpPort, cdpHost), launcher = new LauncherService(port, buildCdpOptions({ cdpHost, allowRemote }));
-      try {
-        await launcher.connect();
-      } catch (error51) {
-        return mcpCatchAll(error51, "Failed to connect to LinkedHelper");
-      }
-      try {
-        let results = await ensureInstances(accountIds, launcher, port);
-        return mcpSuccess(JSON.stringify(results, null, 2));
-      } catch (error51) {
-        return mcpCatchAll(error51, "Failed to ensure instances");
-      } finally {
-        launcher.disconnect();
-      }
+      let active = operationRegistry.getActiveWriteOp();
+      if (active)
+        return mcpError(`Operation ${active.operationId} (${active.kind}) is already running. Cancel it with cancel-operation or poll get-operation for status.`);
+      let mcpSignal = extra?.signal, outcome = await runAsyncOp(operationRegistry, "ensure-instances", async (signal, progress) => {
+        let controller = new AbortController(), merged = controller.signal, forward = () => controller.abort();
+        signal.addEventListener("abort", forward, { once: !0 }), mcpSignal && mcpSignal.addEventListener("abort", forward, { once: !0 }), progress("Acquiring launcher connection");
+        let { launcher } = await acquireLauncherWithRecovery(cdpPort, buildCdpOptions({ cdpHost, allowRemote }), { signal: merged });
+        try {
+          return progress(`Starting ${accountIds.length} instance(s)`), await ensureInstances(accountIds, launcher, launcher.currentPort);
+        } finally {
+          launcher.disconnect(), signal.removeEventListener("abort", forward), mcpSignal?.removeEventListener("abort", forward);
+        }
+      });
+      return outcome.status === "rejected" ? mcpError(outcome.reason) : outcome.status === "in_progress" ? mcpSuccess(JSON.stringify({
+        status: "in_progress",
+        operationId: outcome.operationId,
+        kind: outcome.kind,
+        startedAt: outcome.startedAt,
+        note: "ensure-instances is running in background. Poll get-operation for status. Cancel with cancel-operation."
+      }, null, 2)) : mcpSuccess(JSON.stringify(outcome.result, null, 2));
     } catch (error51) {
       return mcpCatchAll(error51, "Failed to ensure instances");
     }
@@ -52786,21 +52990,38 @@ function registerListLinkedInReferenceData(server) {
 
 // packages/mcp/dist/tools/launch-app.js
 function registerLaunchApp(server) {
-  server.tool("launch-app", "Launch the LinkedHelper application with remote debugging enabled", {
+  server.tool("launch-app", "Launch the LinkedHelper application with remote debugging enabled. Returns immediately with { status:'in_progress', operationId } if launch takes >2 s. Poll get-operation for status. Cancel with cancel-operation.", {
     cdpPort: external_exports.number().int().positive().optional().describe("CDP port (default: auto-select)"),
     force: external_exports.boolean().optional().describe("Kill existing LinkedHelper processes before launching"),
     visible: external_exports.boolean().optional().describe("Restore and focus the LinkedHelper launcher window on Windows")
   }, async ({ cdpPort, force, visible }) => {
-    let app = new AppService(cdpPort, {
-      ...force !== void 0 && { force },
-      ...visible !== void 0 && { visible }
-    });
     try {
-      await app.launch();
+      let active = operationRegistry.getActiveWriteOp();
+      if (active)
+        return mcpError(`Operation ${active.operationId} (${active.kind}) is already running. Cancel it with cancel-operation or poll get-operation for status.`);
+      let outcome = await runAsyncOp(operationRegistry, "launch-app", async (_signal, progress) => {
+        let app = new AppService(cdpPort, {
+          ...force !== void 0 && { force },
+          ...visible !== void 0 && { visible }
+        });
+        progress("Launching LinkedHelper");
+        try {
+          await app.launch();
+        } catch (error51) {
+          throw error51 instanceof AppNotFoundError || error51 instanceof AppLaunchError, error51;
+        }
+        return `LinkedHelper launched on CDP port ${String(app.cdpPort)}`;
+      });
+      return outcome.status === "rejected" ? mcpError(outcome.reason) : outcome.status === "in_progress" ? mcpSuccess(JSON.stringify({
+        status: "in_progress",
+        operationId: outcome.operationId,
+        kind: outcome.kind,
+        startedAt: outcome.startedAt,
+        note: "launch-app is running in background. Poll get-operation for status."
+      }, null, 2)) : mcpSuccess(outcome.result);
     } catch (error51) {
       return error51 instanceof AppNotFoundError || error51 instanceof AppLaunchError ? mcpError(error51.message) : mcpCatchAll(error51, "Failed to launch LinkedHelper");
     }
-    return mcpSuccess(`LinkedHelper launched on CDP port ${String(app.cdpPort)}`);
   });
 }
 
@@ -52825,9 +53046,9 @@ function registerListAccounts(server) {
     includeAllWorkspaces: external_exports.boolean().optional().describe("When true, enumerate accounts across every workspace the user belongs to, not just the selected workspace. Default: false.")
   }, async ({ cdpPort, cdpHost, allowRemote, accountId, includeAllWorkspaces }) => {
     try {
-      let port = await resolveLauncherPort(cdpPort, cdpHost), launcher = new LauncherService(port, buildCdpOptions({ cdpHost, allowRemote, accountId }));
+      let launcher;
       try {
-        await launcher.connect();
+        ({ launcher } = await acquireLauncherWithRecovery(cdpPort, buildCdpOptions({ cdpHost, allowRemote, accountId })));
       } catch (error51) {
         return mcpCatchAll(error51, "Failed to connect to LinkedHelper");
       }
@@ -52873,53 +53094,66 @@ function registerListWorkspaces(server) {
 
 // packages/mcp/dist/tools/quit-app.js
 function registerQuitApp(server) {
-  server.tool("quit-app", "Quit the LinkedHelper application", {
+  server.tool("quit-app", "Quit the LinkedHelper application. Returns immediately with { status:'in_progress', operationId } if quit takes >2 s. Poll get-operation for status. Cancel with cancel-operation.", {
     cdpPort: external_exports.number().int().positive().optional().describe("CDP port (auto-discovered from the launcher when omitted)")
   }, async ({ cdpPort }) => {
-    let port = cdpPort;
     try {
-      port ??= await resolveLauncherPort();
-    } catch {
-      port = 9222;
-    }
-    let app = new AppService(port);
-    try {
-      await app.quit();
+      let active = operationRegistry.getActiveWriteOp();
+      if (active)
+        return mcpError(`Operation ${active.operationId} (${active.kind}) is already running. Cancel it with cancel-operation or poll get-operation for status.`);
+      let outcome = await runAsyncOp(operationRegistry, "quit-app", async (_signal, progress) => {
+        progress("Resolving CDP port");
+        let port = cdpPort;
+        try {
+          port ??= await resolveLauncherPort();
+        } catch {
+          port = 9222;
+        }
+        let app = new AppService(port);
+        return progress("Quitting LinkedHelper"), await app.quit(), "LinkedHelper quit successfully";
+      });
+      return outcome.status === "rejected" ? mcpError(outcome.reason) : outcome.status === "in_progress" ? mcpSuccess(JSON.stringify({
+        status: "in_progress",
+        operationId: outcome.operationId,
+        kind: outcome.kind,
+        startedAt: outcome.startedAt,
+        note: "quit-app is running in background. Poll get-operation for status."
+      }, null, 2)) : mcpSuccess(outcome.result);
     } catch (error51) {
       return mcpCatchAll(error51, "Failed to quit LinkedHelper");
     }
-    return mcpSuccess("LinkedHelper quit successfully");
   });
 }
 
 // packages/mcp/dist/tools/restart-instance.js
 function registerRestartInstance(server) {
-  server.tool("restart-instance", "Restart a single LinkedHelper account instance cleanly. Stops the running process, waits for it to exit, starts it again, and waits until it is connectable on a verified distinct port. Idempotent: if the instance is already healthy, returns restarted:false without touching it (unless force:true). Only the target account's process is affected \u2014 other instances keep running.", {
+  server.tool("restart-instance", "Restart a single LinkedHelper account instance cleanly. Stops the running process, waits for it to exit, starts it again, and waits until it is connectable on a verified distinct port. Idempotent: if the instance is already healthy, returns restarted:false without touching it (unless force:true). Only the target account's process is affected \u2014 other instances keep running. Returns immediately with { status:'in_progress', operationId } if the op takes >2 s. Poll get-operation for status. Cancel with cancel-operation.", {
     ...cdpConnectionSchema,
     force: external_exports.boolean().optional().describe("Restart even when the instance is already connectable and healthy. Default: false.")
-  }, async ({ accountId, cdpPort, cdpHost, allowRemote, force }) => {
+  }, async ({ accountId, cdpPort, cdpHost, allowRemote, force }, extra) => {
     try {
       if (accountId === void 0)
-        return {
-          content: [{ type: "text", text: "accountId is required for restart-instance" }],
-          isError: !0
-        };
-      let port = await resolveLauncherPort(cdpPort, cdpHost), launcher = new LauncherService(port, buildCdpOptions({ cdpHost, allowRemote }));
-      try {
-        await launcher.connect();
-      } catch (error51) {
-        return mcpCatchAll(error51, "Failed to connect to LinkedHelper");
-      }
-      try {
-        let result = await restartInstance(launcher, accountId, port, {
-          force: force ?? !1
-        });
-        return mcpSuccess(JSON.stringify(result, null, 2));
-      } catch (error51) {
-        return mcpCatchAll(error51, "Failed to restart instance");
-      } finally {
-        launcher.disconnect();
-      }
+        return mcpError("accountId is required for restart-instance");
+      let active = operationRegistry.getActiveWriteOp();
+      if (active)
+        return mcpError(`Operation ${active.operationId} (${active.kind}) is already running. Cancel it with cancel-operation or poll get-operation for status.`);
+      let mcpSignal = extra?.signal, outcome = await runAsyncOp(operationRegistry, "restart-instance", async (signal, progress) => {
+        let controller = new AbortController(), merged = controller.signal, forward = () => controller.abort();
+        signal.addEventListener("abort", forward, { once: !0 }), mcpSignal && mcpSignal.addEventListener("abort", forward, { once: !0 }), progress("Acquiring launcher connection");
+        let { launcher } = await acquireLauncherWithRecovery(cdpPort, buildCdpOptions({ cdpHost, allowRemote }), { signal: merged });
+        try {
+          return progress(`Restarting instance ${accountId}`), await restartInstance(launcher, accountId, launcher.currentPort, { force: force ?? !1, signal: merged });
+        } finally {
+          launcher.disconnect(), signal.removeEventListener("abort", forward), mcpSignal?.removeEventListener("abort", forward);
+        }
+      });
+      return outcome.status === "rejected" ? mcpError(outcome.reason) : outcome.status === "in_progress" ? mcpSuccess(JSON.stringify({
+        status: "in_progress",
+        operationId: outcome.operationId,
+        kind: outcome.kind,
+        startedAt: outcome.startedAt,
+        note: "Restart is running in background. Poll get-operation for status. Cancel with cancel-operation."
+      }, null, 2)) : mcpSuccess(JSON.stringify(outcome.result, null, 2));
     } catch (error51) {
       return mcpCatchAll(error51, "Failed to restart instance");
     }
@@ -52928,36 +53162,56 @@ function registerRestartInstance(server) {
 
 // packages/mcp/dist/tools/start-instance.js
 function registerStartInstance(server) {
-  server.tool("start-instance", "Start a LinkedHelper instance for a LinkedIn account. Required before campaign or query operations.", {
+  server.tool("start-instance", "Start a LinkedHelper instance for a LinkedIn account. Required before campaign or query operations. Returns immediately with { status:'in_progress', operationId } if the instance takes >2 s to start. Poll get-operation for status. Cancel with cancel-operation.", {
     ...cdpConnectionSchema
-  }, async ({ accountId, cdpPort, cdpHost, allowRemote }) => {
+  }, async ({ accountId, cdpPort, cdpHost, allowRemote }, extra) => {
     try {
-      let port = await resolveLauncherPort(cdpPort, cdpHost), launcher = new LauncherService(port, buildCdpOptions({ cdpHost, allowRemote }));
-      try {
-        await launcher.connect();
-      } catch (error51) {
-        return mcpCatchAll(error51, "Failed to connect to LinkedHelper");
-      }
-      try {
-        let resolvedId = accountId;
-        if (resolvedId === void 0) {
-          let { result: accounts } = await withLauncherRecovery(launcher, () => launcher.listAccounts());
-          if (accounts.length === 0)
-            return mcpError("No accounts found.");
-          if (accounts.length > 1)
-            return mcpError("Multiple accounts found. Specify accountId. Use list-accounts to see available accounts.");
-          resolvedId = accounts[0].id;
+      let active = operationRegistry.getActiveWriteOp();
+      if (active)
+        return mcpError(`Operation ${active.operationId} (${active.kind}) is already running. Cancel it with cancel-operation or poll get-operation for status.`);
+      let mcpSignal = extra?.signal, outcome = await runAsyncOp(operationRegistry, "start-instance", async (signal, progress) => {
+        let controller = new AbortController(), merged = controller.signal, forward = () => controller.abort();
+        signal.addEventListener("abort", forward, { once: !0 }), mcpSignal && mcpSignal.addEventListener("abort", forward, { once: !0 }), progress("Acquiring launcher connection");
+        let { launcher } = await acquireLauncherWithRecovery(cdpPort, buildCdpOptions({ cdpHost, allowRemote }), { signal: merged });
+        try {
+          let resolvedId = accountId;
+          if (resolvedId === void 0) {
+            let { result: accounts } = await withLauncherRecovery(launcher, () => launcher.listAccounts(), { signal: merged });
+            if (accounts.length === 0)
+              throw new Error("No accounts found.");
+            if (accounts.length > 1)
+              throw new Error("Multiple accounts found. Specify accountId. Use list-accounts to see available accounts.");
+            resolvedId = accounts[0].id;
+          }
+          progress(`Starting instance ${resolvedId}`);
+          let port = launcher.currentPort, { result: opOutcome } = await withLauncherQueue(() => withLauncherRecovery(launcher, () => startInstanceWithRecovery(launcher, resolvedId, launcher.currentPort), { signal: merged }), { type: "start", accountId: resolvedId, launcherPort: port });
+          if (opOutcome.status === "timeout") {
+            let waitResult = await waitForConnectable(resolvedId, { signal: merged });
+            if (waitResult.verified && waitResult.cdpPort !== null)
+              return {
+                text: `Instance started for account ${resolvedId} on CDP port ${waitResult.cdpPort}` + (waitResult.pid !== void 0 ? ` \u2014 PID ${waitResult.pid}` : "") + " \u2014 verified (process inspection)",
+                type: "text"
+              };
+            throw new Error("Instance started but failed to initialize within timeout.");
+          }
+          let text = `Instance ${opOutcome.status === "already_running" ? "already running" : "started"} for account ${resolvedId} on CDP port ${opOutcome.port}`;
+          return opOutcome.pid !== void 0 && (text += ` \u2014 PID ${opOutcome.pid}`), opOutcome.verified === !0 ? text += " \u2014 verified" : opOutcome.verified === !1 && (text += " \u2014 NOT verified \u2014 duplicate port suspected"), { text, type: "text" };
+        } finally {
+          launcher.disconnect(), signal.removeEventListener("abort", forward), mcpSignal?.removeEventListener("abort", forward);
         }
-        let { result: outcome } = await withLauncherQueue(() => withLauncherRecovery(launcher, () => startInstanceWithRecovery(launcher, resolvedId, port)), { type: "start", accountId: resolvedId, launcherPort: port });
-        if (outcome.status === "timeout")
-          return mcpError("Instance started but failed to initialize within timeout.");
-        let text = `Instance ${outcome.status === "already_running" ? "already running" : "started"} for account ${resolvedId} on CDP port ${outcome.port}`;
-        return outcome.pid !== void 0 && (text += ` \u2014 PID ${outcome.pid}`), outcome.verified === !0 ? text += " \u2014 verified" : outcome.verified === !1 && (text += " \u2014 NOT verified \u2014 duplicate port suspected"), mcpSuccess(text);
-      } catch (error51) {
-        return mcpCatchAll(error51, "Failed to start instance");
-      } finally {
-        launcher.disconnect();
-      }
+      });
+      if (outcome.status === "rejected")
+        return mcpError(outcome.reason);
+      if (outcome.status === "in_progress")
+        return mcpSuccess(JSON.stringify({
+          status: "in_progress",
+          operationId: outcome.operationId,
+          kind: outcome.kind,
+          startedAt: outcome.startedAt,
+          note: "start-instance is running in background. Poll get-operation for status."
+        }, null, 2));
+      let res = outcome.result;
+      return mcpSuccess(res.text);
     } catch (error51) {
       return mcpCatchAll(error51, "Failed to start instance");
     }
@@ -52966,34 +53220,43 @@ function registerStartInstance(server) {
 
 // packages/mcp/dist/tools/stop-instance.js
 function registerStopInstance(server) {
-  server.tool("stop-instance", "Stop a running LinkedHelper instance", {
+  server.tool("stop-instance", "Stop a running LinkedHelper instance. Returns immediately with { status:'in_progress', operationId } if the op takes >2 s. Poll get-operation for status. Cancel with cancel-operation.", {
     ...cdpConnectionSchema
-  }, async ({ accountId, cdpPort, cdpHost, allowRemote }) => {
+  }, async ({ accountId, cdpPort, cdpHost, allowRemote }, extra) => {
     try {
-      let port = await resolveLauncherPort(cdpPort, cdpHost), launcher = new LauncherService(port, buildCdpOptions({ cdpHost, allowRemote }));
-      try {
-        await launcher.connect();
-      } catch (error51) {
-        return mcpCatchAll(error51, "Failed to connect to LinkedHelper");
-      }
-      try {
-        let resolvedId = accountId;
-        if (resolvedId === void 0) {
-          let { result: accounts } = await withLauncherRecovery(launcher, () => launcher.listAccounts());
-          if (accounts.length === 0)
-            return mcpError("No accounts found.");
-          if (accounts.length > 1)
-            return mcpError("Multiple accounts found. Specify accountId. Use list-accounts to see available accounts.");
-          resolvedId = accounts[0].id;
+      let active = operationRegistry.getActiveWriteOp();
+      if (active)
+        return mcpError(`Operation ${active.operationId} (${active.kind}) is already running. Cancel it with cancel-operation or poll get-operation for status.`);
+      let mcpSignal = extra?.signal, outcome = await runAsyncOp(operationRegistry, "stop-instance", async (signal, progress) => {
+        let controller = new AbortController(), merged = controller.signal, forward = () => controller.abort();
+        signal.addEventListener("abort", forward, { once: !0 }), mcpSignal && mcpSignal.addEventListener("abort", forward, { once: !0 }), progress("Acquiring launcher connection");
+        let { launcher } = await acquireLauncherWithRecovery(cdpPort, buildCdpOptions({ cdpHost, allowRemote }), { signal: merged });
+        try {
+          let resolvedId = accountId;
+          if (resolvedId === void 0) {
+            let { result: accounts } = await withLauncherRecovery(launcher, () => launcher.listAccounts(), { signal: merged });
+            if (accounts.length === 0)
+              throw new Error("No accounts found.");
+            if (accounts.length > 1)
+              throw new Error("Multiple accounts found. Specify accountId. Use list-accounts to see available accounts.");
+            resolvedId = accounts[0].id;
+          }
+          progress(`Stopping instance ${resolvedId}`);
+          let port = launcher.currentPort;
+          return await withLauncherQueue(() => withLauncherRecovery(launcher, async () => {
+            await launcher.stopInstance(resolvedId), await waitForInstanceShutdown(port);
+          }, { signal: merged }), { type: "stop", launcherPort: port }), `Instance stopped for account ${resolvedId}`;
+        } finally {
+          launcher.disconnect(), signal.removeEventListener("abort", forward), mcpSignal?.removeEventListener("abort", forward);
         }
-        return await withLauncherQueue(() => withLauncherRecovery(launcher, async () => {
-          await launcher.stopInstance(resolvedId), await waitForInstanceShutdown(port);
-        }), { type: "stop", launcherPort: port }), mcpSuccess(`Instance stopped for account ${resolvedId}`);
-      } catch (error51) {
-        return mcpCatchAll(error51, "Failed to stop instance");
-      } finally {
-        launcher.disconnect();
-      }
+      });
+      return outcome.status === "rejected" ? mcpError(outcome.reason) : outcome.status === "in_progress" ? mcpSuccess(JSON.stringify({
+        status: "in_progress",
+        operationId: outcome.operationId,
+        kind: outcome.kind,
+        startedAt: outcome.startedAt,
+        note: "stop-instance is running in background. Poll get-operation for status."
+      }, null, 2)) : mcpSuccess(outcome.result);
     } catch (error51) {
       return mcpCatchAll(error51, "Failed to stop instance");
     }
@@ -53325,9 +53588,55 @@ function registerVisitProfile(server) {
   });
 }
 
+// packages/mcp/dist/tools/get-operation.js
+function registerGetOperation(server) {
+  server.tool("get-operation", "Poll the status of a background launcher operation (start/stop/restart-instance, ensure-instances, launch-app, quit-app). Returns current status, accumulated progress messages, and the final result or error when done. Safe to call repeatedly; launcher-independent (no CDP required).", {
+    operationId: external_exports.string().describe("The operationId returned by the original tool call.")
+  }, ({ operationId }) => {
+    let record2 = operationRegistry.get(operationId);
+    return record2 ? mcpSuccess(JSON.stringify(record2, null, 2)) : mcpError(`Operation ${operationId} not found. It may have expired (TTL: 10 min) or never existed.`);
+  });
+}
+
+// packages/mcp/dist/tools/cancel-operation.js
+function registerCancelOperation(server) {
+  server.tool("cancel-operation", "Cancel a running background operation. Signals the operation's AbortController so in-progress waits (port polling, PID exit, launcher recovery) stop promptly. Returns the post-cancel state from process inspection. WARNING: cancelling a restart-instance mid-flight (after the old instance was stopped but before the new one started) may leave the target account instance down \u2014 check postCancelInstances in the response and re-run if needed.", {
+    operationId: external_exports.string().describe("The operationId to cancel.")
+  }, async ({ operationId }) => {
+    let before = operationRegistry.get(operationId);
+    if (!before)
+      return mcpError(`Operation ${operationId} not found. It may have expired (TTL: 10 min) or never existed.`);
+    if (before.status !== "running")
+      return mcpSuccess(JSON.stringify({
+        ...before,
+        note: `Operation was already ${before.status} \u2014 nothing to cancel.`
+      }, null, 2));
+    operationRegistry.cancel(operationId), await new Promise((r) => setTimeout(r, 1500));
+    let instances = await scanRunningInstances().catch(() => []), after = operationRegistry.get(operationId);
+    return mcpSuccess(JSON.stringify({
+      ...after ?? before,
+      postCancelInstances: instances.map((i2) => ({
+        accountId: i2.accountId,
+        pid: i2.pid,
+        cdpPort: i2.cdpPort,
+        connectable: i2.connectable
+      })),
+      note: "Operation cancelled. If cancelled mid-restart (after stop, before new start), the instance may be down \u2014 check postCancelInstances and re-run restart-instance if needed."
+    }, null, 2));
+  });
+}
+
+// packages/mcp/dist/tools/list-operations.js
+function registerListOperations(server) {
+  server.tool("list-operations", "List recent and active background operations (start/stop/restart-instance, ensure-instances, launch-app, quit-app). Running operations appear first. Completed entries are retained for 10 minutes then pruned. Launcher-independent \u2014 no CDP required.", {}, () => {
+    let ops = operationRegistry.list();
+    return ops.sort((a2, b) => a2.status === "running" && b.status !== "running" ? -1 : a2.status !== "running" && b.status === "running" ? 1 : b.startedAt.localeCompare(a2.startedAt)), mcpSuccess(JSON.stringify(ops, null, 2));
+  });
+}
+
 // packages/mcp/dist/tools/index.js
 function registerAllTools(server) {
-  registerEnsureInstances(server), registerListOrphans(server), registerReapOrphans(server), registerAddPeopleToCollection(server), registerCommentOnPost(server), registerCampaignAddAction(server), registerCampaignCloneAction(server), registerCampaignCreate(server), registerCampaignDelete(server), registerCampaignErase(server), registerCampaignExcludeAdd(server), registerCampaignExcludeList(server), registerCampaignExcludeRemove(server), registerCampaignExport(server), registerCampaignGet(server), registerCampaignImportFromSourceUrl(server), registerCampaignList(server), registerCampaignListPeople(server), registerCampaignMoveNext(server), registerCampaignRemoveAction(server), registerCampaignRemovePeople(server), registerCampaignReorderActions(server), registerCampaignRetry(server), registerCampaignStart(server), registerCampaignStatistics(server), registerCampaignStatus(server), registerCampaignStop(server), registerCampaignUpdate(server), registerCampaignUpdateAction(server), registerCampaignValidateActionSettings(server), registerFindApp(server), registerGetActionBudget(server), registerGetFeed(server), registerHideFeedAuthor(server), registerHideFeedAuthorProfile(server), registerGetPost(server), registerGetPostEngagers(server), registerGetPostStats(server), registerGetProfileActivity(server), registerGetErrors(server), registerGetThrottleStatus(server), registerLaunchApp(server), registerQuitApp(server), registerListAccounts(server), registerListWorkspaces(server), registerRestartInstance(server), registerStartInstance(server), registerStopInstance(server), registerQueryMessages(server), registerQueryProfile(server), registerQueryProfiles(server), registerQueryProfilesBulk(server), registerReactToPost(server), registerReactToComment(server), registerScrapeMessagingHistory(server), registerSearchPosts(server), registerCreateCollection(server), registerDeleteCollection(server), registerDismissFeedPost(server), registerDismissErrors(server), registerCheckReplies(server), registerCheckStatus(server), registerCollectPeople(server), registerDescribeActions(server), registerImportPeopleFromCollection(server), registerImportPeopleFromUrls(server), registerListCollections(server), registerListLinkedInReferenceData(server), registerRemovePeopleFromCollection(server), registerBuildLinkedInUrl(server), registerResolveLinkedInEntity(server), registerVisitProfile(server), registerEndorseSkills(server), registerEnrichProfile(server), registerFollowPerson(server), registerLikePersonPosts(server), registerMessagePerson(server), registerRemoveConnection(server), registerSendInmail(server), registerSendInvite(server), registerUnfollowFromFeed(server), registerUnfollowProfile(server);
+  registerEnsureInstances(server), registerListOrphans(server), registerReapOrphans(server), registerAddPeopleToCollection(server), registerCommentOnPost(server), registerCampaignAddAction(server), registerCampaignCloneAction(server), registerCampaignCreate(server), registerCampaignDelete(server), registerCampaignErase(server), registerCampaignExcludeAdd(server), registerCampaignExcludeList(server), registerCampaignExcludeRemove(server), registerCampaignExport(server), registerCampaignGet(server), registerCampaignImportFromSourceUrl(server), registerCampaignList(server), registerCampaignListPeople(server), registerCampaignMoveNext(server), registerCampaignRemoveAction(server), registerCampaignRemovePeople(server), registerCampaignReorderActions(server), registerCampaignRetry(server), registerCampaignStart(server), registerCampaignStatistics(server), registerCampaignStatus(server), registerCampaignStop(server), registerCampaignUpdate(server), registerCampaignUpdateAction(server), registerCampaignValidateActionSettings(server), registerFindApp(server), registerGetActionBudget(server), registerGetFeed(server), registerHideFeedAuthor(server), registerHideFeedAuthorProfile(server), registerGetPost(server), registerGetPostEngagers(server), registerGetPostStats(server), registerGetProfileActivity(server), registerGetErrors(server), registerGetThrottleStatus(server), registerLaunchApp(server), registerQuitApp(server), registerListAccounts(server), registerListWorkspaces(server), registerRestartInstance(server), registerStartInstance(server), registerStopInstance(server), registerQueryMessages(server), registerQueryProfile(server), registerQueryProfiles(server), registerQueryProfilesBulk(server), registerReactToPost(server), registerReactToComment(server), registerScrapeMessagingHistory(server), registerSearchPosts(server), registerCreateCollection(server), registerDeleteCollection(server), registerDismissFeedPost(server), registerDismissErrors(server), registerCheckReplies(server), registerCheckStatus(server), registerCollectPeople(server), registerDescribeActions(server), registerImportPeopleFromCollection(server), registerImportPeopleFromUrls(server), registerListCollections(server), registerListLinkedInReferenceData(server), registerRemovePeopleFromCollection(server), registerBuildLinkedInUrl(server), registerResolveLinkedInEntity(server), registerVisitProfile(server), registerEndorseSkills(server), registerEnrichProfile(server), registerFollowPerson(server), registerLikePersonPosts(server), registerMessagePerson(server), registerRemoveConnection(server), registerSendInmail(server), registerSendInvite(server), registerUnfollowFromFeed(server), registerUnfollowProfile(server), registerGetOperation(server), registerCancelOperation(server), registerListOperations(server);
 }
 
 // packages/mcp/dist/server.js

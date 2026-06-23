@@ -3,44 +3,65 @@
 
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+// ---------------------------------------------------------------------------
+// Mocks
+// ---------------------------------------------------------------------------
+
 vi.mock("@insoftex/lhremote-core", async (importOriginal) => {
   const actual = await importOriginal<typeof import("@insoftex/lhremote-core")>();
   return {
     ...actual,
-    LauncherService: vi.fn(),
+    acquireLauncherWithRecovery: vi.fn(),
     ensureInstances: vi.fn(),
-    resolveLauncherPort: vi.fn(),
+  };
+});
+
+vi.mock("../operation-registry.js", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../operation-registry.js")>();
+  return {
+    ...actual,
+    operationRegistry: new actual.OperationRegistry(),
+    runAsyncOp: async (
+      _registry: unknown,
+      _kind: unknown,
+      work: (signal: AbortSignal, progress: (msg: string) => void) => Promise<unknown>,
+    ) => {
+      const ac = new AbortController();
+      const result = await work(ac.signal, () => undefined);
+      return { status: "completed", result };
+    },
   };
 });
 
 import {
   type EnsureInstanceResult,
-  LauncherService,
+  acquireLauncherWithRecovery,
   ensureInstances,
-  resolveLauncherPort,
 } from "@insoftex/lhremote-core";
+
 import { registerEnsureInstances } from "./ensure-instances.js";
 import { createMockServer } from "./testing/mock-server.js";
 
-const mockedLauncherService = vi.mocked(LauncherService);
-const mockedEnsureInstances = vi.mocked(ensureInstances);
-const mockedResolveLauncherPort = vi.mocked(resolveLauncherPort);
+// ---------------------------------------------------------------------------
+// Helpers
+// ---------------------------------------------------------------------------
 
-function mockLauncher(): { disconnect: ReturnType<typeof vi.fn> } {
+function mockLauncherConnection(port = 9222) {
   const disconnect = vi.fn();
-  mockedLauncherService.mockImplementation(function () {
-    return {
-      connect: vi.fn().mockResolvedValue(undefined),
-      disconnect,
-    } as unknown as LauncherService;
-  });
-  return { disconnect };
+  const mockLauncher = { disconnect, currentPort: port };
+  vi.mocked(acquireLauncherWithRecovery).mockResolvedValue(
+    { launcher: mockLauncher } as unknown as Awaited<ReturnType<typeof acquireLauncherWithRecovery>>,
+  );
+  return { disconnect, mockLauncher };
 }
+
+// ---------------------------------------------------------------------------
+// Tests
+// ---------------------------------------------------------------------------
 
 describe("registerEnsureInstances", () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    mockedResolveLauncherPort.mockResolvedValue(9222);
   });
 
   afterEach(() => {
@@ -64,13 +85,13 @@ describe("registerEnsureInstances", () => {
     const { server, getHandler } = createMockServer();
     registerEnsureInstances(server);
 
-    mockLauncher();
+    mockLauncherConnection();
 
     const results: EnsureInstanceResult[] = [
       { accountId: 1, status: "already_running", cdpPort: 54321, pid: 13004, verified: true },
       { accountId: 2, status: "started", cdpPort: 54322, pid: 13005, verified: true },
     ];
-    mockedEnsureInstances.mockResolvedValue(results);
+    vi.mocked(ensureInstances).mockResolvedValue(results);
 
     const handler = getHandler("ensure-instances");
     const result = (await handler({ accountIds: [1, 2], cdpPort: 9222 })) as {
@@ -80,19 +101,19 @@ describe("registerEnsureInstances", () => {
     expect(JSON.parse(result.content[0].text)).toEqual(results);
   });
 
-  it("skips already-running accounts and starts the rest", async () => {
+  it("calls ensureInstances with resolved launcher port", async () => {
     const { server, getHandler } = createMockServer();
     registerEnsureInstances(server);
 
-    mockLauncher();
-    mockedEnsureInstances.mockResolvedValue([
+    mockLauncherConnection(9222);
+    vi.mocked(ensureInstances).mockResolvedValue([
       { accountId: 42, status: "already_running", cdpPort: 54321, pid: 100, verified: true },
     ]);
 
     const handler = getHandler("ensure-instances");
     await handler({ accountIds: [42], cdpPort: 9222 });
 
-    expect(mockedEnsureInstances).toHaveBeenCalledWith(
+    expect(vi.mocked(ensureInstances)).toHaveBeenCalledWith(
       [42],
       expect.any(Object),
       9222,
@@ -103,8 +124,8 @@ describe("registerEnsureInstances", () => {
     const { server, getHandler } = createMockServer();
     registerEnsureInstances(server);
 
-    const { disconnect } = mockLauncher();
-    mockedEnsureInstances.mockResolvedValue([]);
+    const { disconnect } = mockLauncherConnection();
+    vi.mocked(ensureInstances).mockResolvedValue([]);
 
     const handler = getHandler("ensure-instances");
     await handler({ accountIds: [1], cdpPort: 9222 });
@@ -116,8 +137,8 @@ describe("registerEnsureInstances", () => {
     const { server, getHandler } = createMockServer();
     registerEnsureInstances(server);
 
-    const { disconnect } = mockLauncher();
-    mockedEnsureInstances.mockRejectedValue(new Error("boom"));
+    const { disconnect } = mockLauncherConnection();
+    vi.mocked(ensureInstances).mockRejectedValue(new Error("boom"));
 
     const handler = getHandler("ensure-instances");
     const result = await handler({ accountIds: [1], cdpPort: 9222 });

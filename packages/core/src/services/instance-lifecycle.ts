@@ -2,6 +2,7 @@
 // Copyright (C) 2026 Oleksii PELYKH
 
 import { CDPConnectionError, discoverInstancePort, discoverTargets, invalidateProcessCache, scanRunningInstances } from "../cdp/index.js";
+import type { RunningInstance } from "../cdp/index.js";
 import type { CdpTarget } from "../types/cdp.js";
 import { delay } from "../utils/delay.js";
 import { StartInstanceError } from "./errors.js";
@@ -53,6 +54,25 @@ export type StartInstanceOutcome =
   | { status: "timeout" };
 
 /**
+ * Find the target running instance for a specific account.
+ *
+ * This is the account-scoped source of truth for lifecycle verification.
+ * When multiple LinkedHelper accounts are running, callers must never use
+ * "first instance port wins" discovery to decide whether account `X` is
+ * already running or to report which port a fresh start produced.
+ */
+async function findRunningInstanceForAccount(
+  accountId: number,
+): Promise<RunningInstance | null> {
+  const instances = await scanRunningInstances();
+  return (
+    instances.find(
+      (instance) => instance.accountId === accountId && instance.connectable,
+    ) ?? null
+  );
+}
+
+/**
  * Start a LinkedHelper instance with idempotent handling, crash recovery,
  * and post-start verification (F4).
  *
@@ -76,7 +96,19 @@ export async function startInstanceWithRecovery(
       error instanceof StartInstanceError &&
       error.message.includes("already running")
     ) {
-      const existingPort = await discoverInstancePort(launcherPort);
+      let existingInstance: RunningInstance | null = null;
+      let accountScanFailed = false;
+      try {
+        existingInstance = await findRunningInstanceForAccount(accountId);
+      } catch {
+        accountScanFailed = true;
+      }
+
+      let existingPort: number | null = existingInstance?.cdpPort ?? null;
+      if (existingPort === null && accountScanFailed) {
+        existingPort = await discoverInstancePort(launcherPort);
+      }
+
       if (existingPort !== null) {
         const targetsReady = await waitForInstanceTargets(existingPort);
         if (!targetsReady) {
@@ -103,10 +135,13 @@ export async function startInstanceWithRecovery(
     }
   }
 
-  const port = await waitForInstancePort(launcherPort);
-  if (port === null) {
+  const startedInstance = await waitForInstanceForAccount(accountId, {
+    launcherPort,
+  });
+  if (startedInstance === null || startedInstance.cdpPort === null) {
     return { status: "timeout" };
   }
+  const port = startedInstance.cdpPort;
 
   const targetsReady = await waitForInstanceTargets(port);
   if (!targetsReady) {
@@ -182,6 +217,63 @@ export async function waitForInstancePort(
 }
 
 /**
+ * Poll until the requested account instance is connectable, or timeout.
+ *
+ * The preferred path is process-inspection based account matching via
+ * {@link scanRunningInstances}. As a fallback for older/partially-classified
+ * process snapshots, we still probe the generic launcher-descendant port
+ * discovery path, but only accept it after account-scoped verification.
+ */
+export async function waitForInstanceForAccount(
+  accountId: number,
+  options?: { launcherPort?: number },
+): Promise<RunningInstance | null> {
+  const deadline = Date.now() + PORT_DISCOVERY_TIMEOUT;
+  const launcherPort = options?.launcherPort ?? 9222;
+
+  while (Date.now() < deadline) {
+    invalidateProcessCache();
+
+    let scanFailed = false;
+    const byAccount = await findRunningInstanceForAccount(accountId).catch(() => {
+      scanFailed = true;
+      return null;
+    });
+    if (byAccount?.cdpPort != null) {
+      return byAccount;
+    }
+
+    const fallbackPort = await discoverInstancePort(launcherPort).catch(() => null);
+    if (fallbackPort !== null) {
+      const verified = await verifyInstanceStarted(accountId, fallbackPort);
+      if (verified.verified) {
+        const refreshed = await findRunningInstanceForAccount(accountId).catch(
+          () => null,
+        );
+        if (refreshed?.cdpPort != null) {
+          return refreshed;
+        }
+      }
+      if (scanFailed) {
+        return {
+          pid: verified.pid ?? -1,
+          accountId,
+          cdpPort: fallbackPort,
+          connectable: true,
+          helperChildCount: 0,
+          source: "cmdline",
+          confidence: "unknown",
+        };
+      }
+    }
+
+    await delay(PORT_DISCOVERY_INTERVAL);
+  }
+
+  return null;
+}
+
+/**
  * Poll until no instance CDP port is discoverable, or timeout.
  *
  * Use after `stopInstance()` to ensure the process has fully exited
@@ -232,14 +324,20 @@ function pidExists(pid: number): boolean {
  *
  * Used by `restart-instance` to confirm the old process is gone before
  * starting a new one on the same account slot.
+ *
+ * @param pid       - PID to wait for.
+ * @param timeoutMs - Maximum wait in ms.
+ * @param signal    - Optional cancellation signal; exits early when fired.
  */
 export async function waitForPidExit(
   pid: number,
   timeoutMs = PID_EXIT_TIMEOUT,
+  signal?: AbortSignal,
 ): Promise<void> {
   const deadline = Date.now() + timeoutMs;
 
   while (Date.now() < deadline) {
+    if (signal?.aborted) return;
     invalidateProcessCache();
     if (!pidExists(pid)) return;
     await delay(PID_EXIT_INTERVAL);

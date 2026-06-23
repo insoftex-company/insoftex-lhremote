@@ -18,6 +18,8 @@ export {
 } from "./restart-instance.js";
 export { DEFAULT_LAUNCHER_RECOVERY_TIMEOUT_MS, LauncherService } from "./launcher.js";
 export {
+  acquireLauncherWithRecovery,
+  type AcquireLauncherResult,
   type LauncherRecoveryOptions,
   type LauncherRecoveryResult,
   withLauncherRecovery,

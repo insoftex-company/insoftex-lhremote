@@ -4,6 +4,98 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+## [0.23.0] — 2026-06-23
+
+### Added
+
+- **Async operation model (T2)**: Long-running tools (`restart-instance`, `ensure-instances`,
+  `start-instance`, `stop-instance`, `launch-app`, `quit-app`) now use a 2-second grace window.
+  If the operation completes within 2 s it returns synchronously; otherwise it returns
+  `{ status: "in_progress", operationId }` immediately and continues in the background.
+  Three new MCP tools manage async operations:
+  - `get-operation` — poll a running or completed operation by ID
+  - `cancel-operation` — request cancellation; ongoing work is aborted via `AbortSignal`
+  - `list-operations` — enumerate active and recently completed operations (10-min TTL)
+
+- **MCP progress & cancellation (T4)**: All async operation work functions receive a merged
+  `AbortSignal` that is triggered by either operation cancellation or the MCP
+  `notifications/cancelled` message for the originating request.
+
+- **Flap-tolerant launcher acquisition (T3)**: `acquireLauncherWithRecovery` now accepts and
+  threads an `AbortSignal` through all recovery and wait functions.  `AbortSignal` also added
+  to `resolveAppPort`, `waitForPidExit`, `waitForConnectable`, and `LauncherService.reconnect`.
+
+### Changed
+
+- **Non-blocking startup (T1)**: MCP `initialize` / `tools/list` perform zero I/O — all tool
+  registrations are synchronous.  Launcher connections are established lazily on the first
+  tool call, not at registration time.
+
+- Single-writer semantics: tools that mutate launcher state check `getActiveWriteOp()` at
+  entry and reject concurrent mutating calls with a clear error.
+
+## [0.22.2] — 2026-06-22
+
+### Fixed
+
+- **`restart-instance` survives the launcher CDP drop it triggers (root cause fix)**: Three
+  composable defects caused `restart-instance` (and siblings) to fail with the legacy
+  `LinkedHelperUnreachableError` string even though the instance restarted successfully.
+  All three are now closed:
+
+  - **F1 — Launcher-independent restart verification**: `restartInstance` steps 4–6 now
+    decouple "issue the start command" (needs launcher CDP briefly) from "verify the result"
+    (must not need the launcher).  After the start command is issued, verification falls
+    through to `waitForConnectable`, which uses `scanRunningInstances` / pure OS process
+    inspection — no launcher CDP required.  The op can return `restarted:true, verified:true`
+    while the launcher is still flapping.  Previously a `{status:"timeout"}` from
+    `startInstanceWithRecovery` (caused by `discoverInstancePort` failing after the launcher
+    port-hopped) produced an immediate early return with `verified:false`, even though the
+    instance was running and connectable.  `RestartInstanceResult` gains an optional `note`
+    field for the rare case where the launcher never recovered and process inspection is the
+    sole information source.  The same process-inspection fallback is applied to
+    `start-instance` (MCP tool) and `ensure-instances` (Phase 2).
+
+  - **F2 — Resolve+connect+reconnect as one recoverable unit**: `acquireLauncherWithRecovery`
+    previously called `resolveLauncherPort` (with its full 30 s retry budget) **outside** the
+    `try { connect() } catch { reconnect() }` block, so a `LinkedHelperUnreachableError` thrown
+    during port resolution bypassed recovery entirely.  The fast-path resolve call now uses
+    `retryTimeout=0` (single scan, immediate fail) inside the function; any
+    `LinkedHelperUnreachableError` from either resolve or connect is handled identically: fall
+    to `reconnect()`, which re-discovers the launcher's current port fresh on each attempt
+    (never pinned to a stale port like 49238) and retries with back-off up to the full budget.
+    `LinkedHelperNotRunningError` still propagates immediately.
+
+  - **F3 — Longer recovery budget**: `DEFAULT_LAUNCHER_RECOVERY_TIMEOUT_MS` raised from 30 s
+    to **60 s** (also honoured by `LHREMOTE_LAUNCHER_RECOVERY_TIMEOUT_MS`), covering the
+    observed worst-case port-hop window.  `reconnect()` passes this budget directly to
+    `resolveAppPort` so the per-iteration discovery window matches the overall cap.
+
+## [0.22.1] — 2026-06-22
+
+### Fixed
+
+- **Launcher write ops no longer fail instantly on a CDP blip (Bug 1)**: `restart-instance`,
+  `start-instance`, `stop-instance`, `ensure-instances`, and `list-accounts` previously
+  performed a single raw `connect()` call before entering the queue; if the launcher
+  dropped CDP during that window the operation failed immediately with the legacy
+  "Relaunch LinkedHelper with --remote-debugging-port" error instead of recovering.
+  All five tools now call `acquireLauncherWithRecovery`, which re-discovers the
+  launcher's current port via process inspection and retries the connection with the
+  same 30 s cap as the existing operation-level `withLauncherRecovery`.  Callers use
+  `launcher.currentPort` (new getter on `LauncherService`) to get the live port after
+  potential recovery, so downstream ops (`discoverInstancePort`, settle barriers) always
+  reference the right port.  The legacy error now only surfaces when recovery genuinely
+  fails past the cap.
+
+- **Non-ASCII / emoji names no longer mangled to `????` in `check-status` (Bug 2)**:
+  `gather-raw-processes.ts` now prepends
+  `[Console]::OutputEncoding = $OutputEncoding = [System.Text.Encoding]::UTF8;`
+  to the PowerShell `Win32_Process` query.  Windows PowerShell 5.x defaults to OEM
+  encoding; without this, multi-byte characters (e.g. the 🇺🇦 emoji in account names)
+  were replaced with `?` before Node.js read them.  `list-accounts` (DB-sourced) was
+  unaffected; this fix aligns `check-status` to show the same names.
+
 ## [0.22.0] — 2026-06-22
 
 ### Added

@@ -3,8 +3,7 @@
 
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import {
-  LauncherService,
-  resolveLauncherPort,
+  acquireLauncherWithRecovery,
   withLauncherRecovery,
 } from "@insoftex/lhremote-core";
 import { z } from "zod";
@@ -26,11 +25,12 @@ export function registerListAccounts(server: McpServer): void {
     },
     async ({ cdpPort, cdpHost, allowRemote, accountId, includeAllWorkspaces }) => {
       try {
-        const port = await resolveLauncherPort(cdpPort, cdpHost);
-        const launcher = new LauncherService(port, buildCdpOptions({ cdpHost, allowRemote, accountId }));
-
+        let launcher: Awaited<ReturnType<typeof acquireLauncherWithRecovery>>["launcher"];
         try {
-          await launcher.connect();
+          ({ launcher } = await acquireLauncherWithRecovery(
+            cdpPort,
+            buildCdpOptions({ cdpHost, allowRemote, accountId }),
+          ));
         } catch (error) {
           return mcpCatchAll(error, "Failed to connect to LinkedHelper");
         }

@@ -29,6 +29,7 @@ import { InstanceService } from "./instance.js";
 import type { LauncherService } from "./launcher.js";
 import {
   startInstanceWithRecovery,
+  waitForInstanceForAccount,
   waitForInstancePort,
   waitForInstanceShutdown,
   waitForInstanceTargets,
@@ -56,6 +57,21 @@ const UI_TARGET: CdpTarget = {
 
 const BOTH_TARGETS: CdpTarget[] = [LINKEDIN_TARGET, UI_TARGET];
 
+function makeRunningInstance(
+  overrides: Partial<RunningInstance> = {},
+): RunningInstance {
+  return {
+    pid: 8888,
+    accountId: 42,
+    cdpPort: 55123,
+    connectable: true,
+    helperChildCount: 0,
+    source: "cmdline",
+    confidence: "high",
+    ...overrides,
+  };
+}
+
 function createMockLauncher(
   overrides: Partial<Record<keyof LauncherService, unknown>> = {},
 ): LauncherService {
@@ -77,7 +93,8 @@ describe("startInstanceWithRecovery", () => {
 
     vi.mocked(InstanceService.prototype.connectUiOnly).mockResolvedValue(undefined);
     vi.mocked(InstanceService.prototype.getInstancePopups).mockResolvedValue([]);
-    mockedScanRunningInstances.mockResolvedValue([]);
+    mockedScanRunningInstances.mockResolvedValue([makeRunningInstance()]);
+    vi.mocked(discoverInstancePort).mockResolvedValue(55123);
   });
 
   afterEach(() => {
@@ -87,8 +104,8 @@ describe("startInstanceWithRecovery", () => {
 
   it("returns started with port on successful start", async () => {
     const launcher = createMockLauncher();
-    vi.mocked(discoverInstancePort).mockResolvedValue(55123);
     vi.mocked(discoverTargets).mockResolvedValue(BOTH_TARGETS);
+    mockedScanRunningInstances.mockResolvedValue([makeRunningInstance()]);
 
     const result = await startInstanceWithRecovery(launcher, 42, 9222);
 
@@ -104,8 +121,8 @@ describe("startInstanceWithRecovery", () => {
           new StartInstanceError(42, "account is already running"),
         ),
     });
-    vi.mocked(discoverInstancePort).mockResolvedValue(55123);
     vi.mocked(discoverTargets).mockResolvedValue(BOTH_TARGETS);
+    mockedScanRunningInstances.mockResolvedValue([makeRunningInstance({ pid: 7777 })]);
 
     const result = await startInstanceWithRecovery(launcher, 42, 9222);
 
@@ -121,8 +138,8 @@ describe("startInstanceWithRecovery", () => {
           new StartInstanceError(42, "account is already running"),
         ),
     });
-    vi.mocked(discoverInstancePort).mockResolvedValue(55123);
     vi.mocked(discoverTargets).mockResolvedValue([UI_TARGET]);
+    mockedScanRunningInstances.mockResolvedValue([makeRunningInstance({ pid: 7777 })]);
 
     const resultPromise = startInstanceWithRecovery(launcher, 42, 9222);
     await vi.advanceTimersByTimeAsync(31_000);
@@ -143,12 +160,17 @@ describe("startInstanceWithRecovery", () => {
 
     // First call (already running check): no port → crash recovery
     // After recovery + restart: port available
+    vi.mocked(discoverTargets).mockResolvedValue(BOTH_TARGETS);
+    mockedScanRunningInstances
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([makeRunningInstance({ pid: 9999, cdpPort: 55999 })]);
     vi.mocked(discoverInstancePort)
       .mockResolvedValueOnce(null)
       .mockResolvedValue(55999);
-    vi.mocked(discoverTargets).mockResolvedValue(BOTH_TARGETS);
 
-    const result = await startInstanceWithRecovery(launcher, 42, 9222);
+    const resultPromise = startInstanceWithRecovery(launcher, 42, 9222);
+    await vi.advanceTimersByTimeAsync(2_100);
+    const result = await resultPromise;
 
     expect(launcher.stopInstanceWithDialogDismissal).toHaveBeenCalledWith(42);
     expect(startInstance).toHaveBeenCalledTimes(2);
@@ -157,6 +179,7 @@ describe("startInstanceWithRecovery", () => {
 
   it("returns timeout when port never becomes available", async () => {
     const launcher = createMockLauncher();
+    mockedScanRunningInstances.mockResolvedValue([]);
     vi.mocked(discoverInstancePort).mockResolvedValue(null);
 
     const resultPromise = startInstanceWithRecovery(launcher, 42, 9222);
@@ -291,41 +314,30 @@ describe("startInstanceWithRecovery", () => {
   });
 
   describe("F4 post-start verification", () => {
-    function makeInstance(overrides: Partial<RunningInstance> = {}): RunningInstance {
-      return {
-        pid: 8888,
-        accountId: 42,
-        cdpPort: 55123,
-        connectable: true,
-        helperChildCount: 0,
-        source: "cmdline",
-        confidence: "high",
-        ...overrides,
-      };
-    }
-
     it("sets verified: true and pid when process inspection finds the started instance", async () => {
       const launcher = createMockLauncher();
       vi.mocked(discoverInstancePort).mockResolvedValue(55123);
       vi.mocked(discoverTargets).mockResolvedValue(BOTH_TARGETS);
-      mockedScanRunningInstances.mockResolvedValue([makeInstance({ pid: 8888 })]);
+      mockedScanRunningInstances.mockResolvedValue([makeRunningInstance({ pid: 8888 })]);
 
       const result = await startInstanceWithRecovery(launcher, 42, 9222);
 
       expect(result).toEqual({ status: "started", port: 55123, pid: 8888, verified: true });
     });
 
-    it("sets verified: false when a different account occupies that port", async () => {
+    it("times out when a different account occupies the only visible instance port", async () => {
       const launcher = createMockLauncher();
       vi.mocked(discoverInstancePort).mockResolvedValue(55123);
       vi.mocked(discoverTargets).mockResolvedValue(BOTH_TARGETS);
       mockedScanRunningInstances.mockResolvedValue([
-        makeInstance({ pid: 9999, accountId: 99 }),
+        makeRunningInstance({ pid: 9999, accountId: 99 }),
       ]);
 
-      const result = await startInstanceWithRecovery(launcher, 42, 9222);
+      const resultPromise = startInstanceWithRecovery(launcher, 42, 9222);
+      await vi.advanceTimersByTimeAsync(46_000);
+      const result = await resultPromise;
 
-      expect(result).toEqual({ status: "started", port: 55123, verified: false });
+      expect(result).toEqual({ status: "timeout" });
     });
 
     it("sets verified: true for already_running path when matching instance found", async () => {
@@ -336,7 +348,7 @@ describe("startInstanceWithRecovery", () => {
       });
       vi.mocked(discoverInstancePort).mockResolvedValue(55123);
       vi.mocked(discoverTargets).mockResolvedValue(BOTH_TARGETS);
-      mockedScanRunningInstances.mockResolvedValue([makeInstance({ pid: 7777 })]);
+      mockedScanRunningInstances.mockResolvedValue([makeRunningInstance({ pid: 7777 })]);
 
       const result = await startInstanceWithRecovery(launcher, 42, 9222);
 
@@ -397,6 +409,43 @@ describe("waitForInstancePort", () => {
     const result = await resultPromise;
 
     expect(result).toBeNull();
+  });
+});
+
+describe("waitForInstanceForAccount", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+    vi.restoreAllMocks();
+  });
+
+  it("returns the matching connectable account instance immediately", async () => {
+    mockedScanRunningInstances.mockResolvedValue([makeRunningInstance({ pid: 1010 })]);
+
+    const result = await waitForInstanceForAccount(42, { launcherPort: 9222 });
+
+    expect(result?.cdpPort).toBe(55123);
+    expect(result?.accountId).toBe(42);
+  });
+
+  it("ignores other accounts and keeps polling until the requested one appears", async () => {
+    mockedScanRunningInstances
+      .mockResolvedValueOnce([
+        makeRunningInstance({ pid: 2001, accountId: 99, cdpPort: 60001 }),
+      ])
+      .mockResolvedValueOnce([makeRunningInstance({ pid: 2002 })]);
+    vi.mocked(discoverInstancePort).mockResolvedValue(null);
+
+    const resultPromise = waitForInstanceForAccount(42, { launcherPort: 9222 });
+    await vi.advanceTimersByTimeAsync(2_000);
+    const result = await resultPromise;
+
+    expect(result?.pid).toBe(2002);
+    expect(result?.accountId).toBe(42);
   });
 });
 

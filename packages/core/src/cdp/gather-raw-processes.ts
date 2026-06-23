@@ -107,9 +107,13 @@ async function queryWin32CommandLines(): Promise<Map<number, string>> {
         "-NoProfile",
         "-NonInteractive",
         "-Command",
+        // Force UTF-8 output so multi-byte / emoji names (e.g. 🇺🇦) survive
+        // the stdout pipe.  Windows PowerShell 5.x defaults to OEM encoding;
+        // without this, non-ASCII characters are replaced with '?'.
         // ConvertTo-Json may return a single object (not array) when there is
         // exactly one result, so we wrap in @() to force an array.
-        "Get-WmiObject -Query 'SELECT ProcessId,CommandLine FROM Win32_Process' | " +
+        "[Console]::OutputEncoding = $OutputEncoding = [System.Text.Encoding]::UTF8; " +
+          "Get-WmiObject -Query 'SELECT ProcessId,CommandLine FROM Win32_Process' | " +
           "Select-Object ProcessId,CommandLine | " +
           "ConvertTo-Json -Compress",
       ],

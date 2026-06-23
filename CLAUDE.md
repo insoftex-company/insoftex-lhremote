@@ -99,6 +99,7 @@ Architecture Decision Records live in `docs/adr/` and explain *why* the codebase
 | [006](docs/adr/006-operations-layer.md) | Operations layer | `packages/core/src/operations/` |
 | [007](docs/adr/007-profile-ready-selector-strategy.md) | Profile page readiness selector strategy | `packages/core/src/operations/navigate-to-profile.ts` |
 | [008](docs/adr/008-launcher-queue-readiness.md) | Launcher queue serialization and instance readiness model | `packages/core/src/cdp/launcher-queue.ts`, `instance-readiness.ts` |
+| [009](docs/adr/009-async-operation-model.md) | Async operation model (grace window, OperationRegistry, AbortSignal threading) | `packages/mcp/src/operation-registry.ts`, `tools/get-operation.ts` |
 
 ## Task Tracking
 

@@ -170,7 +170,7 @@ describe("LauncherService.reconnect", () => {
     const launcher = new LauncherService(9222);
     await launcher.reconnect({ timeoutMs: 10_000 });
 
-    expect(mockResolveAppPort).toHaveBeenCalledWith("launcher", 10_000);
+    expect(mockResolveAppPort).toHaveBeenCalledWith("launcher", 10_000, undefined);
   });
 
   it("reads LHREMOTE_LAUNCHER_RECOVERY_TIMEOUT_MS env var for default timeout", async () => {
@@ -181,7 +181,7 @@ describe("LauncherService.reconnect", () => {
     const launcher = new LauncherService(9222);
     await launcher.reconnect();
 
-    expect(mockResolveAppPort).toHaveBeenCalledWith("launcher", 12_000);
+    expect(mockResolveAppPort).toHaveBeenCalledWith("launcher", 12_000, undefined);
     vi.unstubAllEnvs();
   });
 });

@@ -4,84 +4,140 @@
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import {
   type Account,
-  LauncherService,
-  resolveLauncherPort,
+  acquireLauncherWithRecovery,
   startInstanceWithRecovery,
+  waitForConnectable,
   withLauncherQueue,
   withLauncherRecovery,
 } from "@insoftex/lhremote-core";
 import { buildCdpOptions, cdpConnectionSchema, mcpCatchAll, mcpError, mcpSuccess } from "../helpers.js";
+import { operationRegistry, runAsyncOp } from "../operation-registry.js";
 
 /** Register the {@link https://github.com/insoftex-company/insoftex-lhremote#start-instance | start-instance} MCP tool. */
 export function registerStartInstance(server: McpServer): void {
   server.tool(
     "start-instance",
-    "Start a LinkedHelper instance for a LinkedIn account. Required before campaign or query operations.",
+    "Start a LinkedHelper instance for a LinkedIn account. Required before campaign or query operations. " +
+      "Returns immediately with { status:'in_progress', operationId } if the instance takes >2 s to start. " +
+      "Poll get-operation for status. Cancel with cancel-operation.",
     {
       ...cdpConnectionSchema,
     },
-    async ({ accountId, cdpPort, cdpHost, allowRemote }) => {
+    async ({ accountId, cdpPort, cdpHost, allowRemote }, extra) => {
       try {
-        const port = await resolveLauncherPort(cdpPort, cdpHost);
-        const launcher = new LauncherService(port, buildCdpOptions({ cdpHost, allowRemote }));
-
-        try {
-          await launcher.connect();
-        } catch (error) {
-          return mcpCatchAll(error, "Failed to connect to LinkedHelper");
+        // Single-writer check.
+        const active = operationRegistry.getActiveWriteOp();
+        if (active) {
+          return mcpError(
+            `Operation ${active.operationId} (${active.kind}) is already running. ` +
+              `Cancel it with cancel-operation or poll get-operation for status.`,
+          );
         }
 
-        try {
-          // Phase 1: resolve account ID (auto-select when not provided).
-          let resolvedId = accountId;
+        const mcpSignal = extra?.signal;
 
-          if (resolvedId === undefined) {
-            const { result: accounts } = await withLauncherRecovery(
-              launcher,
-              () => launcher.listAccounts(),
+        const outcome = await runAsyncOp(
+          operationRegistry,
+          "start-instance",
+          async (signal, progress) => {
+            const controller = new AbortController();
+            const merged = controller.signal;
+            const forward = () => controller.abort();
+            signal.addEventListener("abort", forward, { once: true });
+            if (mcpSignal) mcpSignal.addEventListener("abort", forward, { once: true });
+
+            progress("Acquiring launcher connection");
+            const { launcher } = await acquireLauncherWithRecovery(
+              cdpPort,
+              buildCdpOptions({ cdpHost, allowRemote }),
+              { signal: merged },
             );
 
-            if (accounts.length === 0) {
-              return mcpError("No accounts found.");
-            }
-            if (accounts.length > 1) {
-              return mcpError(
-                "Multiple accounts found. Specify accountId. Use list-accounts to see available accounts.",
-              );
-            }
-            resolvedId = (accounts[0] as Account).id;
-          }
+            try {
+              // Phase 1: resolve account ID.
+              let resolvedId = accountId;
 
-          // Phase 2: start through the launcher queue (T1/T5).
-          // The settle barrier waits for the launcher to recover and the
-          // instance to become connectable before releasing the queue.
-          const { result: outcome } =
-            await withLauncherQueue(
-              () =>
-                withLauncherRecovery(
+              if (resolvedId === undefined) {
+                const { result: accounts } = await withLauncherRecovery(
                   launcher,
-                  () => startInstanceWithRecovery(launcher, resolvedId as number, port),
-                ),
-              { type: "start", accountId: resolvedId as number, launcherPort: port },
-            );
+                  () => launcher.listAccounts(),
+                  { signal: merged },
+                );
 
-          if (outcome.status === "timeout") {
-            return mcpError(
-              "Instance started but failed to initialize within timeout.",
-            );
-          }
+                if (accounts.length === 0) {
+                  throw new Error("No accounts found.");
+                }
+                if (accounts.length > 1) {
+                  throw new Error(
+                    "Multiple accounts found. Specify accountId. Use list-accounts to see available accounts.",
+                  );
+                }
+                resolvedId = (accounts[0] as Account).id;
+              }
 
-          const verb = outcome.status === "already_running" ? "already running" : "started";
-          let text = `Instance ${verb} for account ${resolvedId} on CDP port ${outcome.port}`;
-          if (outcome.pid !== undefined) text += ` — PID ${outcome.pid}`;
-          if (outcome.verified === true) text += " — verified";
-          else if (outcome.verified === false) text += " — NOT verified — duplicate port suspected";
-          return mcpSuccess(text);
-        } catch (error) {
-          return mcpCatchAll(error, "Failed to start instance");
-        } finally {
-          launcher.disconnect();
+              // Phase 2: start through the launcher queue.
+              progress(`Starting instance ${resolvedId}`);
+              const port = launcher.currentPort;
+              const { result: opOutcome } = await withLauncherQueue(
+                () =>
+                  withLauncherRecovery(
+                    launcher,
+                    () => startInstanceWithRecovery(launcher, resolvedId as number, launcher.currentPort),
+                    { signal: merged },
+                  ),
+                { type: "start", accountId: resolvedId as number, launcherPort: port },
+              );
+
+              if (opOutcome.status === "timeout") {
+                const waitResult = await waitForConnectable(resolvedId as number, { signal: merged });
+                if (waitResult.verified && waitResult.cdpPort !== null) {
+                  return {
+                    text:
+                      `Instance started for account ${resolvedId} on CDP port ${waitResult.cdpPort}` +
+                      (waitResult.pid !== undefined ? ` — PID ${waitResult.pid}` : "") +
+                      " — verified (process inspection)",
+                    type: "text" as const,
+                  };
+                }
+                throw new Error("Instance started but failed to initialize within timeout.");
+              }
+
+              const verb = opOutcome.status === "already_running" ? "already running" : "started";
+              let text = `Instance ${verb} for account ${resolvedId} on CDP port ${opOutcome.port}`;
+              if (opOutcome.pid !== undefined) text += ` — PID ${opOutcome.pid}`;
+              if (opOutcome.verified === true) text += " — verified";
+              else if (opOutcome.verified === false) text += " — NOT verified — duplicate port suspected";
+              return { text, type: "text" as const };
+            } finally {
+              launcher.disconnect();
+              signal.removeEventListener("abort", forward);
+              mcpSignal?.removeEventListener("abort", forward);
+            }
+          },
+        );
+
+        if (outcome.status === "rejected") {
+          return mcpError(outcome.reason);
         }
+        if (outcome.status === "in_progress") {
+          return mcpSuccess(
+            JSON.stringify(
+              {
+                status: "in_progress",
+                operationId: outcome.operationId,
+                kind: outcome.kind,
+                startedAt: outcome.startedAt,
+                note: "start-instance is running in background. Poll get-operation for status.",
+              },
+              null,
+              2,
+            ),
+          );
+        }
+
+        // result is { text, type } from the work function
+        const res = outcome.result as { text: string; type: string };
+        return mcpSuccess(res.text);
       } catch (error) {
         return mcpCatchAll(error, "Failed to start instance");
       }

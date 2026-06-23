@@ -5,7 +5,7 @@ import { CDPClient, CDPConnectionError, findApp, resolveAppPort } from "../cdp/i
 import { DEFAULT_CDP_PORT } from "../constants.js";
 
 /** Default cap for launcher CDP recovery attempts in milliseconds. */
-export const DEFAULT_LAUNCHER_RECOVERY_TIMEOUT_MS = 30_000;
+export const DEFAULT_LAUNCHER_RECOVERY_TIMEOUT_MS = 60_000;
 import type {
   Account,
   InstanceIssue,
@@ -173,7 +173,7 @@ export class LauncherService {
    * @throws {LinkedHelperUnreachableError} if processes are found but remain
    *   unreachable within the timeout.
    */
-  async reconnect(options?: { timeoutMs?: number }): Promise<void> {
+  async reconnect(options?: { timeoutMs?: number; signal?: AbortSignal }): Promise<void> {
     this.disconnect();
 
     const timeoutMs =
@@ -182,7 +182,7 @@ export class LauncherService {
         ? Number(process.env["LHREMOTE_LAUNCHER_RECOVERY_TIMEOUT_MS"])
         : DEFAULT_LAUNCHER_RECOVERY_TIMEOUT_MS);
 
-    const newPort = await resolveAppPort("launcher", timeoutMs);
+    const newPort = await resolveAppPort("launcher", timeoutMs, options?.signal);
 
     const client = new CDPClient(newPort, { host: this.host, allowRemote: this.allowRemote });
     try {
@@ -758,6 +758,15 @@ export class LauncherService {
   /** Whether the service is currently connected to the launcher. */
   get isConnected(): boolean {
     return this.client !== null && this.client.isConnected;
+  }
+
+  /**
+   * The launcher CDP port most recently established by {@link connect} or
+   * {@link reconnect}.  Use this after {@link reconnect} to get the
+   * (potentially-changed) current port rather than the original discovery result.
+   */
+  get currentPort(): number {
+    return this.port;
   }
 
   private ensureConnected(): CDPClient {

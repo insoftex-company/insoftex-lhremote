@@ -69,6 +69,11 @@ export interface WaitForConnectableOptions {
    * `isCdpPort` probe is tried first before paying the full process-scan cost.
    */
   knownPort?: number;
+  /**
+   * Cancellation signal.  When fired, polling stops immediately and the
+   * function returns `{ cdpPort: null, pid: undefined, verified: false }`.
+   */
+  signal?: AbortSignal;
 }
 
 /** Result returned by {@link waitForConnectable}. */
@@ -191,8 +196,11 @@ export async function waitForConnectable(
   const timeoutMs = options?.timeoutMs ?? getConnectableTimeoutMs();
   const intervalMs = options?.intervalMs ?? getConnectableIntervalMs();
   const deadline = Date.now() + timeoutMs;
+  const signal = options?.signal;
 
   while (Date.now() < deadline) {
+    if (signal?.aborted) break;
+
     // Cheap path: probe the known port directly before paying for a full scan.
     if (options?.knownPort !== undefined) {
       if (await isCdpPort(options.knownPort)) {
@@ -222,6 +230,7 @@ export async function waitForConnectable(
       return { cdpPort: match.cdpPort, pid: match.pid, verified: true };
     }
 
+    if (signal?.aborted) break;
     await delay(intervalMs);
   }
 

@@ -1,6 +1,6 @@
 {
   "name": "@insoftex/lhremote-workspace",
-  "version": "0.22.0",
+  "version": "0.23.0",
   "private": true,
   "license": "AGPL-3.0-only",
   "type": "module",
@@ -12,8 +12,10 @@
     "build": "turbo run build",
     "test": "turbo run test",
     "test:e2e": "turbo run test:e2e --concurrency=1",
-    "lint": "turbo run lint",
+    "lint": "turbo run lint && pnpm docs:check-command-readmes",
     "license-check": "node scripts/check-licenses.js",
+    "docs:sync-command-readmes": "node scripts/update-command-readmes.mjs",
+    "docs:check-command-readmes": "node scripts/update-command-readmes.mjs --check",
     "dev": "turbo run dev"
   },
   "devDependencies": {
@@ -30,3 +32,4 @@
     "vitest": "catalog:"
   }
 }
+

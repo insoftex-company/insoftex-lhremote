@@ -508,11 +508,13 @@ describe("AppService", () => {
       });
       mockedSpawn.mockReturnValue(child);
 
-      await service.launch();
+      const launchPromise = service.launch();
+      await vi.advanceTimersByTimeAsync(2_100);
+      await launchPromise;
 
       const quitPromise = service.quit();
-      // Advance past the graceful timeout
-      await vi.advanceTimersByTimeAsync(11_000);
+      // Advance past the graceful timeout and flush the second wait cycle.
+      await vi.advanceTimersByTimeAsync(16_000);
       await quitPromise;
 
       expect(child.kill).toHaveBeenCalledWith("SIGTERM");

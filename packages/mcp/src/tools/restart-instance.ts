@@ -4,11 +4,11 @@
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 import {
-  LauncherService,
-  resolveLauncherPort,
+  acquireLauncherWithRecovery,
   restartInstance,
 } from "@insoftex/lhremote-core";
-import { buildCdpOptions, cdpConnectionSchema, mcpCatchAll, mcpSuccess } from "../helpers.js";
+import { buildCdpOptions, cdpConnectionSchema, mcpCatchAll, mcpError, mcpSuccess } from "../helpers.js";
+import { operationRegistry, runAsyncOp } from "../operation-registry.js";
 
 /** Register the restart-instance MCP tool. */
 export function registerRestartInstance(server: McpServer): void {
@@ -19,7 +19,9 @@ export function registerRestartInstance(server: McpServer): void {
       "and waits until it is connectable on a verified distinct port. " +
       "Idempotent: if the instance is already healthy, returns restarted:false " +
       "without touching it (unless force:true). " +
-      "Only the target account's process is affected — other instances keep running.",
+      "Only the target account's process is affected — other instances keep running. " +
+      "Returns immediately with { status:'in_progress', operationId } if the op takes >2 s. " +
+      "Poll get-operation for status. Cancel with cancel-operation.",
     {
       ...cdpConnectionSchema,
       force: z
@@ -29,38 +31,79 @@ export function registerRestartInstance(server: McpServer): void {
           "Restart even when the instance is already connectable and healthy. Default: false.",
         ),
     },
-    async ({ accountId, cdpPort, cdpHost, allowRemote, force }) => {
+    async ({ accountId, cdpPort, cdpHost, allowRemote, force }, extra) => {
       try {
         if (accountId === undefined) {
-          return {
-            content: [{ type: "text", text: "accountId is required for restart-instance" }],
-            isError: true,
-          };
+          return mcpError("accountId is required for restart-instance");
         }
 
-        const port = await resolveLauncherPort(cdpPort, cdpHost);
-        const launcher = new LauncherService(
-          port,
-          buildCdpOptions({ cdpHost, allowRemote }),
+        // Single-writer check.
+        const active = operationRegistry.getActiveWriteOp();
+        if (active) {
+          return mcpError(
+            `Operation ${active.operationId} (${active.kind}) is already running. ` +
+              `Cancel it with cancel-operation or poll get-operation for status.`,
+          );
+        }
+
+        // MCP-level cancellation signal (fires when client sends notifications/cancelled).
+        const mcpSignal = extra?.signal;
+
+        const outcome = await runAsyncOp(
+          operationRegistry,
+          "restart-instance",
+          async (signal, progress) => {
+            // Merge MCP signal + operation signal: abort on either.
+            const controller = new AbortController();
+            const merged = controller.signal;
+            const forward = () => controller.abort();
+            signal.addEventListener("abort", forward, { once: true });
+            if (mcpSignal) mcpSignal.addEventListener("abort", forward, { once: true });
+
+            progress("Acquiring launcher connection");
+            const { launcher } = await acquireLauncherWithRecovery(
+              cdpPort,
+              buildCdpOptions({ cdpHost, allowRemote }),
+              { signal: merged },
+            );
+
+            try {
+              progress(`Restarting instance ${accountId}`);
+              const result = await restartInstance(
+                launcher,
+                accountId,
+                launcher.currentPort,
+                { force: force ?? false, signal: merged },
+              );
+              return result;
+            } finally {
+              launcher.disconnect();
+              signal.removeEventListener("abort", forward);
+              mcpSignal?.removeEventListener("abort", forward);
+            }
+          },
         );
 
-        try {
-          await launcher.connect();
-        } catch (error) {
-          return mcpCatchAll(error, "Failed to connect to LinkedHelper");
+        if (outcome.status === "rejected") {
+          return mcpError(outcome.reason);
+        }
+        if (outcome.status === "in_progress") {
+          return mcpSuccess(
+            JSON.stringify(
+              {
+                status: "in_progress",
+                operationId: outcome.operationId,
+                kind: outcome.kind,
+                startedAt: outcome.startedAt,
+                note: "Restart is running in background. Poll get-operation for status. Cancel with cancel-operation.",
+              },
+              null,
+              2,
+            ),
+          );
         }
 
-        try {
-          const result = await restartInstance(launcher, accountId, port, {
-            force: force ?? false,
-          });
-
-          return mcpSuccess(JSON.stringify(result, null, 2));
-        } catch (error) {
-          return mcpCatchAll(error, "Failed to restart instance");
-        } finally {
-          launcher.disconnect();
-        }
+        return mcpSuccess(JSON.stringify(outcome.result, null, 2));
       } catch (error) {
         return mcpCatchAll(error, "Failed to restart instance");
       }

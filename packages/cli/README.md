@@ -51,17 +51,90 @@ lhremote check-replies --since 2025-01-01T00:00:00Z
 
 ## Commands
 
-| Category | Commands |
-|----------|----------|
-| App Management | `find-app`, `launch-app`, `quit-app` |
-| Account & Instance | `list-accounts`, `start-instance`, `stop-instance`, `check-status` |
-| Campaigns | `campaign-list`, `campaign-create`, `campaign-get`, `campaign-export`, `campaign-update`, `campaign-delete`, `campaign-start`, `campaign-stop` |
-| Campaign Status | `campaign-status`, `campaign-statistics`, `campaign-retry` |
-| Campaign Actions | `campaign-add-action`, `campaign-remove-action`, `campaign-update-action`, `campaign-reorder-actions`, `campaign-move-next` |
-| Campaign Targeting | `campaign-exclude-list`, `campaign-exclude-add`, `campaign-exclude-remove`, `campaign-list-people`, `campaign-remove-people`, `import-people-from-urls`, `collect-people` |
-| Collections | `list-collections`, `create-collection`, `delete-collection`, `add-people-to-collection`, `remove-people-from-collection`, `import-people-from-collection` |
-| Profiles & Messaging | `query-profile`, `query-profiles`, `query-profiles-bulk`, `query-messages`, `check-replies`, `scrape-messaging-history` |
-| Utilities | `describe-actions`, `get-errors` |
+<!-- GENERATED:CLI_COMMANDS_START -->
+The table below is generated from [`packages/cli/src/program.ts`](src/program.ts).
+
+| Command |
+|---|
+| `find-app` |
+| `launch-app` |
+| `quit-app` |
+| `list-accounts` |
+| `list-workspaces` |
+| `start-instance` |
+| `stop-instance` |
+| `restart-instance` |
+| `ensure-instances` |
+| `list-orphans` |
+| `reap-orphans` |
+| `campaign-list` |
+| `campaign-list-people` |
+| `campaign-create` |
+| `campaign-get` |
+| `campaign-delete` |
+| `campaign-erase` |
+| `campaign-exclude-list` |
+| `campaign-exclude-add` |
+| `campaign-exclude-remove` |
+| `campaign-export` |
+| `campaign-status` |
+| `campaign-statistics` |
+| `campaign-move-next` |
+| `campaign-retry` |
+| `campaign-start` |
+| `campaign-stop` |
+| `campaign-update` |
+| `campaign-add-action` |
+| `campaign-remove-action` |
+| `campaign-update-action` |
+| `campaign-reorder-actions` |
+| `import-people-from-urls` |
+| `collect-people` |
+| `campaign-remove-people` |
+| `list-collections` |
+| `create-collection` |
+| `delete-collection` |
+| `add-people-to-collection` |
+| `remove-people-from-collection` |
+| `import-people-from-collection` |
+| `describe-actions` |
+| `query-messages` |
+| `query-profile` |
+| `query-profiles` |
+| `query-profiles-bulk` |
+| `scrape-messaging-history` |
+| `visit-profile` |
+| `check-replies` |
+| `check-status` |
+| `get-errors` |
+| `dismiss-errors` |
+| `get-action-budget` |
+| `get-throttle-status` |
+| `comment-on-post` |
+| `get-post` |
+| `get-post-stats` |
+| `get-feed` |
+| `dismiss-feed-post` |
+| `react-to-post` |
+| `react-to-comment` |
+| `unfollow-from-feed` |
+| `hide-feed-author` |
+| `hide-feed-author-profile` |
+| `unfollow-profile` |
+| `get-profile-activity` |
+| `build-url` |
+| `resolve-entity` |
+| `list-reference-data` |
+| `search-posts` |
+| `message-person` |
+| `send-invite` |
+| `send-inmail` |
+| `follow-person` |
+| `endorse-skills` |
+| `like-person-posts` |
+| `remove-connection` |
+| `enrich-profile` |
+<!-- GENERATED:CLI_COMMANDS_END -->
 
 See the [root README](https://github.com/insoftex-company/insoftex-lhremote#cli-usage) for full command-line usage.
 

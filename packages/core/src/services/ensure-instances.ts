@@ -84,7 +84,9 @@ export async function ensureInstances(
         () =>
           withLauncherRecovery(
             launcher,
-            () => startInstanceWithRecovery(launcher, accountId, launcherPort),
+            // Use launcher.currentPort (live value) so post-recovery re-runs
+            // use the new port, not the snapshot captured at ensureInstances call time.
+            () => startInstanceWithRecovery(launcher, accountId, launcher.currentPort),
           ).then((r) => r.result),
         { type: "start", accountId, launcherPort },
       );
@@ -98,7 +100,13 @@ export async function ensureInstances(
     }
 
     if (outcome.status === "timeout") {
+      // Launcher port may have hopped after the start command was issued,
+      // causing discoverInstancePort to miss the new instance.  Queue for
+      // Phase 2 — waitForConnectable uses process inspection and will
+      // confirm the instance if it is actually running.
+      const resultIdx = results.length;
       results.push({ accountId, status: "timeout" });
+      pendingVerification.push({ accountId, knownPort: undefined, resultIdx });
       continue;
     }
 
@@ -142,9 +150,14 @@ export async function ensureInstances(
         entry.verified = waitResult.verified;
         if (waitResult.cdpPort !== null) entry.cdpPort = waitResult.cdpPort;
         if (waitResult.pid !== undefined) entry.pid = waitResult.pid;
+        if (waitResult.verified && entry.status === "timeout") {
+          // Process inspection confirmed the instance came up despite the
+          // launcher port hop — promote to started.
+          entry.status = "started";
+        }
         // If waitForConnectable timed out with no result, the account truly
         // failed to appear (e.g. unlicensed) — mark as failed.
-        if (!waitResult.verified && entry.status === "started") {
+        if (!waitResult.verified && (entry.status === "started" || entry.status === "timeout")) {
           entry.status = "failed";
           entry.error =
             "Instance process never became connectable within the timeout. " +

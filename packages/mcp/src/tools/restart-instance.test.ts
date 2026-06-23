@@ -11,14 +11,31 @@ vi.mock("@insoftex/lhremote-core", async (importOriginal) => {
   const actual = await importOriginal<typeof import("@insoftex/lhremote-core")>();
   return {
     ...actual,
-    LauncherService: vi.fn(),
+    acquireLauncherWithRecovery: vi.fn(),
     restartInstance: vi.fn(),
   };
 });
 
+vi.mock("../operation-registry.js", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../operation-registry.js")>();
+  return {
+    ...actual,
+    operationRegistry: new actual.OperationRegistry(),
+    runAsyncOp: async (
+      _registry: unknown,
+      _kind: unknown,
+      work: (signal: AbortSignal, progress: (msg: string) => void) => Promise<unknown>,
+    ) => {
+      const ac = new AbortController();
+      const result = await work(ac.signal, () => undefined);
+      return { status: "completed", result };
+    },
+  };
+});
+
 import {
-  LauncherService,
   LinkedHelperNotRunningError,
+  acquireLauncherWithRecovery,
   restartInstance,
 } from "@insoftex/lhremote-core";
 import type { RestartInstanceResult } from "@insoftex/lhremote-core";
@@ -30,16 +47,13 @@ import { createMockServer } from "./testing/mock-server.js";
 // Helpers
 // ---------------------------------------------------------------------------
 
-function mockLauncher(overrides: Record<string, unknown> = {}) {
+function mockLauncherConnection(port = 9222) {
   const disconnect = vi.fn();
-  vi.mocked(LauncherService).mockImplementation(function () {
-    return {
-      connect: vi.fn().mockResolvedValue(undefined),
-      disconnect,
-      ...overrides,
-    } as unknown as LauncherService;
-  });
-  return { disconnect };
+  const mockLauncher = { disconnect, currentPort: port };
+  vi.mocked(acquireLauncherWithRecovery).mockResolvedValue(
+    { launcher: mockLauncher } as unknown as Awaited<ReturnType<typeof acquireLauncherWithRecovery>>,
+  );
+  return { disconnect, mockLauncher };
 }
 
 function makeResult(overrides: Partial<RestartInstanceResult> = {}): RestartInstanceResult {
@@ -85,8 +99,6 @@ describe("registerRestartInstance", () => {
     const { server, getHandler } = createMockServer();
     registerRestartInstance(server);
 
-    mockLauncher();
-
     const handler = getHandler("restart-instance");
     const result = await handler({ cdpPort: 9222 });
 
@@ -101,7 +113,7 @@ describe("registerRestartInstance", () => {
     const { server, getHandler } = createMockServer();
     registerRestartInstance(server);
 
-    mockLauncher();
+    mockLauncherConnection();
     const outcome = makeResult();
     vi.mocked(restartInstance).mockResolvedValue(outcome);
 
@@ -121,7 +133,7 @@ describe("registerRestartInstance", () => {
     const { server, getHandler } = createMockServer();
     registerRestartInstance(server);
 
-    mockLauncher();
+    mockLauncherConnection();
     vi.mocked(restartInstance).mockResolvedValue(makeResult({ restarted: false }));
 
     const handler = getHandler("restart-instance");
@@ -137,7 +149,7 @@ describe("registerRestartInstance", () => {
     const { server, getHandler } = createMockServer();
     registerRestartInstance(server);
 
-    mockLauncher();
+    mockLauncherConnection();
     vi.mocked(restartInstance).mockResolvedValue(makeResult());
 
     const handler = getHandler("restart-instance");
@@ -155,7 +167,7 @@ describe("registerRestartInstance", () => {
     const { server, getHandler } = createMockServer();
     registerRestartInstance(server);
 
-    mockLauncher();
+    mockLauncherConnection();
     vi.mocked(restartInstance).mockResolvedValue(makeResult());
 
     const handler = getHandler("restart-instance");
@@ -173,12 +185,9 @@ describe("registerRestartInstance", () => {
     const { server, getHandler } = createMockServer();
     registerRestartInstance(server);
 
-    vi.mocked(LauncherService).mockImplementation(function () {
-      return {
-        connect: vi.fn().mockRejectedValue(new LinkedHelperNotRunningError(9222)),
-        disconnect: vi.fn(),
-      } as unknown as LauncherService;
-    });
+    vi.mocked(acquireLauncherWithRecovery).mockRejectedValue(
+      new LinkedHelperNotRunningError(9222),
+    );
 
     const handler = getHandler("restart-instance");
     const result = await handler({ accountId: 42, cdpPort: 9222 });
@@ -190,7 +199,7 @@ describe("registerRestartInstance", () => {
     const { server, getHandler } = createMockServer();
     registerRestartInstance(server);
 
-    mockLauncher();
+    mockLauncherConnection();
     vi.mocked(restartInstance).mockRejectedValue(new Error("restart failed"));
 
     const handler = getHandler("restart-instance");
@@ -207,7 +216,7 @@ describe("registerRestartInstance", () => {
     const { server, getHandler } = createMockServer();
     registerRestartInstance(server);
 
-    const { disconnect } = mockLauncher();
+    const { disconnect } = mockLauncherConnection();
     vi.mocked(restartInstance).mockResolvedValue(makeResult());
 
     const handler = getHandler("restart-instance");
@@ -220,7 +229,7 @@ describe("registerRestartInstance", () => {
     const { server, getHandler } = createMockServer();
     registerRestartInstance(server);
 
-    const { disconnect } = mockLauncher();
+    const { disconnect } = mockLauncherConnection();
     vi.mocked(restartInstance).mockRejectedValue(new Error("boom"));
 
     const handler = getHandler("restart-instance");

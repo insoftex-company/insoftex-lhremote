@@ -193,6 +193,24 @@ describe("gatherRawProcesses — Windows (Win32_Process via PowerShell)", () => 
     expect(result[0]?.cmdline).toBeNull();
   });
 
+  it("preserves emoji/multi-byte characters in CommandLine (UTF-8 round-trip)", async () => {
+    const emojiName = "🇺🇦 Mike Florko";
+    const cmdline = `C:\\lh\\resources\\out\\linked-helper.exe --app-id=329925 --user-li={"fullName":"${emojiName}"}`;
+
+    mockedPsList.mockResolvedValue([
+      { pid: 13640, ppid: 1, name: "linked-helper.exe" },
+    ] as Awaited<ReturnType<typeof psList>>);
+
+    stubPowerShell(JSON.stringify([{ ProcessId: 13640, CommandLine: cmdline }]));
+
+    const [proc] = await gatherRawProcesses();
+
+    expect(proc?.cmdline).toBe(cmdline);
+    expect(proc?.cmdline).toContain(emojiName);
+    expect(proc?.cmdline).not.toContain("????");
+    expect(proc?.cmdline).not.toMatch(/\?{2,}/);
+  });
+
   it("merges cmdlines for multiple concurrent instances", async () => {
     mockedPsList.mockResolvedValue([
       { pid: 13004, ppid: 1, name: "linked-helper.exe" },

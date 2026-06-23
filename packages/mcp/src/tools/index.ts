@@ -85,6 +85,9 @@ import { registerSearchPosts } from "./search-posts.js";
 import { registerUnfollowFromFeed } from "./unfollow-from-feed.js";
 import { registerUnfollowProfile } from "./unfollow-profile.js";
 import { registerVisitProfile } from "./visit-profile.js";
+import { registerGetOperation } from "./get-operation.js";
+import { registerCancelOperation } from "./cancel-operation.js";
+import { registerListOperations } from "./list-operations.js";
 
 export {
   registerEnsureInstances,
@@ -169,6 +172,9 @@ export {
   registerUnfollowFromFeed,
   registerUnfollowProfile,
   registerVisitProfile,
+  registerGetOperation,
+  registerCancelOperation,
+  registerListOperations,
 };
 
 export function registerAllTools(server: McpServer): void {
@@ -254,4 +260,7 @@ export function registerAllTools(server: McpServer): void {
   registerSendInvite(server);
   registerUnfollowFromFeed(server);
   registerUnfollowProfile(server);
+  registerGetOperation(server);
+  registerCancelOperation(server);
+  registerListOperations(server);
 }

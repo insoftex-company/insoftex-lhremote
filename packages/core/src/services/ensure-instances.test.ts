@@ -113,13 +113,39 @@ describe("ensureInstances", () => {
     });
   });
 
-  it("reports timeout when startInstanceWithRecovery returns timeout", async () => {
+  it("reports failed when Phase 1 times out AND process inspection finds nothing", async () => {
+    // With the F4a fix, a Phase 1 timeout is routed to Phase 2 (waitForConnectable).
+    // When Phase 2 also returns verified:false, the status resolves to "failed".
     vi.mocked(scanRunningInstances).mockResolvedValue([]);
     vi.mocked(startInstanceWithRecovery).mockResolvedValue({ status: "timeout" });
+    // waitForConnectable is already mocked in beforeEach to return verified:false.
 
     const results = await ensureInstances([1], mockLauncher, 9222);
 
-    expect(results[0]).toMatchObject({ accountId: 1, status: "timeout" });
+    expect(results[0]).toMatchObject({ accountId: 1, status: "failed" });
+    expect(results[0]?.error).toContain("license");
+  });
+
+  it("reports started via process inspection when Phase 1 times out but Phase 2 finds instance (launcher port-hop)", async () => {
+    // F4a key scenario: launcher port-hopped during start so discoverInstancePort
+    // returned null → Phase 1 timeout. But the instance IS running; Phase 2
+    // waitForConnectable (process inspection) confirms it → status promoted to started.
+    vi.mocked(scanRunningInstances).mockResolvedValue([]);
+    vi.mocked(startInstanceWithRecovery).mockResolvedValue({ status: "timeout" });
+    vi.mocked(waitForConnectable).mockResolvedValue({
+      cdpPort: 55001,
+      pid: 100,
+      verified: true,
+    });
+
+    const results = await ensureInstances([1], mockLauncher, 9222);
+
+    expect(results[0]).toMatchObject({
+      accountId: 1,
+      status: "started",
+      verified: true,
+      cdpPort: 55001,
+    });
   });
 
   it("reports failed when startInstanceWithRecovery throws", async () => {

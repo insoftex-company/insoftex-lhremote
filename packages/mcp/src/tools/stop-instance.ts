@@ -4,75 +4,116 @@
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import {
   type Account,
-  LauncherService,
-  resolveLauncherPort,
+  acquireLauncherWithRecovery,
   waitForInstanceShutdown,
   withLauncherQueue,
   withLauncherRecovery,
 } from "@insoftex/lhremote-core";
 import { buildCdpOptions, cdpConnectionSchema, mcpCatchAll, mcpError, mcpSuccess } from "../helpers.js";
+import { operationRegistry, runAsyncOp } from "../operation-registry.js";
 
 /** Register the {@link https://github.com/insoftex-company/insoftex-lhremote#stop-instance | stop-instance} MCP tool. */
 export function registerStopInstance(server: McpServer): void {
   server.tool(
     "stop-instance",
-    "Stop a running LinkedHelper instance",
+    "Stop a running LinkedHelper instance. " +
+      "Returns immediately with { status:'in_progress', operationId } if the op takes >2 s. " +
+      "Poll get-operation for status. Cancel with cancel-operation.",
     {
       ...cdpConnectionSchema,
     },
-    async ({ accountId, cdpPort, cdpHost, allowRemote }) => {
+    async ({ accountId, cdpPort, cdpHost, allowRemote }, extra) => {
       try {
-        const port = await resolveLauncherPort(cdpPort, cdpHost);
-        const launcher = new LauncherService(port, buildCdpOptions({ cdpHost, allowRemote }));
-
-        try {
-          await launcher.connect();
-        } catch (error) {
-          return mcpCatchAll(error, "Failed to connect to LinkedHelper");
+        // Single-writer check.
+        const active = operationRegistry.getActiveWriteOp();
+        if (active) {
+          return mcpError(
+            `Operation ${active.operationId} (${active.kind}) is already running. ` +
+              `Cancel it with cancel-operation or poll get-operation for status.`,
+          );
         }
 
-        try {
-          // Phase 1: resolve account ID (auto-select when not provided).
-          let resolvedId = accountId;
+        const mcpSignal = extra?.signal;
 
-          if (resolvedId === undefined) {
-            const { result: accounts } = await withLauncherRecovery(
-              launcher,
-              () => launcher.listAccounts(),
+        const outcome = await runAsyncOp(
+          operationRegistry,
+          "stop-instance",
+          async (signal, progress) => {
+            const controller = new AbortController();
+            const merged = controller.signal;
+            const forward = () => controller.abort();
+            signal.addEventListener("abort", forward, { once: true });
+            if (mcpSignal) mcpSignal.addEventListener("abort", forward, { once: true });
+
+            progress("Acquiring launcher connection");
+            const { launcher } = await acquireLauncherWithRecovery(
+              cdpPort,
+              buildCdpOptions({ cdpHost, allowRemote }),
+              { signal: merged },
             );
 
-            if (accounts.length === 0) {
-              return mcpError("No accounts found.");
-            }
-            if (accounts.length > 1) {
-              return mcpError(
-                "Multiple accounts found. Specify accountId. Use list-accounts to see available accounts.",
+            try {
+              let resolvedId = accountId;
+
+              if (resolvedId === undefined) {
+                const { result: accounts } = await withLauncherRecovery(
+                  launcher,
+                  () => launcher.listAccounts(),
+                  { signal: merged },
+                );
+                if (accounts.length === 0) throw new Error("No accounts found.");
+                if (accounts.length > 1) {
+                  throw new Error(
+                    "Multiple accounts found. Specify accountId. Use list-accounts to see available accounts.",
+                  );
+                }
+                resolvedId = (accounts[0] as Account).id;
+              }
+
+              progress(`Stopping instance ${resolvedId}`);
+              const port = launcher.currentPort;
+              await withLauncherQueue(
+                () =>
+                  withLauncherRecovery(
+                    launcher,
+                    async () => {
+                      await launcher.stopInstance(resolvedId as number);
+                      await waitForInstanceShutdown(port);
+                    },
+                    { signal: merged },
+                  ),
+                { type: "stop", launcherPort: port },
               );
+
+              return `Instance stopped for account ${resolvedId}`;
+            } finally {
+              launcher.disconnect();
+              signal.removeEventListener("abort", forward);
+              mcpSignal?.removeEventListener("abort", forward);
             }
-            resolvedId = (accounts[0] as Account).id;
-          }
+          },
+        );
 
-          // Phase 2: stop through the launcher queue (T1/T5).
-          // Settle barrier waits for the launcher to recover after the stop.
-          await withLauncherQueue(
-            () =>
-              withLauncherRecovery(
-                launcher,
-                async () => {
-                  await launcher.stopInstance(resolvedId as number);
-                  // Confirm the instance port has actually disappeared (T5).
-                  await waitForInstanceShutdown(port);
-                },
-              ),
-            { type: "stop", launcherPort: port },
-          );
-
-          return mcpSuccess(`Instance stopped for account ${resolvedId}`);
-        } catch (error) {
-          return mcpCatchAll(error, "Failed to stop instance");
-        } finally {
-          launcher.disconnect();
+        if (outcome.status === "rejected") {
+          return mcpError(outcome.reason);
         }
+        if (outcome.status === "in_progress") {
+          return mcpSuccess(
+            JSON.stringify(
+              {
+                status: "in_progress",
+                operationId: outcome.operationId,
+                kind: outcome.kind,
+                startedAt: outcome.startedAt,
+                note: "stop-instance is running in background. Poll get-operation for status.",
+              },
+              null,
+              2,
+            ),
+          );
+        }
+
+        return mcpSuccess(outcome.result as string);
       } catch (error) {
         return mcpCatchAll(error, "Failed to stop instance");
       }

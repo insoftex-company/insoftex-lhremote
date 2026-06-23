@@ -144,6 +144,8 @@ export {
   InvalidProfileUrlError,
   DEFAULT_LAUNCHER_RECOVERY_TIMEOUT_MS,
   LauncherService,
+  acquireLauncherWithRecovery,
+  type AcquireLauncherResult,
   type LauncherRecoveryOptions,
   type LauncherRecoveryResult,
   withLauncherRecovery,

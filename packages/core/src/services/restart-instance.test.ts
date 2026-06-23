@@ -111,7 +111,7 @@ describe("restartInstance", () => {
 
     expect(result.restarted).toBe(true);
     expect(vi.mocked(mockLauncher.stopInstance)).toHaveBeenCalledWith(42);
-    expect(vi.mocked(waitForPidExit)).toHaveBeenCalledWith(100);
+    expect(vi.mocked(waitForPidExit)).toHaveBeenCalledWith(100, undefined, undefined);
   });
 
   it("happy path: stop→exit→start→connectable", async () => {
@@ -138,20 +138,118 @@ describe("restartInstance", () => {
     expect(result.newPid).toBe(200);
     expect(result.cdpPort).toBe(55002);
     expect(result.verified).toBe(true);
-    expect(vi.mocked(waitForPidExit)).toHaveBeenCalledWith(100);
+    expect(vi.mocked(waitForPidExit)).toHaveBeenCalledWith(100, undefined, undefined);
   });
 
-  it("returns verified:false when start times out", async () => {
+  it("returns verified:false when start times out AND process inspection finds nothing", async () => {
     vi.mocked(scanRunningInstances).mockResolvedValue([
       makeInstance({ accountId: 42, connectable: false, pid: 100 }),
     ]);
     vi.mocked(startInstanceWithRecovery).mockResolvedValue({ status: "timeout" });
+    // Process inspection also finds nothing — genuinely failed.
+    vi.mocked(waitForConnectable).mockResolvedValue({
+      cdpPort: null,
+      pid: undefined,
+      verified: false,
+    });
 
     const result = await restartInstance(mockLauncher, 42, 9222);
 
     expect(result.restarted).toBe(true);
     expect(result.verified).toBe(false);
     expect(result.cdpPort).toBeNull();
+  });
+
+  // F1 key scenario: startInstanceWithRecovery returns "timeout" because the
+  // launcher port-hopped, but waitForConnectable (process inspection) finds
+  // the new instance → must return verified:true without the launcher CDP.
+  it("returns verified:true via process inspection when startInstanceWithRecovery times out (launcher port-hop)", async () => {
+    vi.mocked(scanRunningInstances).mockResolvedValue([
+      makeInstance({ accountId: 42, connectable: false, pid: 100, cdpPort: 55001 }),
+    ]);
+    vi.mocked(startInstanceWithRecovery).mockResolvedValue({ status: "timeout" });
+    // Process inspection finds the new instance on a distinct port.
+    vi.mocked(waitForConnectable).mockResolvedValue({
+      cdpPort: 55002,
+      pid: 200,
+      verified: true,
+    });
+
+    const result = await restartInstance(mockLauncher, 42, 9222);
+
+    expect(result.restarted).toBe(true);
+    // THE CRITICAL ASSERTION: verified:true even though launcher timed out.
+    expect(result.verified).toBe(true);
+    expect(result.newPid).toBe(200);
+    expect(result.cdpPort).toBe(55002);
+    expect(result.note).toBeUndefined(); // no note because startCommandIssued=true
+    expect(waitForConnectable).toHaveBeenCalled();
+  });
+
+  // F1: launcher drops so hard that withLauncherRecovery throws (cap exceeded)
+  // — process inspection still confirms the new instance → verified:true.
+  it("returns verified:true via process inspection when withLauncherRecovery throws after cap", async () => {
+    vi.mocked(scanRunningInstances).mockResolvedValue([
+      makeInstance({ accountId: 42, connectable: false, pid: 100 }),
+    ]);
+
+    // Stop call passes; start call throws (simulates cap exceeded).
+    let callCount = 0;
+    const { withLauncherRecovery } = await import("./launcher-recovery.js");
+    vi.mocked(withLauncherRecovery).mockImplementation(async (_launcher, op) => {
+      callCount++;
+      if (callCount === 2) {
+        // Second call is for the start — launcher cap exceeded.
+        throw new Error("LinkedHelperUnreachableError: cap exceeded");
+      }
+      return { result: await (op as () => Promise<unknown>)(), launcherRecovered: false };
+    });
+
+    // Process inspection confirms the instance came up despite the throw.
+    vi.mocked(waitForConnectable).mockResolvedValue({
+      cdpPort: 55002,
+      pid: 200,
+      verified: true,
+    });
+
+    const result = await restartInstance(mockLauncher, 42, 9222);
+
+    expect(result.restarted).toBe(true);
+    expect(result.verified).toBe(true);
+    expect(result.newPid).toBe(200);
+    // launcherRecovered is true because the catch block set it.
+    expect(result.launcherRecovered).toBe(true);
+  });
+
+  // F1: launcher throws AND process inspection finds nothing — structured
+  // result with note, never raw legacy error string.
+  it("returns verified:false with note when start throws and process inspection finds nothing", async () => {
+    vi.mocked(scanRunningInstances).mockResolvedValue([]);
+
+    let callCount = 0;
+    const { withLauncherRecovery } = await import("./launcher-recovery.js");
+    vi.mocked(withLauncherRecovery).mockImplementation(async (_launcher, op) => {
+      callCount++;
+      if (callCount === 2) {
+        throw new Error("LinkedHelperUnreachableError: cap exceeded");
+      }
+      return { result: await (op as () => Promise<unknown>)(), launcherRecovered: false };
+    });
+
+    vi.mocked(waitForConnectable).mockResolvedValue({
+      cdpPort: null,
+      pid: undefined,
+      verified: false,
+    });
+
+    const result = await restartInstance(mockLauncher, 42, 9222);
+
+    expect(result.restarted).toBe(true);
+    expect(result.verified).toBe(false);
+    expect(result.cdpPort).toBeNull();
+    // Must include a human-readable note — never a raw legacy error string.
+    expect(typeof result.note).toBe("string");
+    expect(result.note).toContain("launcher CDP dropped");
   });
 
   it("does not stop other accounts' instances", async () => {
