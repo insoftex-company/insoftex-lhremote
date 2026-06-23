@@ -4,6 +4,50 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+## [0.23.2] — 2026-06-23
+
+### Fixed
+
+- **Launcher-CDP contention eliminated** — All launcher CDP sessions now pass through a single
+  in-process async gate (`withLauncherCDPGate`) so that at most one session is open at any
+  moment.  `list-accounts`, `start-instance`, `stop-instance`, `ensure-instances`, and the
+  stop/start phases of `restart-instance` each acquire the gate before connecting and release it
+  immediately after disconnecting.  Concurrent in-process tools no longer collide at the CDP level.
+
+- **Restart hold window shrunk from minutes to seconds (F2)** — `restart-instance` previously
+  held the launcher CDP connection for the entire operation (~2 m 15 s), blocking all other
+  launcher-dependent tools.  The connection is now opened only for the individual stop RPC and
+  start RPC, and released immediately after each.  The PID-exit wait and connectable-poll run
+  with no launcher connection held.  A clean uncontended restart now completes in well under 15 s.
+
+- **Contention-resilient acquisition (F3)** — `LauncherService.reconnect()` previously passed
+  the full remaining budget as the per-iteration `resolveAppPort` timeout, allowing one stalled
+  port scan to consume the entire 60 s budget.  Each iteration now caps the resolve timeout at
+  5 s so the retry loop remains responsive across up to 12 attempts within the budget.  Under
+  external-client contention (e.g. a concurrent CLI session), `restart-instance` backs off and
+  retries rather than hard-failing.
+
+- **Reconnect loop now retries when launcher port is temporarily absent** — When the launcher
+  briefly drops its CDP port after processing a write op (stop/start), `resolveAppPort` inside
+  `LauncherService.reconnect()` threw `LinkedHelperUnreachableError`, which propagated
+  immediately out of the retry loop — burning only one 5 s scan instead of the full 60 s budget.
+  The loop now catches `LinkedHelperUnreachableError` from `resolveAppPort`, pauses 500 ms,
+  and retries within the remaining budget.  `LinkedHelperNotRunningError` (launcher process gone)
+  still propagates immediately.  Only the F3 cap-related fix was shipped in 0.23.2 initially;
+  this completes the intent of that fix.
+
+- **Integration test suites skip gracefully when Playwright Chromium is absent** — The four
+  CDP/DOM integration test suites previously threw at the suite level when the Chromium binary was
+  not installed, causing `pnpm test` to exit non-zero.  They now use `describe.skipIf` so the
+  suite is skipped rather than failed.  CI still installs Chromium via `playwright install`, so
+  integration coverage is unaffected there.
+
+- **Granular restart progress (F4)** — `restart-instance` now emits a progress message at every
+  sub-step: `scanning-instances` → `acquiring-launcher (stop)` → `stopping <accountId>` →
+  `waiting-for-exit` → `acquiring-launcher (start)` → `starting` → `waiting-for-connectable`
+  → `verifying` → `verified` (or `verified=false`).  A ~2 min gap between progress messages
+  is no longer possible.
+
 ## [0.23.1] — 2026-06-23
 
 ### Fixed

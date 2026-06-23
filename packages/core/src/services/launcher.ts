@@ -193,11 +193,28 @@ export class LauncherService {
     //   (a) Port-hop: launcher moved to a new port between resolve and connect;
     //       the next resolveAppPort call discovers the new port.
     //   (b) Target momentarily taken by an external debugger session.
+    //   (c) Launcher briefly drops its CDP port after processing a write op
+    //       (e.g. stop/start); resolveAppPort returns LinkedHelperUnreachableError
+    //       during this window — caught below and retried within budget.
     while (Date.now() < deadline) {
       const remaining = deadline - Date.now();
       if (remaining <= 0) break;
 
-      const newPort = await resolveAppPort("launcher", remaining, options?.signal);
+      // Cap port-resolve time per iteration so a single stalled scan cannot
+      // consume the entire budget (e.g. during a launcher port-hop).
+      const resolveTimeout = Math.min(remaining, 5_000);
+      let newPort: number;
+      try {
+        newPort = await resolveAppPort("launcher", resolveTimeout, options?.signal);
+      } catch (err) {
+        if (err instanceof LinkedHelperUnreachableError) {
+          // Port temporarily absent — launcher is reconciling after a write op.
+          // Pause briefly and retry within the remaining budget.
+          await delay(500);
+          continue;
+        }
+        throw err; // LinkedHelperNotRunningError or unexpected — propagate immediately
+      }
 
       const client = new CDPClient(newPort, { host: this.host, allowRemote: this.allowRemote });
       try {

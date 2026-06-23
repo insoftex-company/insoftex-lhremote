@@ -3,10 +3,7 @@
 
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
-import {
-  acquireLauncherWithRecovery,
-  restartInstance,
-} from "@insoftex/lhremote-core";
+import { restartInstance } from "@insoftex/lhremote-core";
 import { buildCdpOptions, cdpConnectionSchema, mcpCatchAll, mcpError, mcpSuccess, wrapProgress } from "../helpers.js";
 import { operationRegistry, runAsyncOp } from "../operation-registry.js";
 
@@ -52,25 +49,16 @@ export function registerRestartInstance(server: McpServer): void {
           async (signal, registryProgress) => {
             const progress = wrapProgress(registryProgress, extra);
 
-            progress("Acquiring launcher connection");
-            const { launcher } = await acquireLauncherWithRecovery(
+            return await restartInstance(
               cdpPort,
               buildCdpOptions({ cdpHost, allowRemote }),
-              { signal },
+              accountId,
+              {
+                force: force ?? false,
+                signal,
+                progress,
+              },
             );
-
-            try {
-              progress(`Restarting instance ${accountId}`);
-              const result = await restartInstance(
-                launcher,
-                accountId,
-                launcher.currentPort,
-                { force: force ?? false, signal },
-              );
-              return result;
-            } finally {
-              launcher.disconnect();
-            }
           },
           extra?.signal !== undefined ? { signal: extra.signal } : undefined,
         );

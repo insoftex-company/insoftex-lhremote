@@ -10,6 +10,13 @@ import { chromium } from "playwright-core";
 import { discoverTargets } from "../discovery.js";
 import { delay } from "../../utils/delay.js";
 
+/**
+ * Whether the Playwright Chromium binary is present on this machine.
+ * Integration test suites use this to call `describe.skipIf(!isChromiumAvailable)`
+ * so that `pnpm test` exits 0 on machines where Chromium is not installed.
+ */
+export const isChromiumAvailable: boolean = existsSync(chromium.executablePath());
+
 /** Result of launching a test Chromium instance. */
 export interface ChromiumInstance {
   /** CDP debugging port. */
@@ -68,6 +75,7 @@ export async function launchChromium(options?: {
       `Playwright Chromium executable was not found at ${executablePath}. Run pnpm exec playwright install chromium before CDP integration tests.`,
     );
   }
+
 
   const child = spawn(
     executablePath,

@@ -55,3 +55,4 @@ export {
   type SettleType,
   type LauncherQueueSettleOptions,
 } from "./launcher-queue.js";
+export { withLauncherCDPGate } from "./launcher-cdp-gate.js";

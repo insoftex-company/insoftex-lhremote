@@ -141,20 +141,43 @@ describe("LauncherService.reconnect", () => {
     expect(launcher.isConnected).toBe(false);
   });
 
-  it("throws LinkedHelperUnreachableError (structured) when cap is exceeded", async () => {
-    const structuredErr = new LinkedHelperUnreachableError([
-      { pid: 1234, cdpPort: null, connectable: false, role: "launcher" },
-    ]);
-    mockResolveAppPort.mockRejectedValue(structuredErr);
+  it("throws LinkedHelperUnreachableError when budget exhausted after repeated port-absent retries", async () => {
+    // resolveAppPort always reports port temporarily absent.
+    mockResolveAppPort.mockRejectedValue(
+      new LinkedHelperUnreachableError([
+        { pid: 1234, cdpPort: null, connectable: false, role: "launcher" },
+      ]),
+    );
+    // findApp returns apps so the end-of-budget path throws LinkedHelperUnreachableError.
+    mockFindApp.mockResolvedValue([{ pid: 1234, cdpPort: null, connectable: false, role: "launcher" }]);
 
     const launcher = new LauncherService(9222);
-    const err = await launcher.reconnect().catch((e: unknown) => e);
+    // Short budget so the test completes quickly instead of waiting 60 s.
+    const err = await launcher.reconnect({ timeoutMs: 100 }).catch((e: unknown) => e);
 
     // Must be a ServiceError subclass, not a raw Error.
     expect(err).toBeInstanceOf(LinkedHelperUnreachableError);
     expect((err as LinkedHelperUnreachableError).name).toBe(
       "LinkedHelperUnreachableError",
     );
+  });
+
+  it("retries when resolveAppPort temporarily throws LinkedHelperUnreachableError then succeeds", async () => {
+    // First call: port absent (launcher mid-reconciliation); second call: port found.
+    mockResolveAppPort
+      .mockRejectedValueOnce(
+        new LinkedHelperUnreachableError([
+          { pid: 1234, cdpPort: null, connectable: false, role: "launcher" },
+        ]),
+      )
+      .mockResolvedValueOnce(50200);
+    makeMockCDPClient({ isLauncher: true });
+
+    const launcher = new LauncherService(9222);
+    await launcher.reconnect();
+
+    expect(mockResolveAppPort).toHaveBeenCalledTimes(2);
+    expect(launcher.isConnected).toBe(true);
   });
 
   it("throws WrongPortError when discovered port does not expose launcher API", async () => {
@@ -166,14 +189,15 @@ describe("LauncherService.reconnect", () => {
     expect(launcher.isConnected).toBe(false);
   });
 
-  it("passes timeoutMs to resolveAppPort", async () => {
+  it("caps resolveAppPort per-iteration timeout to 5 s even when total budget is larger", async () => {
     mockResolveAppPort.mockResolvedValue(50000);
     makeMockCDPClient({ isLauncher: true });
 
     const launcher = new LauncherService(9222);
     await launcher.reconnect({ timeoutMs: 10_000 });
 
-    expect(mockResolveAppPort).toHaveBeenCalledWith("launcher", 10_000, undefined);
+    // F3: per-iteration timeout is min(remaining, 5000) to avoid stalling the full budget.
+    expect(mockResolveAppPort).toHaveBeenCalledWith("launcher", 5_000, undefined);
   });
 
   it("reads LHREMOTE_LAUNCHER_RECOVERY_TIMEOUT_MS env var for default timeout", async () => {
@@ -184,7 +208,8 @@ describe("LauncherService.reconnect", () => {
     const launcher = new LauncherService(9222);
     await launcher.reconnect();
 
-    expect(mockResolveAppPort).toHaveBeenCalledWith("launcher", 12_000, undefined);
+    // F3: per-iteration cap is 5000; total budget (12000) is the overall deadline.
+    expect(mockResolveAppPort).toHaveBeenCalledWith("launcher", 5_000, undefined);
     vi.unstubAllEnvs();
   });
 

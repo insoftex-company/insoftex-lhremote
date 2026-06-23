@@ -5,6 +5,7 @@ import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from
 import { CDPClient } from "../../cdp/client.js";
 import { CDPEvaluationError, CDPTimeoutError } from "../../cdp/errors.js";
 import {
+  isChromiumAvailable,
   launchChromium,
   type ChromiumInstance,
 } from "../../cdp/testing/launch-chromium.js";
@@ -45,7 +46,7 @@ async function resetBody(client: CDPClient): Promise<void> {
   );
 }
 
-describe("DOM automation (integration)", () => {
+describe.skipIf(!isChromiumAvailable)("DOM automation (integration)", () => {
   let chromium: ChromiumInstance;
   let client: CDPClient;
 

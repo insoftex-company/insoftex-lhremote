@@ -5,11 +5,12 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { pidToPorts, portToPid } from "pid-port";
 import psList from "ps-list";
 import {
+  isChromiumAvailable,
   launchChromium,
   type ChromiumInstance,
 } from "./testing/launch-chromium.js";
 
-describe("instance-discovery packages (integration)", () => {
+describe.skipIf(!isChromiumAvailable)("instance-discovery packages (integration)", () => {
   let chromium: ChromiumInstance;
 
   beforeAll(async () => {

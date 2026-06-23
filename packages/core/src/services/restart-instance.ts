@@ -4,15 +4,27 @@
 /**
  * Restart a single LinkedHelper instance cleanly (T3).
  *
- * The operation is serialised through the launcher queue so it never
- * overlaps another lifecycle op, and it only ever touches the target
- * account's process — all other instances keep running.
+ * The launcher CDP connection is held only for the individual stop and start
+ * RPCs — released between them and never held across the process-inspection
+ * waits (PID exit, connectable poll).  This shrinks the contention window
+ * from minutes to seconds and allows concurrent read operations (list-accounts)
+ * to proceed without colliding.
+ *
+ * The operation is serialised through the launcher queue so it never overlaps
+ * another lifecycle op, and it only ever touches the target account's process —
+ * all other instances keep running.
+ *
+ * Lock ordering:
+ *   launcher-queue (write-op exclusive) → launcher-CDP-gate (session-scoped)
+ *
+ * A write op holds the queue slot and then acquires the CDP gate for each RPC
+ * (stop, then start), releasing between acquisitions.  Reads acquire only the
+ * gate — no queue slot.  No circular dependency → no deadlock.
  */
 
-import { scanRunningInstances, withLauncherQueue, waitForConnectable } from "../cdp/index.js";
+import { scanRunningInstances, waitForConnectable, withLauncherCDPGate, withLauncherQueue } from "../cdp/index.js";
 import { startInstanceWithRecovery, waitForPidExit } from "./instance-lifecycle.js";
-import { withLauncherRecovery } from "./launcher-recovery.js";
-import type { LauncherService } from "./launcher.js";
+import { acquireLauncherWithRecovery, withLauncherRecovery } from "./launcher-recovery.js";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -36,6 +48,11 @@ export interface RestartInstanceOptions {
    * state process inspection can determine at that moment.
    */
   signal?: AbortSignal;
+  /**
+   * Progress callback — called at each sub-step with a human-readable message.
+   * Timestamps are appended by the registry; callers do not need to include them.
+   */
+  progress?: (message: string) => void;
 }
 
 /** Result returned by {@link restartInstance}. */
@@ -72,42 +89,47 @@ export interface RestartInstanceResult {
 /**
  * Restart a single LinkedHelper account instance.
  *
- * Sequence (all inside the launcher queue):
+ * Sequence:
  *   1. Scan for the current instance — if connectable and `force` is false,
  *      return immediately with `restarted: false` (idempotent).
- *   2. Stop the target via the launcher (with auto-recovery on launcher drop).
- *   3. Poll until the old PID has fully exited.
- *   4. Start the target via {@link startInstanceWithRecovery}.
- *   5. `waitForConnectable` until the new instance is live on a distinct port.
+ *   2. Acquire launcher CDP gate → stop the target → release gate.
+ *   3. Poll until the old PID has fully exited (process-inspection, no launcher).
+ *   4. Acquire launcher CDP gate → start the target → release gate.
+ *   5. `waitForConnectable` until the new instance is live (process-inspection,
+ *      no launcher held).
  *   6. Confirm new process `--app-id` matches `accountId`.
  *
  * Only the target account's process is touched.  Other instances' processes
  * and campaigns are never terminated.
  *
- * @param launcher     - Already-connected {@link LauncherService}.
- * @param accountId    - Account to restart.
- * @param launcherPort - Launcher CDP port (needed for port discovery).
- * @param options      - Optional overrides.
+ * @param cdpPort     - Launcher CDP port override (auto-discovered when undefined).
+ * @param cdpOptions  - CDP connection options (`host`, `allowRemote`).
+ * @param accountId   - Account to restart.
+ * @param options     - Optional overrides including `force`, signal, and progress.
  */
 export async function restartInstance(
-  launcher: LauncherService,
+  cdpPort: number | undefined,
+  cdpOptions: { host?: string; allowRemote?: boolean },
   accountId: number,
-  launcherPort: number,
   options?: RestartInstanceOptions,
 ): Promise<RestartInstanceResult> {
   const force = options?.force ?? false;
+  const signal = options?.signal;
+  const emit = options?.progress ?? (() => {});
 
   return withLauncherQueue(
     async () => {
       let launcherRecovered = false;
 
-      // --- Step 1: Idempotency guard ---
+      // --- Step 1: Idempotency guard (process inspection only, no launcher) ---
+      emit("scanning-instances");
       const initial = await scanRunningInstances();
       const existing = initial.find(
         (i) => i.accountId === accountId && i.connectable,
       );
 
       if (existing && !force) {
+        emit("already-connectable — skipping restart");
         return {
           accountId,
           restarted: false,
@@ -119,55 +141,80 @@ export async function restartInstance(
         };
       }
 
-      const oldPid =
-        initial.find((i) => i.accountId === accountId)?.pid;
+      const oldPid = initial.find((i) => i.accountId === accountId)?.pid;
 
-      // --- Step 2: Stop the target ---
+      // --- Step 2: Stop (acquire gate → RPC → release gate) ---
+      emit("acquiring-launcher (stop)");
       try {
-        const { launcherRecovered: stopRecovered } = await withLauncherRecovery(
-          launcher,
-          () => launcher.stopInstance(accountId),
-          options?.signal !== undefined ? { signal: options.signal } : undefined,
-        );
-        launcherRecovered = stopRecovered;
+        await withLauncherCDPGate(async () => {
+          signal?.throwIfAborted?.();
+          const { launcher, launcherPreRecovered: stopPreRec } =
+            await acquireLauncherWithRecovery(cdpPort, cdpOptions, signal !== undefined ? { signal } : undefined);
+          if (stopPreRec) launcherRecovered = true;
+
+          emit(
+            `stopping ${accountId}${oldPid !== undefined ? ` (pid ${oldPid})` : ""}`,
+          );
+          try {
+            const { launcherRecovered: stopInFlight } = await withLauncherRecovery(
+              launcher,
+              () => launcher.stopInstance(accountId),
+              signal !== undefined ? { signal } : undefined,
+            );
+            if (stopInFlight) launcherRecovered = true;
+          } finally {
+            launcher.disconnect();
+          }
+        });
       } catch {
         // Stop failure is non-fatal — the instance may already be gone.
         // Proceed to the exit-wait and start.
       }
 
-      // --- Step 3: Wait for old PID to exit ---
+      // --- Step 3: Wait for old PID to exit (no launcher held) ---
       if (oldPid !== undefined) {
-        await waitForPidExit(oldPid, undefined, options?.signal);
+        emit(`waiting-for-exit (pid ${oldPid})`);
+        await waitForPidExit(oldPid, undefined, signal);
       }
 
-      // --- Step 4: Issue the start command ---
-      // The start command needs the launcher CDP, but verification (step 5)
-      // is pure process inspection and tolerates launcher CDP drops.
-      // Two failure modes are possible here:
-      //   (a) `startInstanceWithRecovery` returns `{status:"timeout"}` because
-      //       `discoverInstancePort` cannot find the launcher after it hops ports.
-      //       The start command WAS accepted; verification will confirm this.
-      //   (b) `withLauncherRecovery` throws because the launcher CDP never
-      //       recovered within budget.  The start may or may not have been
-      //       accepted; process inspection is the arbiter.
-      // In both cases fall through to step 5 — never return early on launcher state.
+      // --- Step 4: Start (acquire gate → RPC → release gate) ---
+      // The launcher CDP is released before and after the start RPC.
+      // Verification (step 5) is pure process inspection — no launcher needed.
       let startCommandIssued = false;
       let knownPort: number | undefined;
 
+      emit("acquiring-launcher (start)");
       try {
-        const { result: outcome, launcherRecovered: startRecovered } =
-          await withLauncherRecovery(
-            launcher,
-            // Use launcher.currentPort (not the snapshot captured at call time) so
-            // that if the launcher port hopped during recovery the fresh port is used.
-            () => startInstanceWithRecovery(launcher, accountId, launcher.currentPort),
-            options?.signal !== undefined ? { signal: options.signal } : undefined,
-          );
-        launcherRecovered = launcherRecovered || startRecovered;
-        startCommandIssued = true;
-        if (outcome.status !== "timeout") {
-          knownPort = outcome.port;
-        }
+        await withLauncherCDPGate(async () => {
+          signal?.throwIfAborted?.();
+          const { launcher, launcherPreRecovered: startPreRec } =
+            await acquireLauncherWithRecovery(cdpPort, cdpOptions, signal !== undefined ? { signal } : undefined);
+          if (startPreRec) launcherRecovered = true;
+
+          emit(`starting ${accountId}`);
+          try {
+            // Use launcher.currentPort (not a snapshot) so that if the launcher
+            // port hopped during recovery the fresh port is used.
+            const { result: outcome, launcherRecovered: startInFlight } =
+              await withLauncherRecovery(
+                launcher,
+                () =>
+                  startInstanceWithRecovery(
+                    launcher,
+                    accountId,
+                    launcher.currentPort,
+                  ),
+                signal !== undefined ? { signal } : undefined,
+              );
+            if (startInFlight) launcherRecovered = true;
+            startCommandIssued = true;
+            if (outcome.status !== "timeout") {
+              knownPort = outcome.port;
+            }
+          } finally {
+            launcher.disconnect();
+          }
+        });
       } catch {
         // Launcher CDP dropped while issuing the start command and did not
         // recover within budget.  The command may or may not have been
@@ -175,16 +222,21 @@ export async function restartInstance(
         launcherRecovered = true;
       }
 
-      // --- Step 5 & 6: Verify via process inspection (launcher-independent) ---
+      // --- Steps 5 & 6: Verify via process inspection (launcher-independent) ---
       // waitForConnectable uses scanRunningInstances internally: no launcher
-      // CDP required.  This succeeds even while launcher.reachable === false.
+      // CDP required.  This succeeds even while the launcher is unreachable.
+      emit("waiting-for-connectable");
       const waitResult = await waitForConnectable(accountId, {
         ...(options?.connectableTimeoutMs !== undefined
           ? { timeoutMs: options.connectableTimeoutMs }
           : {}),
         ...(knownPort !== undefined ? { knownPort } : {}),
-        ...(options?.signal !== undefined ? { signal: options.signal } : {}),
+        ...(signal !== undefined ? { signal } : {}),
       });
+
+      emit(
+        `verifying (pid ${waitResult.pid ?? "unknown"}, port ${waitResult.cdpPort ?? "none"})`,
+      );
 
       if (!waitResult.verified) {
         return {
@@ -213,6 +265,12 @@ export async function restartInstance(
           waitResult.cdpPort !== existing.cdpPort ||
           oldPid === undefined);
 
+      emit(
+        distinctPort
+          ? `verified — newPid ${waitResult.pid ?? "?"}, port ${waitResult.cdpPort ?? "none"}`
+          : "verified=false — duplicate port detected",
+      );
+
       return {
         accountId,
         restarted: true,
@@ -223,7 +281,8 @@ export async function restartInstance(
         launcherRecovered,
       };
     },
-    // Settle barrier: launcher reachable + new instance connectable.
-    { type: "start", accountId, launcherPort },
+    // Settle barrier: wait for launcher CDP to be reachable after the op.
+    // Instance connectability is already confirmed in step 5 above.
+    { type: "launcher" },
   );
 }

@@ -1,12 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 // Copyright (C) 2026 Oleksii PELYKH
 
-import {
-  errorMessage,
-  LauncherService,
-  resolveAppPort,
-  restartInstance,
-} from "@insoftex/lhremote-core";
+import { errorMessage, restartInstance } from "@insoftex/lhremote-core";
 
 /** Handle the restart-instance CLI command. */
 export async function handleRestartInstance(
@@ -21,32 +16,21 @@ export async function handleRestartInstance(
 ): Promise<void> {
   const accountId = Number(accountIdArg);
 
-  let cdpPort: number;
   try {
-    cdpPort = options.cdpPort ?? await resolveAppPort("launcher");
-  } catch (error) {
-    process.stderr.write(`${errorMessage(error)}\n`);
-    process.exitCode = 1;
-    return;
-  }
-
-  const launcher = new LauncherService(cdpPort, {
-    ...(options.cdpHost !== undefined && { host: options.cdpHost }),
-    ...(options.allowRemote !== undefined && { allowRemote: options.allowRemote }),
-  });
-
-  try {
-    await launcher.connect();
-  } catch (error) {
-    process.stderr.write(`${errorMessage(error)}\n`);
-    process.exitCode = 1;
-    return;
-  }
-
-  try {
-    const result = await restartInstance(launcher, accountId, cdpPort, {
-      force: options.force ?? false,
-    });
+    const result = await restartInstance(
+      options.cdpPort,
+      {
+        ...(options.cdpHost !== undefined && { host: options.cdpHost }),
+        ...(options.allowRemote !== undefined && { allowRemote: options.allowRemote }),
+      },
+      accountId,
+      {
+        force: options.force ?? false,
+        progress: (msg: string) => {
+          process.stderr.write(`[${new Date().toISOString()}] ${msg}\n`);
+        },
+      },
+    );
 
     if (options.json) {
       process.stdout.write(`${JSON.stringify(result, null, 2)}\n`);
@@ -80,7 +64,5 @@ export async function handleRestartInstance(
   } catch (error) {
     process.stderr.write(`${errorMessage(error)}\n`);
     process.exitCode = 1;
-  } finally {
-    launcher.disconnect();
   }
 }

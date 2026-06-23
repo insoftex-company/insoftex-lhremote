@@ -11,7 +11,6 @@ vi.mock("@insoftex/lhremote-core", async (importOriginal) => {
   const actual = await importOriginal<typeof import("@insoftex/lhremote-core")>();
   return {
     ...actual,
-    acquireLauncherWithRecovery: vi.fn(),
     restartInstance: vi.fn(),
   };
 });
@@ -35,7 +34,6 @@ vi.mock("../operation-registry.js", async (importOriginal) => {
 
 import {
   LinkedHelperNotRunningError,
-  acquireLauncherWithRecovery,
   restartInstance,
 } from "@insoftex/lhremote-core";
 import type { RestartInstanceResult } from "@insoftex/lhremote-core";
@@ -46,15 +44,6 @@ import { createMockServer } from "./testing/mock-server.js";
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
-
-function mockLauncherConnection(port = 9222) {
-  const disconnect = vi.fn();
-  const mockLauncher = { disconnect, currentPort: port };
-  vi.mocked(acquireLauncherWithRecovery).mockResolvedValue(
-    { launcher: mockLauncher } as unknown as Awaited<ReturnType<typeof acquireLauncherWithRecovery>>,
-  );
-  return { disconnect, mockLauncher };
-}
 
 function makeResult(overrides: Partial<RestartInstanceResult> = {}): RestartInstanceResult {
   return {
@@ -113,7 +102,6 @@ describe("registerRestartInstance", () => {
     const { server, getHandler } = createMockServer();
     registerRestartInstance(server);
 
-    mockLauncherConnection();
     const outcome = makeResult();
     vi.mocked(restartInstance).mockResolvedValue(outcome);
 
@@ -133,7 +121,6 @@ describe("registerRestartInstance", () => {
     const { server, getHandler } = createMockServer();
     registerRestartInstance(server);
 
-    mockLauncherConnection();
     vi.mocked(restartInstance).mockResolvedValue(makeResult({ restarted: false }));
 
     const handler = getHandler("restart-instance");
@@ -149,16 +136,15 @@ describe("registerRestartInstance", () => {
     const { server, getHandler } = createMockServer();
     registerRestartInstance(server);
 
-    mockLauncherConnection();
     vi.mocked(restartInstance).mockResolvedValue(makeResult());
 
     const handler = getHandler("restart-instance");
     await handler({ accountId: 42, cdpPort: 9222, force: true });
 
     expect(vi.mocked(restartInstance)).toHaveBeenCalledWith(
-      expect.anything(),
-      42,
       9222,
+      expect.any(Object),
+      42,
       expect.objectContaining({ force: true }),
     );
   });
@@ -167,25 +153,24 @@ describe("registerRestartInstance", () => {
     const { server, getHandler } = createMockServer();
     registerRestartInstance(server);
 
-    mockLauncherConnection();
     vi.mocked(restartInstance).mockResolvedValue(makeResult());
 
     const handler = getHandler("restart-instance");
     await handler({ accountId: 42, cdpPort: 9222 });
 
     expect(vi.mocked(restartInstance)).toHaveBeenCalledWith(
-      expect.anything(),
-      42,
       9222,
+      expect.any(Object),
+      42,
       expect.objectContaining({ force: false }),
     );
   });
 
-  it("returns error when LinkedHelper not running", async () => {
+  it("returns error when restartInstance throws LinkedHelperNotRunningError", async () => {
     const { server, getHandler } = createMockServer();
     registerRestartInstance(server);
 
-    vi.mocked(acquireLauncherWithRecovery).mockRejectedValue(
+    vi.mocked(restartInstance).mockRejectedValue(
       new LinkedHelperNotRunningError(9222),
     );
 
@@ -199,7 +184,6 @@ describe("registerRestartInstance", () => {
     const { server, getHandler } = createMockServer();
     registerRestartInstance(server);
 
-    mockLauncherConnection();
     vi.mocked(restartInstance).mockRejectedValue(new Error("restart failed"));
 
     const handler = getHandler("restart-instance");
@@ -212,29 +196,20 @@ describe("registerRestartInstance", () => {
     expect(result.content[0].text).toContain("restart failed");
   });
 
-  it("disconnects after success", async () => {
+  it("passes a progress callback to restartInstance", async () => {
     const { server, getHandler } = createMockServer();
     registerRestartInstance(server);
 
-    const { disconnect } = mockLauncherConnection();
     vi.mocked(restartInstance).mockResolvedValue(makeResult());
 
     const handler = getHandler("restart-instance");
     await handler({ accountId: 42, cdpPort: 9222 });
 
-    expect(disconnect).toHaveBeenCalledOnce();
-  });
-
-  it("disconnects after error", async () => {
-    const { server, getHandler } = createMockServer();
-    registerRestartInstance(server);
-
-    const { disconnect } = mockLauncherConnection();
-    vi.mocked(restartInstance).mockRejectedValue(new Error("boom"));
-
-    const handler = getHandler("restart-instance");
-    await handler({ accountId: 42, cdpPort: 9222 });
-
-    expect(disconnect).toHaveBeenCalledOnce();
+    expect(vi.mocked(restartInstance)).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.anything(),
+      42,
+      expect.objectContaining({ progress: expect.any(Function) }),
+    );
   });
 });

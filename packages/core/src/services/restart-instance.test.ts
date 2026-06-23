@@ -27,6 +27,7 @@ vi.mock("./instance-lifecycle.js", () => ({
 }));
 
 vi.mock("./launcher-recovery.js", () => ({
+  acquireLauncherWithRecovery: vi.fn(),
   withLauncherRecovery: vi.fn(
     async (_launcher: unknown, op: () => Promise<unknown>) => ({
       result: await op(),
@@ -38,6 +39,7 @@ vi.mock("./launcher-recovery.js", () => ({
 import { scanRunningInstances, waitForConnectable } from "../cdp/index.js";
 import type { RunningInstance } from "../cdp/index.js";
 import { startInstanceWithRecovery, waitForPidExit } from "./instance-lifecycle.js";
+import { acquireLauncherWithRecovery } from "./launcher-recovery.js";
 import { restartInstance } from "./restart-instance.js";
 
 // ---------------------------------------------------------------------------
@@ -63,6 +65,7 @@ const mockLauncher = {
   stopInstance: vi.fn().mockResolvedValue(undefined),
   startInstance: vi.fn().mockResolvedValue(undefined),
   listAccounts: vi.fn().mockResolvedValue([]),
+  currentPort: 9222,
 } as unknown as import("./launcher.js").LauncherService;
 
 // ---------------------------------------------------------------------------
@@ -72,6 +75,10 @@ const mockLauncher = {
 describe("restartInstance", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    vi.mocked(acquireLauncherWithRecovery).mockResolvedValue({
+      launcher: mockLauncher,
+      launcherPreRecovered: false,
+    });
   });
 
   afterEach(() => {
@@ -83,7 +90,7 @@ describe("restartInstance", () => {
       makeInstance({ accountId: 42, connectable: true, pid: 100, cdpPort: 55001 }),
     ]);
 
-    const result = await restartInstance(mockLauncher, 42, 9222);
+    const result = await restartInstance(9222, {}, 42);
 
     expect(result.restarted).toBe(false);
     expect(result.verified).toBe(true);
@@ -107,7 +114,7 @@ describe("restartInstance", () => {
       verified: true,
     });
 
-    const result = await restartInstance(mockLauncher, 42, 9222, { force: true });
+    const result = await restartInstance(9222, {}, 42, { force: true });
 
     expect(result.restarted).toBe(true);
     expect(vi.mocked(mockLauncher.stopInstance)).toHaveBeenCalledWith(42);
@@ -131,7 +138,7 @@ describe("restartInstance", () => {
       verified: true,
     });
 
-    const result = await restartInstance(mockLauncher, 42, 9222);
+    const result = await restartInstance(9222, {}, 42);
 
     expect(result.restarted).toBe(true);
     expect(result.oldPid).toBe(100);
@@ -153,7 +160,7 @@ describe("restartInstance", () => {
       verified: false,
     });
 
-    const result = await restartInstance(mockLauncher, 42, 9222);
+    const result = await restartInstance(9222, {}, 42);
 
     expect(result.restarted).toBe(true);
     expect(result.verified).toBe(false);
@@ -175,7 +182,7 @@ describe("restartInstance", () => {
       verified: true,
     });
 
-    const result = await restartInstance(mockLauncher, 42, 9222);
+    const result = await restartInstance(9222, {}, 42);
 
     expect(result.restarted).toBe(true);
     // THE CRITICAL ASSERTION: verified:true even though launcher timed out.
@@ -212,7 +219,7 @@ describe("restartInstance", () => {
       verified: true,
     });
 
-    const result = await restartInstance(mockLauncher, 42, 9222);
+    const result = await restartInstance(9222, {}, 42);
 
     expect(result.restarted).toBe(true);
     expect(result.verified).toBe(true);
@@ -242,7 +249,7 @@ describe("restartInstance", () => {
       verified: false,
     });
 
-    const result = await restartInstance(mockLauncher, 42, 9222);
+    const result = await restartInstance(9222, {}, 42);
 
     expect(result.restarted).toBe(true);
     expect(result.verified).toBe(false);
@@ -270,7 +277,7 @@ describe("restartInstance", () => {
       verified: true,
     });
 
-    await restartInstance(mockLauncher, 42, 9222);
+    await restartInstance(9222, {}, 42);
 
     // stopInstance called only for account 42
     expect(vi.mocked(mockLauncher.stopInstance)).toHaveBeenCalledTimes(1);
@@ -293,7 +300,7 @@ describe("restartInstance", () => {
       verified: true,
     });
 
-    const result = await restartInstance(mockLauncher, 42, 9222, { force: true });
+    const result = await restartInstance(9222, {}, 42, { force: true });
 
     // Port is the same as the old one — consider phantom (not distinct)
     expect(result.verified).toBe(false);

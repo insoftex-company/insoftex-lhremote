@@ -13547,40 +13547,6 @@ async function getPorts(options) {
   throw new Error("No available ports found");
 }
 
-// packages/core/dist/utils/delay.js
-function delay(ms) {
-  return new Promise((resolve) => setTimeout(resolve, ms));
-}
-function randomBetween(min, max) {
-  return min + Math.random() * (max - min);
-}
-function maybeHesitate(probability = 0.12) {
-  return Math.random() < probability ? gaussianDelay(1250, 375, 500, 2e3) : Promise.resolve();
-}
-function maybeBreak(probability = 0.04) {
-  return Math.random() < probability ? gaussianDelay(5e3, 2e3, 2e3, 12e3) : Promise.resolve();
-}
-function gaussianRandom(mean, stdDev) {
-  let u1, u2;
-  do
-    u1 = Math.random(), u2 = Math.random();
-  while (u1 === 0);
-  let z2 = Math.sqrt(-2 * Math.log(u1)) * Math.cos(2 * Math.PI * u2);
-  return mean + z2 * stdDev;
-}
-function gaussianDelay(mean, stdDev, min = 0, max = 1 / 0) {
-  let raw = gaussianRandom(mean, stdDev), clamped = Math.max(min, Math.min(max, raw));
-  return delay(clamped);
-}
-function gaussianBetween(mean, stdDev, min, max) {
-  let raw = gaussianRandom(mean, stdDev);
-  return Math.max(min, Math.min(max, raw));
-}
-function simulateReadingTime(contentLength, readFraction = 0.3) {
-  let safeLength = Number.isFinite(contentLength) && contentLength > 0 ? contentLength : 0, safeFraction = Number.isFinite(readFraction) ? Math.max(0, Math.min(1, readFraction)) : 0.3, readTimeMs = safeLength / 5 / 250 * 6e4 * safeFraction;
-  return gaussianDelay(readTimeMs, readTimeMs * 0.3, 500, 8e3);
-}
-
 // packages/core/dist/utils/loopback.js
 function isLoopbackAddress(host) {
   let h2 = host.toLowerCase();
@@ -13627,7 +13593,7 @@ async function discoverTargets(port, host = DEFAULT_HOST) {
 }
 
 // packages/core/dist/cdp/client.js
-var DEFAULT_TIMEOUT = 3e4, MAX_RECONNECT_ATTEMPTS = 5, RECONNECT_BASE_DELAY = 500, CDPClient = class {
+var DEFAULT_TIMEOUT = 3e4, CDPClient = class {
   port;
   host;
   timeout;
@@ -13636,8 +13602,6 @@ var DEFAULT_TIMEOUT = 3e4, MAX_RECONNECT_ATTEMPTS = 5, RECONNECT_BASE_DELAY = 50
   pending = /* @__PURE__ */ new Map();
   listeners = /* @__PURE__ */ new Map();
   connected = !1;
-  targetId = null;
-  reconnecting = !1;
   constructor(port, options) {
     if (this.port = port, this.host = options?.host ?? "127.0.0.1", this.timeout = options?.timeout ?? DEFAULT_TIMEOUT, !isLoopbackAddress(this.host) && !options?.allowRemote)
       throw new CDPConnectionError(`Remote CDP connections to "${this.host}" are not allowed. Remote connections expose the target to arbitrary code execution. Set allowRemote only if the network path is secured.`);
@@ -13775,7 +13739,7 @@ var DEFAULT_TIMEOUT = 3e4, MAX_RECONNECT_ATTEMPTS = 5, RECONNECT_BASE_DELAY = 50
       throw new CDPConnectionError(targetId ? `Target ${targetId} not found among ${targets.length.toString()} targets` : `No page target found among ${targets.length.toString()} targets`);
     if (!target.webSocketDebuggerUrl)
       throw new CDPConnectionError(`Target ${target.id} has no webSocketDebuggerUrl (another debugger may be attached)`);
-    return this.targetId = target.id, target.webSocketDebuggerUrl;
+    return target.webSocketDebuggerUrl;
   }
   /**
    * Open a WebSocket and wire up message handling.
@@ -13789,8 +13753,7 @@ var DEFAULT_TIMEOUT = 3e4, MAX_RECONNECT_ATTEMPTS = 5, RECONNECT_BASE_DELAY = 50
         let data = event.data;
         this.handleMessage(typeof data == "string" ? data : String(data));
       }), ws.addEventListener("close", () => {
-        let wasConnected = this.connected;
-        this.connected = !1, this.rejectAllPending(new CDPConnectionError("WebSocket closed")), settled ? wasConnected && this.attemptReconnect() : (settled = !0, reject(new CDPConnectionError(`WebSocket closed before opening to ${url2}`)));
+        this.connected = !1, this.rejectAllPending(new CDPConnectionError("WebSocket closed")), settled || (settled = !0, reject(new CDPConnectionError(`WebSocket closed before opening to ${url2}`)));
       }), ws.addEventListener("error", () => {
         settled || (settled = !0, reject(new CDPConnectionError(`WebSocket connection failed to ${url2}`)));
       });
@@ -13812,28 +13775,6 @@ var DEFAULT_TIMEOUT = 3e4, MAX_RECONNECT_ATTEMPTS = 5, RECONNECT_BASE_DELAY = 50
       return;
     }
     msg.method && this.emitEvent(msg.method, msg.params);
-  }
-  /**
-   * Attempt to reconnect with exponential backoff.
-   *
-   * Called fire-and-forget from the WebSocket close handler.  When all
-   * {@link MAX_RECONNECT_ATTEMPTS} are exhausted a `"reconnect-exhausted"`
-   * event is emitted so callers can react to permanent connection loss.
-   */
-  async attemptReconnect() {
-    if (!(this.reconnecting || !this.targetId)) {
-      this.reconnecting = !0;
-      for (let attempt = 0; attempt < MAX_RECONNECT_ATTEMPTS; attempt++) {
-        let backoff = RECONNECT_BASE_DELAY * 2 ** attempt;
-        await delay(backoff);
-        try {
-          await this.connect(this.targetId ?? void 0), this.reconnecting = !1;
-          return;
-        } catch {
-        }
-      }
-      this.reconnecting = !1, this.emitEvent("reconnect-exhausted", { attempts: MAX_RECONNECT_ATTEMPTS });
-    }
   }
   /**
    * Emit an event to registered listeners.
@@ -19305,6 +19246,40 @@ var CollectionError = class extends ServiceError {
   }
 };
 
+// packages/core/dist/utils/delay.js
+function delay(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+function randomBetween(min, max) {
+  return min + Math.random() * (max - min);
+}
+function maybeHesitate(probability = 0.12) {
+  return Math.random() < probability ? gaussianDelay(1250, 375, 500, 2e3) : Promise.resolve();
+}
+function maybeBreak(probability = 0.04) {
+  return Math.random() < probability ? gaussianDelay(5e3, 2e3, 2e3, 12e3) : Promise.resolve();
+}
+function gaussianRandom(mean, stdDev) {
+  let u1, u2;
+  do
+    u1 = Math.random(), u2 = Math.random();
+  while (u1 === 0);
+  let z2 = Math.sqrt(-2 * Math.log(u1)) * Math.cos(2 * Math.PI * u2);
+  return mean + z2 * stdDev;
+}
+function gaussianDelay(mean, stdDev, min = 0, max = 1 / 0) {
+  let raw = gaussianRandom(mean, stdDev), clamped = Math.max(min, Math.min(max, raw));
+  return delay(clamped);
+}
+function gaussianBetween(mean, stdDev, min, max) {
+  let raw = gaussianRandom(mean, stdDev);
+  return Math.max(min, Math.min(max, raw));
+}
+function simulateReadingTime(contentLength, readFraction = 0.3) {
+  let safeLength = Number.isFinite(contentLength) && contentLength > 0 ? contentLength : 0, safeFraction = Number.isFinite(readFraction) ? Math.max(0, Math.min(1, readFraction)) : 0.3, readTimeMs = safeLength / 5 / 250 * 6e4 * safeFraction;
+  return gaussianDelay(readTimeMs, readTimeMs * 0.3, 500, 8e3);
+}
+
 // packages/core/dist/utils/error-message.js
 function errorMessage(error51) {
   return error51 instanceof Error ? error51.message : String(error51);
@@ -19714,6 +19689,20 @@ async function applySettleBarrier(opts) {
       timeoutMs: remaining,
       ...opts.knownPort !== void 0 ? { knownPort: opts.knownPort } : {}
     });
+  }
+}
+
+// packages/core/dist/cdp/launcher-cdp-gate.js
+var _gateTail = Promise.resolve();
+async function withLauncherCDPGate(op) {
+  let resolveGate, gate = new Promise((r) => {
+    resolveGate = r;
+  }), prev = _gateTail;
+  _gateTail = gate, await prev;
+  try {
+    return await op();
+  } finally {
+    resolveGate();
   }
 }
 
@@ -20827,17 +20816,35 @@ var DEFAULT_LAUNCHER_RECOVERY_TIMEOUT_MS = 6e4, LauncherService = class _Launche
    */
   async reconnect(options) {
     this.disconnect();
-    let timeoutMs = options?.timeoutMs ?? (process.env.LHREMOTE_LAUNCHER_RECOVERY_TIMEOUT_MS ? Number(process.env.LHREMOTE_LAUNCHER_RECOVERY_TIMEOUT_MS) : DEFAULT_LAUNCHER_RECOVERY_TIMEOUT_MS), newPort = await resolveAppPort("launcher", timeoutMs, options?.signal), client = new CDPClient(newPort, { host: this.host, allowRemote: this.allowRemote });
-    try {
-      await client.connect();
-    } catch (error51) {
-      if (error51 instanceof CDPConnectionError) {
-        let apps = await findApp();
-        throw apps.length > 0 ? new LinkedHelperUnreachableError(apps) : new LinkedHelperNotRunningError(newPort);
+    let timeoutMs = options?.timeoutMs ?? (process.env.LHREMOTE_LAUNCHER_RECOVERY_TIMEOUT_MS ? Number(process.env.LHREMOTE_LAUNCHER_RECOVERY_TIMEOUT_MS) : DEFAULT_LAUNCHER_RECOVERY_TIMEOUT_MS), deadline = Date.now() + timeoutMs;
+    for (; Date.now() < deadline; ) {
+      let remaining = deadline - Date.now();
+      if (remaining <= 0)
+        break;
+      let resolveTimeout = Math.min(remaining, 5e3), newPort;
+      try {
+        newPort = await resolveAppPort("launcher", resolveTimeout, options?.signal);
+      } catch (err) {
+        if (err instanceof LinkedHelperUnreachableError) {
+          await delay(500);
+          continue;
+        }
+        throw err;
       }
-      throw error51;
+      let client = new CDPClient(newPort, { host: this.host, allowRemote: this.allowRemote });
+      try {
+        await client.connect(), await this.bindLauncherClient(client, newPort);
+        return;
+      } catch (error51) {
+        if (error51 instanceof CDPConnectionError) {
+          await delay(500);
+          continue;
+        }
+        throw error51;
+      }
     }
-    await this.bindLauncherClient(client, newPort);
+    let apps = await findApp();
+    throw apps.length > 0 ? new LinkedHelperUnreachableError(apps) : new LinkedHelperNotRunningError(0);
   }
   /**
    * Disconnect from the launcher.
@@ -21391,13 +21398,16 @@ async function acquireLauncherWithRecovery(cdpPort, cdpOptions = {}, recoveryOpt
 }
 
 // packages/core/dist/services/restart-instance.js
-async function restartInstance(launcher, accountId, launcherPort, options) {
-  let force = options?.force ?? !1;
+async function restartInstance(cdpPort, cdpOptions, accountId, options) {
+  let force = options?.force ?? !1, signal = options?.signal, emit = options?.progress ?? (() => {
+  });
   return withLauncherQueue(
     async () => {
-      let launcherRecovered = !1, initial = await scanRunningInstances(), existing = initial.find((i2) => i2.accountId === accountId && i2.connectable);
+      let launcherRecovered = !1;
+      emit("scanning-instances");
+      let initial = await scanRunningInstances(), existing = initial.find((i2) => i2.accountId === accountId && i2.connectable);
       if (existing && !force)
-        return {
+        return emit("already-connectable \u2014 skipping restart"), {
           accountId,
           restarted: !1,
           oldPid: existing.pid,
@@ -21407,31 +21417,46 @@ async function restartInstance(launcher, accountId, launcherPort, options) {
           launcherRecovered: !1
         };
       let oldPid = initial.find((i2) => i2.accountId === accountId)?.pid;
+      emit("acquiring-launcher (stop)");
       try {
-        let { launcherRecovered: stopRecovered } = await withLauncherRecovery(launcher, () => launcher.stopInstance(accountId));
-        launcherRecovered = stopRecovered;
+        await withLauncherCDPGate(async () => {
+          signal?.throwIfAborted?.();
+          let { launcher, launcherPreRecovered: stopPreRec } = await acquireLauncherWithRecovery(cdpPort, cdpOptions, signal !== void 0 ? { signal } : void 0);
+          stopPreRec && (launcherRecovered = !0), emit(`stopping ${accountId}${oldPid !== void 0 ? ` (pid ${oldPid})` : ""}`);
+          try {
+            let { launcherRecovered: stopInFlight } = await withLauncherRecovery(launcher, () => launcher.stopInstance(accountId), signal !== void 0 ? { signal } : void 0);
+            stopInFlight && (launcherRecovered = !0);
+          } finally {
+            launcher.disconnect();
+          }
+        });
       } catch {
       }
-      oldPid !== void 0 && await waitForPidExit(oldPid, void 0, options?.signal);
+      oldPid !== void 0 && (emit(`waiting-for-exit (pid ${oldPid})`), await waitForPidExit(oldPid, void 0, signal));
       let startCommandIssued = !1, knownPort;
+      emit("acquiring-launcher (start)");
       try {
-        let { result: outcome, launcherRecovered: startRecovered } = await withLauncherRecovery(
-          launcher,
-          // Use launcher.currentPort (not the snapshot captured at call time) so
-          // that if the launcher port hopped during recovery the fresh port is used.
-          () => startInstanceWithRecovery(launcher, accountId, launcher.currentPort),
-          options?.signal !== void 0 ? { signal: options.signal } : void 0
-        );
-        launcherRecovered = launcherRecovered || startRecovered, startCommandIssued = !0, outcome.status !== "timeout" && (knownPort = outcome.port);
+        await withLauncherCDPGate(async () => {
+          signal?.throwIfAborted?.();
+          let { launcher, launcherPreRecovered: startPreRec } = await acquireLauncherWithRecovery(cdpPort, cdpOptions, signal !== void 0 ? { signal } : void 0);
+          startPreRec && (launcherRecovered = !0), emit(`starting ${accountId}`);
+          try {
+            let { result: outcome, launcherRecovered: startInFlight } = await withLauncherRecovery(launcher, () => startInstanceWithRecovery(launcher, accountId, launcher.currentPort), signal !== void 0 ? { signal } : void 0);
+            startInFlight && (launcherRecovered = !0), startCommandIssued = !0, outcome.status !== "timeout" && (knownPort = outcome.port);
+          } finally {
+            launcher.disconnect();
+          }
+        });
       } catch {
         launcherRecovered = !0;
       }
+      emit("waiting-for-connectable");
       let waitResult = await waitForConnectable(accountId, {
         ...options?.connectableTimeoutMs !== void 0 ? { timeoutMs: options.connectableTimeoutMs } : {},
         ...knownPort !== void 0 ? { knownPort } : {},
-        ...options?.signal !== void 0 ? { signal: options.signal } : {}
+        ...signal !== void 0 ? { signal } : {}
       });
-      if (!waitResult.verified)
+      if (emit(`verifying (pid ${waitResult.pid ?? "unknown"}, port ${waitResult.cdpPort ?? "none"})`), !waitResult.verified)
         return {
           accountId,
           restarted: !0,
@@ -21445,7 +21470,7 @@ async function restartInstance(launcher, accountId, launcherPort, options) {
           }
         };
       let distinctPort = waitResult.cdpPort !== null && (existing === void 0 || waitResult.cdpPort !== existing.cdpPort || oldPid === void 0);
-      return {
+      return emit(distinctPort ? `verified \u2014 newPid ${waitResult.pid ?? "?"}, port ${waitResult.cdpPort ?? "none"}` : "verified=false \u2014 duplicate port detected"), {
         accountId,
         restarted: !0,
         oldPid,
@@ -21455,8 +21480,9 @@ async function restartInstance(launcher, accountId, launcherPort, options) {
         launcherRecovered
       };
     },
-    // Settle barrier: launcher reachable + new instance connectable.
-    { type: "start", accountId, launcherPort }
+    // Settle barrier: wait for launcher CDP to be reachable after the op.
+    // Instance connectability is already confirmed in step 5 above.
+    { type: "launcher" }
   );
 }
 
@@ -32569,28 +32595,17 @@ async function handleReactToComment(postUrl, commentUrn, options) {
 
 // packages/cli/dist/handlers/restart-instance.js
 async function handleRestartInstance(accountIdArg, options) {
-  let accountId = Number(accountIdArg), cdpPort;
+  let accountId = Number(accountIdArg);
   try {
-    cdpPort = options.cdpPort ?? await resolveAppPort("launcher");
-  } catch (error51) {
-    process.stderr.write(`${errorMessage(error51)}
-`), process.exitCode = 1;
-    return;
-  }
-  let launcher = new LauncherService(cdpPort, {
-    ...options.cdpHost !== void 0 && { host: options.cdpHost },
-    ...options.allowRemote !== void 0 && { allowRemote: options.allowRemote }
-  });
-  try {
-    await launcher.connect();
-  } catch (error51) {
-    process.stderr.write(`${errorMessage(error51)}
-`), process.exitCode = 1;
-    return;
-  }
-  try {
-    let result = await restartInstance(launcher, accountId, cdpPort, {
-      force: options.force ?? !1
+    let result = await restartInstance(options.cdpPort, {
+      ...options.cdpHost !== void 0 && { host: options.cdpHost },
+      ...options.allowRemote !== void 0 && { allowRemote: options.allowRemote }
+    }, accountId, {
+      force: options.force ?? !1,
+      progress: (msg) => {
+        process.stderr.write(`[${(/* @__PURE__ */ new Date()).toISOString()}] ${msg}
+`);
+      }
     });
     if (options.json) {
       process.stdout.write(`${JSON.stringify(result, null, 2)}
@@ -32609,8 +32624,6 @@ async function handleRestartInstance(accountIdArg, options) {
   } catch (error51) {
     process.stderr.write(`${errorMessage(error51)}
 `), process.exitCode = 1;
-  } finally {
-    launcher.disconnect();
   }
 }
 
@@ -33031,7 +33044,7 @@ function parseNonNegativeInt(value) {
   return n2;
 }
 function collectPositiveInt(value, previous) {
-  return [...previous, parsePositiveInt(value)];
+  return [...previous ?? [], parsePositiveInt(value)];
 }
 function collectString(value, previous) {
   return [...previous, value];
@@ -51452,6 +51465,18 @@ Use the dismiss-errors tool to clear closable popups, then retry.
 UI Health:
 ${JSON.stringify(error51.health, null, 2)}`);
 }
+function wrapProgress(registryProgress, extra) {
+  let token = extra?._meta?.progressToken;
+  if (token === void 0 || extra === void 0)
+    return registryProgress;
+  let seq = 0;
+  return (message) => {
+    registryProgress(message), extra.sendNotification({
+      method: "notifications/progress",
+      params: { progressToken: token, progress: seq++, message }
+    });
+  };
+}
 function mcpCatchAll(error51, prefix) {
   let mapped = mapErrorToMcpResponse(error51);
   if (mapped)
@@ -52591,19 +52616,25 @@ var TTL_MS = 600 * 1e3, OperationRegistry = class {
       r.status !== "running" && r.finishedAt !== void 0 && new Date(r.finishedAt).getTime() < cutoff && this.records.delete(id);
   }
 }, operationRegistry = new OperationRegistry(), FAST_PATH_GRACE_MS = 2e3;
-async function runAsyncOp(registry2, kind, work) {
+async function runAsyncOp(registry2, kind, work, options) {
   let active = registry2.getActiveWriteOp();
   if (active)
     return {
       status: "rejected",
       reason: `Operation ${active.operationId} (${active.kind}) is already running. Cancel it first with cancel-operation, or poll get-operation for completion.`
     };
-  let { operationId, signal, progress } = registry2.create(kind), settled = !1, settledResult, settledError, didError = !1, workPromise = (async () => {
+  let { operationId, signal: registrySignal, progress } = registry2.create(kind), controller = new AbortController(), merged = controller.signal, forwardRegistry = () => controller.abort();
+  registrySignal.addEventListener("abort", forwardRegistry, { once: !0 });
+  let externalSignal = options?.signal, forwardExternal = externalSignal ? () => controller.abort() : void 0;
+  externalSignal && forwardExternal && externalSignal.addEventListener("abort", forwardExternal, { once: !0 });
+  let settled = !1, settledResult, settledError, didError = !1, workPromise = (async () => {
     try {
-      let result = await work(signal, progress);
+      let result = await work(merged, progress);
       settled = !0, settledResult = result, registry2.succeed(operationId, result);
     } catch (error51) {
-      settled = !0, settledError = error51, didError = !0, signal.aborted || registry2.fail(operationId, error51);
+      settled = !0, settledError = error51, didError = !0, registrySignal.aborted || (externalSignal?.aborted || error51 instanceof Error && error51.name === "AbortError" ? registry2.cancel(operationId) : registry2.fail(operationId, error51));
+    } finally {
+      registrySignal.removeEventListener("abort", forwardRegistry), externalSignal && forwardExternal && externalSignal.removeEventListener("abort", forwardExternal);
     }
   })();
   if (await Promise.race([
@@ -52633,16 +52664,17 @@ function registerEnsureInstances(server) {
       let active = operationRegistry.getActiveWriteOp();
       if (active)
         return mcpError(`Operation ${active.operationId} (${active.kind}) is already running. Cancel it with cancel-operation or poll get-operation for status.`);
-      let mcpSignal = extra?.signal, outcome = await runAsyncOp(operationRegistry, "ensure-instances", async (signal, progress) => {
-        let controller = new AbortController(), merged = controller.signal, forward = () => controller.abort();
-        signal.addEventListener("abort", forward, { once: !0 }), mcpSignal && mcpSignal.addEventListener("abort", forward, { once: !0 }), progress("Acquiring launcher connection");
-        let { launcher } = await acquireLauncherWithRecovery(cdpPort, buildCdpOptions({ cdpHost, allowRemote }), { signal: merged });
-        try {
-          return progress(`Starting ${accountIds.length} instance(s)`), await ensureInstances(accountIds, launcher, launcher.currentPort);
-        } finally {
-          launcher.disconnect(), signal.removeEventListener("abort", forward), mcpSignal?.removeEventListener("abort", forward);
-        }
-      });
+      let outcome = await runAsyncOp(operationRegistry, "ensure-instances", async (signal, registryProgress) => {
+        let progress = wrapProgress(registryProgress, extra);
+        return progress("Acquiring launcher connection"), await withLauncherCDPGate(async () => {
+          let { launcher } = await acquireLauncherWithRecovery(cdpPort, buildCdpOptions({ cdpHost, allowRemote }), { signal });
+          try {
+            return progress(`Starting ${accountIds.length} instance(s)`), await ensureInstances(accountIds, launcher, launcher.currentPort);
+          } finally {
+            launcher.disconnect();
+          }
+        });
+      }, extra?.signal !== void 0 ? { signal: extra.signal } : void 0);
       return outcome.status === "rejected" ? mcpError(outcome.reason) : outcome.status === "in_progress" ? mcpSuccess(JSON.stringify({
         status: "in_progress",
         operationId: outcome.operationId,
@@ -52994,13 +53026,13 @@ function registerLaunchApp(server) {
     cdpPort: external_exports.number().int().positive().optional().describe("CDP port (default: auto-select)"),
     force: external_exports.boolean().optional().describe("Kill existing LinkedHelper processes before launching"),
     visible: external_exports.boolean().optional().describe("Restore and focus the LinkedHelper launcher window on Windows")
-  }, async ({ cdpPort, force, visible }) => {
+  }, async ({ cdpPort, force, visible }, extra) => {
     try {
       let active = operationRegistry.getActiveWriteOp();
       if (active)
         return mcpError(`Operation ${active.operationId} (${active.kind}) is already running. Cancel it with cancel-operation or poll get-operation for status.`);
-      let outcome = await runAsyncOp(operationRegistry, "launch-app", async (_signal, progress) => {
-        let app = new AppService(cdpPort, {
+      let outcome = await runAsyncOp(operationRegistry, "launch-app", async (_signal, registryProgress) => {
+        let progress = wrapProgress(registryProgress, extra), app = new AppService(cdpPort, {
           ...force !== void 0 && { force },
           ...visible !== void 0 && { visible }
         });
@@ -53011,7 +53043,7 @@ function registerLaunchApp(server) {
           throw error51 instanceof AppNotFoundError || error51 instanceof AppLaunchError, error51;
         }
         return `LinkedHelper launched on CDP port ${String(app.cdpPort)}`;
-      });
+      }, extra?.signal !== void 0 ? { signal: extra.signal } : void 0);
       return outcome.status === "rejected" ? mcpError(outcome.reason) : outcome.status === "in_progress" ? mcpSuccess(JSON.stringify({
         status: "in_progress",
         operationId: outcome.operationId,
@@ -53046,20 +53078,16 @@ function registerListAccounts(server) {
     includeAllWorkspaces: external_exports.boolean().optional().describe("When true, enumerate accounts across every workspace the user belongs to, not just the selected workspace. Default: false.")
   }, async ({ cdpPort, cdpHost, allowRemote, accountId, includeAllWorkspaces }) => {
     try {
-      let launcher;
-      try {
-        ({ launcher } = await acquireLauncherWithRecovery(cdpPort, buildCdpOptions({ cdpHost, allowRemote, accountId })));
-      } catch (error51) {
-        return mcpCatchAll(error51, "Failed to connect to LinkedHelper");
-      }
-      try {
-        let options = includeAllWorkspaces === !0 ? { includeAllWorkspaces: !0 } : void 0, { result: accounts } = await withLauncherRecovery(launcher, () => launcher.listAccounts(options));
-        return mcpSuccess(JSON.stringify(accounts, null, 2));
-      } catch (error51) {
-        return mcpCatchAll(error51, "Failed to list accounts");
-      } finally {
-        launcher.disconnect();
-      }
+      let listOptions = includeAllWorkspaces === !0 ? { includeAllWorkspaces: !0 } : void 0, accounts = await withLauncherCDPGate(async () => {
+        let { launcher } = await acquireLauncherWithRecovery(cdpPort, buildCdpOptions({ cdpHost, allowRemote, accountId }));
+        try {
+          let { result } = await withLauncherRecovery(launcher, () => launcher.listAccounts(listOptions));
+          return result;
+        } finally {
+          launcher.disconnect();
+        }
+      });
+      return mcpSuccess(JSON.stringify(accounts, null, 2));
     } catch (error51) {
       return mcpCatchAll(error51, "Failed to list accounts");
     }
@@ -53096,12 +53124,13 @@ function registerListWorkspaces(server) {
 function registerQuitApp(server) {
   server.tool("quit-app", "Quit the LinkedHelper application. Returns immediately with { status:'in_progress', operationId } if quit takes >2 s. Poll get-operation for status. Cancel with cancel-operation.", {
     cdpPort: external_exports.number().int().positive().optional().describe("CDP port (auto-discovered from the launcher when omitted)")
-  }, async ({ cdpPort }) => {
+  }, async ({ cdpPort }, extra) => {
     try {
       let active = operationRegistry.getActiveWriteOp();
       if (active)
         return mcpError(`Operation ${active.operationId} (${active.kind}) is already running. Cancel it with cancel-operation or poll get-operation for status.`);
-      let outcome = await runAsyncOp(operationRegistry, "quit-app", async (_signal, progress) => {
+      let outcome = await runAsyncOp(operationRegistry, "quit-app", async (_signal, registryProgress) => {
+        let progress = wrapProgress(registryProgress, extra);
         progress("Resolving CDP port");
         let port = cdpPort;
         try {
@@ -53111,7 +53140,7 @@ function registerQuitApp(server) {
         }
         let app = new AppService(port);
         return progress("Quitting LinkedHelper"), await app.quit(), "LinkedHelper quit successfully";
-      });
+      }, extra?.signal !== void 0 ? { signal: extra.signal } : void 0);
       return outcome.status === "rejected" ? mcpError(outcome.reason) : outcome.status === "in_progress" ? mcpSuccess(JSON.stringify({
         status: "in_progress",
         operationId: outcome.operationId,
@@ -53137,16 +53166,14 @@ function registerRestartInstance(server) {
       let active = operationRegistry.getActiveWriteOp();
       if (active)
         return mcpError(`Operation ${active.operationId} (${active.kind}) is already running. Cancel it with cancel-operation or poll get-operation for status.`);
-      let mcpSignal = extra?.signal, outcome = await runAsyncOp(operationRegistry, "restart-instance", async (signal, progress) => {
-        let controller = new AbortController(), merged = controller.signal, forward = () => controller.abort();
-        signal.addEventListener("abort", forward, { once: !0 }), mcpSignal && mcpSignal.addEventListener("abort", forward, { once: !0 }), progress("Acquiring launcher connection");
-        let { launcher } = await acquireLauncherWithRecovery(cdpPort, buildCdpOptions({ cdpHost, allowRemote }), { signal: merged });
-        try {
-          return progress(`Restarting instance ${accountId}`), await restartInstance(launcher, accountId, launcher.currentPort, { force: force ?? !1, signal: merged });
-        } finally {
-          launcher.disconnect(), signal.removeEventListener("abort", forward), mcpSignal?.removeEventListener("abort", forward);
-        }
-      });
+      let outcome = await runAsyncOp(operationRegistry, "restart-instance", async (signal, registryProgress) => {
+        let progress = wrapProgress(registryProgress, extra);
+        return await restartInstance(cdpPort, buildCdpOptions({ cdpHost, allowRemote }), accountId, {
+          force: force ?? !1,
+          signal,
+          progress
+        });
+      }, extra?.signal !== void 0 ? { signal: extra.signal } : void 0);
       return outcome.status === "rejected" ? mcpError(outcome.reason) : outcome.status === "in_progress" ? mcpSuccess(JSON.stringify({
         status: "in_progress",
         operationId: outcome.operationId,
@@ -53169,37 +53196,44 @@ function registerStartInstance(server) {
       let active = operationRegistry.getActiveWriteOp();
       if (active)
         return mcpError(`Operation ${active.operationId} (${active.kind}) is already running. Cancel it with cancel-operation or poll get-operation for status.`);
-      let mcpSignal = extra?.signal, outcome = await runAsyncOp(operationRegistry, "start-instance", async (signal, progress) => {
-        let controller = new AbortController(), merged = controller.signal, forward = () => controller.abort();
-        signal.addEventListener("abort", forward, { once: !0 }), mcpSignal && mcpSignal.addEventListener("abort", forward, { once: !0 }), progress("Acquiring launcher connection");
-        let { launcher } = await acquireLauncherWithRecovery(cdpPort, buildCdpOptions({ cdpHost, allowRemote }), { signal: merged });
-        try {
-          let resolvedId = accountId;
-          if (resolvedId === void 0) {
-            let { result: accounts } = await withLauncherRecovery(launcher, () => launcher.listAccounts(), { signal: merged });
+      let outcome = await runAsyncOp(operationRegistry, "start-instance", async (signal, registryProgress) => {
+        let progress = wrapProgress(registryProgress, extra);
+        progress("Acquiring launcher connection");
+        let resolvedId = accountId;
+        resolvedId === void 0 && (resolvedId = await withLauncherCDPGate(async () => {
+          let { launcher } = await acquireLauncherWithRecovery(cdpPort, buildCdpOptions({ cdpHost, allowRemote }), { signal });
+          try {
+            let { result: accounts } = await withLauncherRecovery(launcher, () => launcher.listAccounts(), { signal });
             if (accounts.length === 0)
               throw new Error("No accounts found.");
             if (accounts.length > 1)
               throw new Error("Multiple accounts found. Specify accountId. Use list-accounts to see available accounts.");
-            resolvedId = accounts[0].id;
+            return accounts[0].id;
+          } finally {
+            launcher.disconnect();
           }
-          progress(`Starting instance ${resolvedId}`);
-          let port = launcher.currentPort, { result: opOutcome } = await withLauncherQueue(() => withLauncherRecovery(launcher, () => startInstanceWithRecovery(launcher, resolvedId, launcher.currentPort), { signal: merged }), { type: "start", accountId: resolvedId, launcherPort: port });
-          if (opOutcome.status === "timeout") {
-            let waitResult = await waitForConnectable(resolvedId, { signal: merged });
-            if (waitResult.verified && waitResult.cdpPort !== null)
-              return {
-                text: `Instance started for account ${resolvedId} on CDP port ${waitResult.cdpPort}` + (waitResult.pid !== void 0 ? ` \u2014 PID ${waitResult.pid}` : "") + " \u2014 verified (process inspection)",
-                type: "text"
-              };
-            throw new Error("Instance started but failed to initialize within timeout.");
+        })), progress(`Starting instance ${resolvedId}`);
+        let opOutcome = await withLauncherQueue(() => withLauncherCDPGate(async () => {
+          let { launcher } = await acquireLauncherWithRecovery(cdpPort, buildCdpOptions({ cdpHost, allowRemote }), { signal }), launcherPort = launcher.currentPort;
+          try {
+            let { result } = await withLauncherRecovery(launcher, () => startInstanceWithRecovery(launcher, resolvedId, launcherPort), { signal });
+            return result;
+          } finally {
+            launcher.disconnect();
           }
-          let text = `Instance ${opOutcome.status === "already_running" ? "already running" : "started"} for account ${resolvedId} on CDP port ${opOutcome.port}`;
-          return opOutcome.pid !== void 0 && (text += ` \u2014 PID ${opOutcome.pid}`), opOutcome.verified === !0 ? text += " \u2014 verified" : opOutcome.verified === !1 && (text += " \u2014 NOT verified \u2014 duplicate port suspected"), { text, type: "text" };
-        } finally {
-          launcher.disconnect(), signal.removeEventListener("abort", forward), mcpSignal?.removeEventListener("abort", forward);
+        }), { type: "start", accountId: resolvedId });
+        if (opOutcome.status === "timeout") {
+          let waitResult = await waitForConnectable(resolvedId, { signal });
+          if (waitResult.verified && waitResult.cdpPort !== null)
+            return {
+              text: `Instance started for account ${resolvedId} on CDP port ${waitResult.cdpPort}` + (waitResult.pid !== void 0 ? ` \u2014 PID ${waitResult.pid}` : "") + " \u2014 verified (process inspection)",
+              type: "text"
+            };
+          throw new Error("Instance started but failed to initialize within timeout.");
         }
-      });
+        let text = `Instance ${opOutcome.status === "already_running" ? "already running" : "started"} for account ${resolvedId} on CDP port ${opOutcome.port}`;
+        return opOutcome.pid !== void 0 && (text += ` \u2014 PID ${opOutcome.pid}`), opOutcome.verified === !0 ? text += " \u2014 verified" : opOutcome.verified === !1 && (text += " \u2014 NOT verified \u2014 duplicate port suspected"), { text, type: "text" };
+      }, extra?.signal !== void 0 ? { signal: extra.signal } : void 0);
       if (outcome.status === "rejected")
         return mcpError(outcome.reason);
       if (outcome.status === "in_progress")
@@ -53227,29 +53261,33 @@ function registerStopInstance(server) {
       let active = operationRegistry.getActiveWriteOp();
       if (active)
         return mcpError(`Operation ${active.operationId} (${active.kind}) is already running. Cancel it with cancel-operation or poll get-operation for status.`);
-      let mcpSignal = extra?.signal, outcome = await runAsyncOp(operationRegistry, "stop-instance", async (signal, progress) => {
-        let controller = new AbortController(), merged = controller.signal, forward = () => controller.abort();
-        signal.addEventListener("abort", forward, { once: !0 }), mcpSignal && mcpSignal.addEventListener("abort", forward, { once: !0 }), progress("Acquiring launcher connection");
-        let { launcher } = await acquireLauncherWithRecovery(cdpPort, buildCdpOptions({ cdpHost, allowRemote }), { signal: merged });
-        try {
-          let resolvedId = accountId;
-          if (resolvedId === void 0) {
-            let { result: accounts } = await withLauncherRecovery(launcher, () => launcher.listAccounts(), { signal: merged });
+      let outcome = await runAsyncOp(operationRegistry, "stop-instance", async (signal, registryProgress) => {
+        let progress = wrapProgress(registryProgress, extra);
+        progress("Acquiring launcher connection");
+        let resolvedId = accountId;
+        return resolvedId === void 0 && (resolvedId = await withLauncherCDPGate(async () => {
+          let { launcher } = await acquireLauncherWithRecovery(cdpPort, buildCdpOptions({ cdpHost, allowRemote }), { signal });
+          try {
+            let { result: accounts } = await withLauncherRecovery(launcher, () => launcher.listAccounts(), { signal });
             if (accounts.length === 0)
               throw new Error("No accounts found.");
             if (accounts.length > 1)
               throw new Error("Multiple accounts found. Specify accountId. Use list-accounts to see available accounts.");
-            resolvedId = accounts[0].id;
+            return accounts[0].id;
+          } finally {
+            launcher.disconnect();
           }
-          progress(`Stopping instance ${resolvedId}`);
-          let port = launcher.currentPort;
-          return await withLauncherQueue(() => withLauncherRecovery(launcher, async () => {
-            await launcher.stopInstance(resolvedId), await waitForInstanceShutdown(port);
-          }, { signal: merged }), { type: "stop", launcherPort: port }), `Instance stopped for account ${resolvedId}`;
-        } finally {
-          launcher.disconnect(), signal.removeEventListener("abort", forward), mcpSignal?.removeEventListener("abort", forward);
-        }
-      });
+        })), progress(`Stopping instance ${resolvedId}`), await withLauncherQueue(() => withLauncherCDPGate(async () => {
+          let { launcher } = await acquireLauncherWithRecovery(cdpPort, buildCdpOptions({ cdpHost, allowRemote }), { signal }), port = launcher.currentPort;
+          try {
+            await withLauncherRecovery(launcher, async () => {
+              await launcher.stopInstance(resolvedId), await waitForInstanceShutdown(port);
+            }, { signal });
+          } finally {
+            launcher.disconnect();
+          }
+        }), { type: "stop" }), `Instance stopped for account ${resolvedId}`;
+      }, extra?.signal !== void 0 ? { signal: extra.signal } : void 0);
       return outcome.status === "rejected" ? mcpError(outcome.reason) : outcome.status === "in_progress" ? mcpSuccess(JSON.stringify({
         status: "in_progress",
         operationId: outcome.operationId,

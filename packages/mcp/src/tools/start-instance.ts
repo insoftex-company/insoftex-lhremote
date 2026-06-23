@@ -7,6 +7,7 @@ import {
   acquireLauncherWithRecovery,
   startInstanceWithRecovery,
   waitForConnectable,
+  withLauncherCDPGate,
   withLauncherQueue,
   withLauncherRecovery,
 } from "@insoftex/lhremote-core";
@@ -41,70 +42,85 @@ export function registerStartInstance(server: McpServer): void {
             const progress = wrapProgress(registryProgress, extra);
 
             progress("Acquiring launcher connection");
-            const { launcher } = await acquireLauncherWithRecovery(
-              cdpPort,
-              buildCdpOptions({ cdpHost, allowRemote }),
-              { signal },
-            );
 
-            try {
-              // Phase 1: resolve account ID.
-              let resolvedId = accountId;
-
-              if (resolvedId === undefined) {
-                const { result: accounts } = await withLauncherRecovery(
-                  launcher,
-                  () => launcher.listAccounts(),
+            // Phase 1: resolve account ID (held inside gate window).
+            let resolvedId = accountId;
+            if (resolvedId === undefined) {
+              resolvedId = await withLauncherCDPGate(async () => {
+                const { launcher } = await acquireLauncherWithRecovery(
+                  cdpPort,
+                  buildCdpOptions({ cdpHost, allowRemote }),
                   { signal },
                 );
-
-                if (accounts.length === 0) {
-                  throw new Error("No accounts found.");
-                }
-                if (accounts.length > 1) {
-                  throw new Error(
-                    "Multiple accounts found. Specify accountId. Use list-accounts to see available accounts.",
-                  );
-                }
-                resolvedId = (accounts[0] as Account).id;
-              }
-
-              // Phase 2: start through the launcher queue.
-              progress(`Starting instance ${resolvedId}`);
-              const port = launcher.currentPort;
-              const { result: opOutcome } = await withLauncherQueue(
-                () =>
-                  withLauncherRecovery(
+                try {
+                  const { result: accounts } = await withLauncherRecovery(
                     launcher,
-                    () => startInstanceWithRecovery(launcher, resolvedId as number, launcher.currentPort),
+                    () => launcher.listAccounts(),
                     { signal },
-                  ),
-                { type: "start", accountId: resolvedId as number, launcherPort: port },
-              );
-
-              if (opOutcome.status === "timeout") {
-                const waitResult = await waitForConnectable(resolvedId as number, { signal });
-                if (waitResult.verified && waitResult.cdpPort !== null) {
-                  return {
-                    text:
-                      `Instance started for account ${resolvedId} on CDP port ${waitResult.cdpPort}` +
-                      (waitResult.pid !== undefined ? ` — PID ${waitResult.pid}` : "") +
-                      " — verified (process inspection)",
-                    type: "text" as const,
-                  };
+                  );
+                  if (accounts.length === 0) throw new Error("No accounts found.");
+                  if (accounts.length > 1) {
+                    throw new Error(
+                      "Multiple accounts found. Specify accountId. Use list-accounts to see available accounts.",
+                    );
+                  }
+                  return (accounts[0] as Account).id;
+                } finally {
+                  launcher.disconnect();
                 }
-                throw new Error("Instance started but failed to initialize within timeout.");
-              }
-
-              const verb = opOutcome.status === "already_running" ? "already running" : "started";
-              let text = `Instance ${verb} for account ${resolvedId} on CDP port ${opOutcome.port}`;
-              if (opOutcome.pid !== undefined) text += ` — PID ${opOutcome.pid}`;
-              if (opOutcome.verified === true) text += " — verified";
-              else if (opOutcome.verified === false) text += " — NOT verified — duplicate port suspected";
-              return { text, type: "text" as const };
-            } finally {
-              launcher.disconnect();
+              });
             }
+
+            // Phase 2: start through the launcher queue (gate inside queue slot).
+            progress(`Starting instance ${resolvedId}`);
+            const opOutcome = await withLauncherQueue(
+              () =>
+                withLauncherCDPGate(async () => {
+                  const { launcher } = await acquireLauncherWithRecovery(
+                    cdpPort,
+                    buildCdpOptions({ cdpHost, allowRemote }),
+                    { signal },
+                  );
+                  const launcherPort = launcher.currentPort;
+                  try {
+                    const { result } = await withLauncherRecovery(
+                      launcher,
+                      () =>
+                        startInstanceWithRecovery(
+                          launcher,
+                          resolvedId as number,
+                          launcherPort,
+                        ),
+                      { signal },
+                    );
+                    return result;
+                  } finally {
+                    launcher.disconnect();
+                  }
+                }),
+              { type: "start", accountId: resolvedId as number },
+            );
+
+            if (opOutcome.status === "timeout") {
+              const waitResult = await waitForConnectable(resolvedId as number, { signal });
+              if (waitResult.verified && waitResult.cdpPort !== null) {
+                return {
+                  text:
+                    `Instance started for account ${resolvedId} on CDP port ${waitResult.cdpPort}` +
+                    (waitResult.pid !== undefined ? ` — PID ${waitResult.pid}` : "") +
+                    " — verified (process inspection)",
+                  type: "text" as const,
+                };
+              }
+              throw new Error("Instance started but failed to initialize within timeout.");
+            }
+
+            const verb = opOutcome.status === "already_running" ? "already running" : "started";
+            let text = `Instance ${verb} for account ${resolvedId} on CDP port ${opOutcome.port}`;
+            if (opOutcome.pid !== undefined) text += ` — PID ${opOutcome.pid}`;
+            if (opOutcome.verified === true) text += " — verified";
+            else if (opOutcome.verified === false) text += " — NOT verified — duplicate port suspected";
+            return { text, type: "text" as const };
           },
           extra?.signal !== undefined ? { signal: extra.signal } : undefined,
         );

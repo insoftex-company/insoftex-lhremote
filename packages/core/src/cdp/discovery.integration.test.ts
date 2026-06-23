@@ -4,11 +4,12 @@
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { discoverTargets } from "./discovery.js";
 import {
+  isChromiumAvailable,
   launchChromium,
   type ChromiumInstance,
 } from "./testing/launch-chromium.js";
 
-describe("discoverTargets (integration)", () => {
+describe.skipIf(!isChromiumAvailable)("discoverTargets (integration)", () => {
   let chromium: ChromiumInstance;
 
   beforeAll(async () => {

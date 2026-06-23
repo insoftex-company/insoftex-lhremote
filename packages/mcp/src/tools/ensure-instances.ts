@@ -2,7 +2,7 @@
 // Copyright (C) 2026 Oleksii PELYKH
 
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
-import { acquireLauncherWithRecovery, ensureInstances } from "@insoftex/lhremote-core";
+import { acquireLauncherWithRecovery, ensureInstances, withLauncherCDPGate } from "@insoftex/lhremote-core";
 import { z } from "zod";
 import { buildCdpOptions, cdpConnectionSchema, mcpCatchAll, mcpError, mcpSuccess, wrapProgress } from "../helpers.js";
 import { operationRegistry, runAsyncOp } from "../operation-registry.js";
@@ -40,19 +40,19 @@ export function registerEnsureInstances(server: McpServer): void {
             const progress = wrapProgress(registryProgress, extra);
 
             progress("Acquiring launcher connection");
-            const { launcher } = await acquireLauncherWithRecovery(
-              cdpPort,
-              buildCdpOptions({ cdpHost, allowRemote }),
-              { signal },
-            );
-
-            try {
-              progress(`Starting ${accountIds.length} instance(s)`);
-              const results = await ensureInstances(accountIds, launcher, launcher.currentPort);
-              return results;
-            } finally {
-              launcher.disconnect();
-            }
+            return await withLauncherCDPGate(async () => {
+              const { launcher } = await acquireLauncherWithRecovery(
+                cdpPort,
+                buildCdpOptions({ cdpHost, allowRemote }),
+                { signal },
+              );
+              try {
+                progress(`Starting ${accountIds.length} instance(s)`);
+                return await ensureInstances(accountIds, launcher, launcher.currentPort);
+              } finally {
+                launcher.disconnect();
+              }
+            });
           },
           extra?.signal !== undefined ? { signal: extra.signal } : undefined,
         );

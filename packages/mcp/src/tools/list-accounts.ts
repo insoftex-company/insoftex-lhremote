@@ -4,6 +4,7 @@
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import {
   acquireLauncherWithRecovery,
+  withLauncherCDPGate,
   withLauncherRecovery,
 } from "@insoftex/lhremote-core";
 import { z } from "zod";
@@ -25,32 +26,27 @@ export function registerListAccounts(server: McpServer): void {
     },
     async ({ cdpPort, cdpHost, allowRemote, accountId, includeAllWorkspaces }) => {
       try {
-        let launcher: Awaited<ReturnType<typeof acquireLauncherWithRecovery>>["launcher"];
-        try {
-          ({ launcher } = await acquireLauncherWithRecovery(
+        const listOptions = includeAllWorkspaces === true
+          ? { includeAllWorkspaces: true }
+          : undefined;
+
+        const accounts = await withLauncherCDPGate(async () => {
+          const { launcher } = await acquireLauncherWithRecovery(
             cdpPort,
             buildCdpOptions({ cdpHost, allowRemote, accountId }),
-          ));
-        } catch (error) {
-          return mcpCatchAll(error, "Failed to connect to LinkedHelper");
-        }
-
-        try {
-          const options = includeAllWorkspaces === true
-            ? { includeAllWorkspaces: true }
-            : undefined;
-
-          const { result: accounts } = await withLauncherRecovery(
-            launcher,
-            () => launcher.listAccounts(options),
           );
+          try {
+            const { result } = await withLauncherRecovery(
+              launcher,
+              () => launcher.listAccounts(listOptions),
+            );
+            return result;
+          } finally {
+            launcher.disconnect();
+          }
+        });
 
-          return mcpSuccess(JSON.stringify(accounts, null, 2));
-        } catch (error) {
-          return mcpCatchAll(error, "Failed to list accounts");
-        } finally {
-          launcher.disconnect();
-        }
+        return mcpSuccess(JSON.stringify(accounts, null, 2));
       } catch (error) {
         return mcpCatchAll(error, "Failed to list accounts");
       }

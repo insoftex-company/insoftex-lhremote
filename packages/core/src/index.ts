@@ -264,6 +264,7 @@ export {
   DEFAULT_SETTLE_BARRIER_TIMEOUT_MS,
   type SettleType,
   type LauncherQueueSettleOptions,
+  withLauncherCDPGate,
   invalidateProcessCache,
   readinessTracker,
   waitForConnectable,

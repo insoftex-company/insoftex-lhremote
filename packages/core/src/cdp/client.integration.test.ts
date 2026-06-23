@@ -5,11 +5,12 @@ import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
 import { CDPClient } from "./client.js";
 import { CDPEvaluationError } from "./errors.js";
 import {
+  isChromiumAvailable,
   launchChromium,
   type ChromiumInstance,
 } from "./testing/launch-chromium.js";
 
-describe("CDPClient (integration)", () => {
+describe.skipIf(!isChromiumAvailable)("CDPClient (integration)", () => {
   let chromium: ChromiumInstance;
   let client: CDPClient;
 

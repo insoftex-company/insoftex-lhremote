@@ -6,6 +6,7 @@ import {
   type Account,
   acquireLauncherWithRecovery,
   waitForInstanceShutdown,
+  withLauncherCDPGate,
   withLauncherQueue,
   withLauncherRecovery,
 } from "@insoftex/lhremote-core";
@@ -40,49 +41,62 @@ export function registerStopInstance(server: McpServer): void {
             const progress = wrapProgress(registryProgress, extra);
 
             progress("Acquiring launcher connection");
-            const { launcher } = await acquireLauncherWithRecovery(
-              cdpPort,
-              buildCdpOptions({ cdpHost, allowRemote }),
-              { signal },
-            );
 
-            try {
-              let resolvedId = accountId;
-
-              if (resolvedId === undefined) {
-                const { result: accounts } = await withLauncherRecovery(
-                  launcher,
-                  () => launcher.listAccounts(),
+            // Resolve account ID if not supplied (gate window kept short).
+            let resolvedId = accountId;
+            if (resolvedId === undefined) {
+              resolvedId = await withLauncherCDPGate(async () => {
+                const { launcher } = await acquireLauncherWithRecovery(
+                  cdpPort,
+                  buildCdpOptions({ cdpHost, allowRemote }),
                   { signal },
                 );
-                if (accounts.length === 0) throw new Error("No accounts found.");
-                if (accounts.length > 1) {
-                  throw new Error(
-                    "Multiple accounts found. Specify accountId. Use list-accounts to see available accounts.",
-                  );
-                }
-                resolvedId = (accounts[0] as Account).id;
-              }
-
-              progress(`Stopping instance ${resolvedId}`);
-              const port = launcher.currentPort;
-              await withLauncherQueue(
-                () =>
-                  withLauncherRecovery(
+                try {
+                  const { result: accounts } = await withLauncherRecovery(
                     launcher,
-                    async () => {
-                      await launcher.stopInstance(resolvedId as number);
-                      await waitForInstanceShutdown(port);
-                    },
+                    () => launcher.listAccounts(),
                     { signal },
-                  ),
-                { type: "stop", launcherPort: port },
-              );
-
-              return `Instance stopped for account ${resolvedId}`;
-            } finally {
-              launcher.disconnect();
+                  );
+                  if (accounts.length === 0) throw new Error("No accounts found.");
+                  if (accounts.length > 1) {
+                    throw new Error(
+                      "Multiple accounts found. Specify accountId. Use list-accounts to see available accounts.",
+                    );
+                  }
+                  return (accounts[0] as Account).id;
+                } finally {
+                  launcher.disconnect();
+                }
+              });
             }
+
+            progress(`Stopping instance ${resolvedId}`);
+            await withLauncherQueue(
+              () =>
+                withLauncherCDPGate(async () => {
+                  const { launcher } = await acquireLauncherWithRecovery(
+                    cdpPort,
+                    buildCdpOptions({ cdpHost, allowRemote }),
+                    { signal },
+                  );
+                  const port = launcher.currentPort;
+                  try {
+                    await withLauncherRecovery(
+                      launcher,
+                      async () => {
+                        await launcher.stopInstance(resolvedId as number);
+                        await waitForInstanceShutdown(port);
+                      },
+                      { signal },
+                    );
+                  } finally {
+                    launcher.disconnect();
+                  }
+                }),
+              { type: "stop" },
+            );
+
+            return `Instance stopped for account ${resolvedId}`;
           },
           extra?.signal !== undefined ? { signal: extra.signal } : undefined,
         );
