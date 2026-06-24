@@ -7,12 +7,12 @@ import {
   type RunningInstance,
   findApp,
   readinessTracker,
-  resolveLauncherPort,
   scanRunningInstances,
 } from "../cdp/index.js";
 import { DatabaseClient, discoverAllDatabases } from "../db/index.js";
 import { ProfileRepository } from "../db/repositories/profile.js";
 import { errorMessage } from "../utils/error-message.js";
+import { isLoopbackAddress } from "../utils/loopback.js";
 import { LauncherService } from "./launcher.js";
 
 /** Status of the LinkedHelper launcher process. */
@@ -91,12 +91,24 @@ export async function checkStatus(
   cdpPort?: number,
   options?: { host?: string; allowRemote?: boolean },
 ): Promise<StatusReport> {
-  // Resolve launcher port: explicit, auto-discovered, or none
+  // Resolve launcher port from a single findApp() snapshot — reusing it for
+  // both port selection and process enrichment prevents summary/detail
+  // contradictions caused by two sequential scans returning ports in different
+  // Set orderings (multi-socket non-determinism).
   let resolvedPort: number | null;
-  try {
-    resolvedPort = await resolveLauncherPort(cdpPort, options?.host, 0);
-  } catch {
+  let discoveredApps: DiscoveredApp[] | null = null;
+
+  if (cdpPort !== undefined) {
+    resolvedPort = cdpPort;
+  } else if (options?.host !== undefined && !isLoopbackAddress(options.host)) {
+    // Non-loopback host: local process scan cannot discover a remote CDP port.
     resolvedPort = null;
+  } else {
+    discoveredApps = await findApp().catch((): DiscoveredApp[] => []);
+    const launcherApp = discoveredApps.find(
+      (a) => a.role === "launcher" && a.connectable && a.cdpPort !== null,
+    );
+    resolvedPort = launcherApp?.cdpPort ?? null;
   }
 
   const launcher: LauncherStatus = { reachable: false, port: resolvedPort };
@@ -123,14 +135,15 @@ export async function checkStatus(
     try {
       await launcherService.connect();
       launcher.reachable = true;
-
       launcherService.disconnect();
     } catch (error: unknown) {
       launcherService.disconnect();
       warnings.push(`Launcher not reachable on port ${resolvedPort.toString()}: ${errorMessage(error)}`);
 
-      // Enrich with process-level detection when CDP is unreachable
-      const apps = await findApp();
+      // Reuse the already-captured snapshot (same scan that found the port) to
+      // avoid a second findApp() call that could return ports in a different
+      // ordering and contradict the summary.
+      const apps = discoveredApps ?? await findApp();
       if (apps.length > 0) {
         launcher.processes = apps;
         warnings.push(
@@ -139,8 +152,8 @@ export async function checkStatus(
       }
     }
   } else {
-    // No launcher port — check for running processes
-    const apps = await findApp();
+    // No connectable launcher port — enrich with process-level detection
+    const apps = discoveredApps ?? await findApp();
     if (apps.length > 0) {
       launcher.processes = apps;
       const connectableInstances = apps.filter(

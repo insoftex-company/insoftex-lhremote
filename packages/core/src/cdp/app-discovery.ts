@@ -5,7 +5,7 @@ import { pidToPorts } from "pid-port";
 
 import { LinkedHelperNotRunningError, LinkedHelperUnreachableError } from "../services/errors.js";
 import { delay } from "../utils/index.js";
-import { isCdpPort } from "../utils/cdp-port.js";
+import { isCdpPort, parseCmdlineDebugPort } from "../utils/cdp-port.js";
 import { isLoopbackAddress } from "../utils/loopback.js";
 import type { InstanceIdentity } from "./process-inspector.js";
 import { parseIdentityFromCmdline } from "./process-inspector.js";
@@ -141,7 +141,7 @@ export async function findApp(options: FindAppOptions = {}): Promise<DiscoveredA
     const role = classifyRole(proc, lhPids);
     if (role === "helper-child") continue;
 
-    const app = await probeProcess(proc.pid, role);
+    const app = await probeProcess(proc.pid, role, proc.cmdline);
     app.helperChildCount = helperCounts.get(proc.pid) ?? 0;
 
     if (role === "instance" && proc.cmdline) {
@@ -311,8 +311,27 @@ function classifyRole(
 
 /**
  * Probe a single process for CDP connectivity.
+ *
+ * When `cmdline` contains `--remote-debugging-port=<N>`, only that port is
+ * tested — Electron processes bind both the intended CDP socket and an
+ * internal DevTools socket that also answers `/json/list`, so probing all
+ * sockets is non-deterministic.  The cmdline flag is the authoritative signal
+ * for which socket is the intended CDP endpoint.
+ *
+ * When no cmdline hint is available, all listening TCP ports are probed
+ * sequentially as before.
  */
-async function probeProcess(pid: number, role: AppRole): Promise<DiscoveredApp> {
+async function probeProcess(pid: number, role: AppRole, cmdline?: string | null): Promise<DiscoveredApp> {
+  const cmdlinePort = cmdline ? parseCmdlineDebugPort(cmdline) : null;
+
+  if (cmdlinePort !== null) {
+    // Probe the declared port directly — pidToPorts() can be stale or incomplete
+    // and must not gate access to the authoritative cmdline port.
+    const connectable = await isCdpPort(cmdlinePort);
+    return { pid, cdpPort: cmdlinePort, connectable, role };
+  }
+
+  // No cmdline hint — probe all TCP ports sequentially (legacy path)
   let ports: Set<number>;
   try {
     ports = await pidToPorts(pid);
@@ -326,7 +345,6 @@ async function probeProcess(pid: number, role: AppRole): Promise<DiscoveredApp> 
     }
   }
 
-  // Process is running but no CDP port detected (or none responding)
   const firstPort = [...ports][0] ?? null;
   return { pid, cdpPort: firstPort, connectable: false, role };
 }

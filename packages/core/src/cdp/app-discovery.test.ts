@@ -13,9 +13,13 @@ vi.mock("pid-port", () => ({
   pidToPorts: vi.fn().mockResolvedValue(new Set<number>()),
 }));
 
-vi.mock("../utils/cdp-port.js", () => ({
-  isCdpPort: vi.fn().mockResolvedValue(false),
-}));
+vi.mock("../utils/cdp-port.js", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../utils/cdp-port.js")>();
+  return {
+    ...actual,
+    isCdpPort: vi.fn().mockResolvedValue(false),
+  };
+});
 
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -110,12 +114,14 @@ describe("findApp basic discovery", () => {
 
   it("discovers linked-helper.exe (case-insensitive name matching)", async () => {
     mockedGatherRawProcesses.mockResolvedValue([{ ...launcherProc(2000), name: "LinkedHelper.exe" }]);
-    mockedPidToPorts.mockResolvedValue(new Set([9334]));
+    // launcherProc cmdline specifies --remote-debugging-port=9222; match the
+    // port so the cmdline hint and the TCP set agree.
+    mockedPidToPorts.mockResolvedValue(new Set([9222]));
     mockedIsCdpPort.mockResolvedValue(true);
 
     const result = await findApp();
     expect(result).toHaveLength(1);
-    expect(result[0]).toMatchObject({ pid: 2000, cdpPort: 9334, connectable: true, role: "launcher" });
+    expect(result[0]).toMatchObject({ pid: 2000, cdpPort: 9222, connectable: true, role: "launcher" });
   });
 
   it("does not match processes with similar but different names", async () => {
@@ -126,20 +132,34 @@ describe("findApp basic discovery", () => {
     expect(await findApp()).toEqual([]);
   });
 
-  it("sets cdpPort to null when process has no listening ports", async () => {
+  it("reports cmdline port (not null) when process has no listening ports yet", async () => {
+    // With --remote-debugging-port=9222 in the cmdline, we report that port as
+    // the target even when pidToPorts returns an empty set — port not yet bound
+    // (startup) or just dropped (brief restart).
     mockedGatherRawProcesses.mockResolvedValue([launcherProc(1000)]);
     mockedPidToPorts.mockResolvedValue(new Set());
 
     const result = await findApp();
-    expect(result[0]).toMatchObject({ pid: 1000, cdpPort: null, connectable: false });
+    expect(result[0]).toMatchObject({ pid: 1000, cdpPort: 9222, connectable: false });
   });
 
-  it("sets cdpPort to null when pidToPorts throws", async () => {
+  it("reports cmdline port (not null) when pidToPorts throws", async () => {
     mockedGatherRawProcesses.mockResolvedValue([launcherProc(1000)]);
     mockedPidToPorts.mockRejectedValue(new Error("failed"));
 
     const result = await findApp();
-    expect(result[0]).toMatchObject({ pid: 1000, cdpPort: null, connectable: false });
+    expect(result[0]).toMatchObject({ pid: 1000, cdpPort: 9222, connectable: false });
+  });
+
+  it("marks process connectable when cmdline port responds even if pidToPorts is stale/empty", async () => {
+    // Regression: old code gated isCdpPort behind ports.has(cmdlinePort), so a
+    // stale pidToPorts result produced a false-negative connectable=false.
+    mockedGatherRawProcesses.mockResolvedValue([launcherProc(1000)]);
+    mockedPidToPorts.mockResolvedValue(new Set());  // stale — cmdline port absent
+    mockedIsCdpPort.mockResolvedValue(true);         // but port IS responsive
+
+    const result = await findApp();
+    expect(result[0]).toMatchObject({ pid: 1000, cdpPort: 9222, connectable: true });
   });
 
   it("marks process non-connectable when CDP probe fails", async () => {
@@ -580,5 +600,101 @@ describe("resolveLauncherPort", () => {
     mockedIsCdpPort.mockResolvedValue(true);
 
     expect(await resolveLauncherPort()).toBe(9222);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Multi-socket port selection (regression for launcher CDP false-negative)
+//
+// Electron processes bind TWO TCP sockets: the real CDP port named by
+// --remote-debugging-port AND an internal DevTools socket that also answers
+// HTTP 200 on /json/list.  probeProcess must always select the cmdline port
+// regardless of the non-deterministic insertion order of the Set returned by
+// pidToPorts.
+// ---------------------------------------------------------------------------
+
+describe("findApp multi-socket port selection", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it("selects --remote-debugging-port when the non-CDP socket appears first in the Set", async () => {
+    mockedGatherRawProcesses.mockResolvedValue([launcherProc(12548)]);
+    // Simulate OS returning the ephemeral non-CDP socket before 9222
+    mockedPidToPorts.mockResolvedValue(new Set([51664, 9222]));
+    // Only 9222 is the real CDP endpoint
+    mockedIsCdpPort.mockImplementation(async (port) => port === 9222);
+
+    const result = await findApp();
+
+    expect(result[0]).toMatchObject({ pid: 12548, cdpPort: 9222, connectable: true });
+    // The sibling socket must NOT be probed — cmdline hint short-circuits it
+    expect(mockedIsCdpPort).not.toHaveBeenCalledWith(51664);
+  });
+
+  it("selects --remote-debugging-port when it appears first in the Set (fast path)", async () => {
+    mockedGatherRawProcesses.mockResolvedValue([launcherProc(12548)]);
+    mockedPidToPorts.mockResolvedValue(new Set([9222, 51664]));
+    mockedIsCdpPort.mockImplementation(async (port) => port === 9222);
+
+    const result = await findApp();
+
+    expect(result[0]).toMatchObject({ pid: 12548, cdpPort: 9222, connectable: true });
+    expect(mockedIsCdpPort).toHaveBeenCalledWith(9222);
+    expect(mockedIsCdpPort).not.toHaveBeenCalledWith(51664);
+  });
+
+  it("reports cdpPort=cmdlinePort and connectable=false when both sockets fail the CDP probe", async () => {
+    // Simulates a brief CDP outage — both sockets are in the set but neither
+    // responds.  Must report the cmdline port (not the sibling) as the target.
+    mockedGatherRawProcesses.mockResolvedValue([launcherProc(12548)]);
+    mockedPidToPorts.mockResolvedValue(new Set([51664, 9222]));
+    mockedIsCdpPort.mockResolvedValue(false);
+
+    const result = await findApp();
+
+    expect(result[0]).toMatchObject({ pid: 12548, cdpPort: 9222, connectable: false });
+    // Only the cmdline port should have been probed
+    expect(mockedIsCdpPort).toHaveBeenCalledWith(9222);
+    expect(mockedIsCdpPort).not.toHaveBeenCalledWith(51664);
+  });
+
+  it("falls back to probing all ports when process has no --remote-debugging-port in cmdline", async () => {
+    // A launcher without the flag (unusual) still gets port selection via the
+    // sequential-probe fallback path.
+    mockedGatherRawProcesses.mockResolvedValue([{
+      pid: 12548,
+      ppid: 0,
+      name: "linked-helper.exe",
+      cmdline: "C:\\path\\linked-helper.exe --some-flag",
+    }]);
+    mockedPidToPorts.mockResolvedValue(new Set([51664, 9222]));
+    mockedIsCdpPort.mockImplementation(async (port) => port === 9222);
+
+    const result = await findApp();
+
+    expect(result[0]).toMatchObject({ pid: 12548, cdpPort: 9222, connectable: true });
+    // Both ports are probed in this fallback path
+    expect(mockedIsCdpPort).toHaveBeenCalledWith(51664);
+    expect(mockedIsCdpPort).toHaveBeenCalledWith(9222);
+  });
+
+  it("resolveAppPort returns cmdline port on every call (determinism across 20 invocations)", async () => {
+    mockedGatherRawProcesses.mockResolvedValue([launcherProc(12548)]);
+    // Both sockets present; Set ordering might vary in production but here is
+    // fixed — the test verifies the cmdline path, not OS ordering.
+    mockedPidToPorts.mockResolvedValue(new Set([51664, 9222]));
+    mockedIsCdpPort.mockImplementation(async (port) => port === 9222);
+
+    const results = await Promise.all(
+      Array.from({ length: 20 }, () => resolveAppPort("launcher", 0)),
+    );
+
+    expect(results).toHaveLength(20);
+    expect(results.every((p) => p === 9222)).toBe(true);
   });
 });

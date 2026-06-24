@@ -206,6 +206,7 @@ export async function waitForInstancePort(
   const deadline = Date.now() + PORT_DISCOVERY_TIMEOUT;
 
   while (Date.now() < deadline) {
+    invalidateProcessCache();
     const port = await discoverInstancePort(launcherPort);
     if (port !== null) {
       return port;
@@ -285,6 +286,7 @@ export async function waitForInstanceShutdown(
   const deadline = Date.now() + PORT_SHUTDOWN_TIMEOUT;
 
   while (Date.now() < deadline) {
+    invalidateProcessCache();
     const port = await discoverInstancePort(launcherPort);
     if (port === null) {
       return;

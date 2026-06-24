@@ -4,7 +4,8 @@
 import { pidToPorts, portToPid } from "pid-port";
 import psList from "ps-list";
 import { DEFAULT_CDP_PORT } from "../constants.js";
-import { isCdpPort } from "../utils/cdp-port.js";
+import { gatherRawProcesses, type RawProcess } from "./gather-raw-processes.js";
+import { isCdpPort, parseCmdlineDebugPort } from "../utils/cdp-port.js";
 
 /**
  * Discover the dynamic CDP port of a running LinkedHelper instance process.
@@ -35,13 +36,20 @@ export async function discoverInstancePort(
     return null;
   }
 
-  const descendantPids = await findDescendantPids(launcherPid);
+  // Use gatherRawProcesses (cross-platform, Win32_Process on Windows) so that
+  // parseCmdlineDebugPort can identify the authoritative CDP port without
+  // racing all sockets with Promise.any().
+  const allProcs = await gatherRawProcesses().catch((): RawProcess[] => []);
+  const descendantPids = findDescendantPidsFromList(allProcs, launcherPid);
   if (descendantPids.length === 0) {
     return null;
   }
 
+  const procByPid = new Map(allProcs.map((p) => [p.pid, p]));
   const results = await Promise.all(
-    descendantPids.map((pid) => findCdpPort(pid, launcherPort)),
+    descendantPids.map((pid) =>
+      findCdpPort(pid, launcherPort, procByPid.get(pid)?.cmdline ?? null),
+    ),
   );
   return results.find((port) => port !== null) ?? null;
 }
@@ -59,31 +67,43 @@ async function findPidListeningOn(port: number): Promise<number | null> {
 }
 
 /**
- * Find PIDs of all descendant processes for the given ancestor PID.
- *
- * Walks the full process tree rather than only direct children, because
- * LinkedHelper may spawn instance processes through intermediate helpers
- * (e.g. GPU or renderer processes), making them grandchildren or deeper.
+ * Walk a pre-fetched process list and return all PIDs that are descendants
+ * of `ancestorPid`.  Kept synchronous so callers pay the async cost once
+ * (via gatherRawProcesses) rather than inside a loop.
+ */
+function findDescendantPidsFromList(
+  processes: RawProcess[],
+  ancestorPid: number,
+): number[] {
+  const descendants: number[] = [];
+  const queue = [ancestorPid];
+  const visited = new Set<number>([ancestorPid]);
+
+  let currentPid: number | undefined;
+  while ((currentPid = queue.shift()) !== undefined) {
+    for (const p of processes) {
+      if (p.ppid === currentPid && !visited.has(p.pid)) {
+        visited.add(p.pid);
+        descendants.push(p.pid);
+        queue.push(p.pid);
+      }
+    }
+  }
+
+  return descendants;
+}
+
+/**
+ * Find PIDs of all descendant processes for the given ancestor PID via psList.
+ * Used only by killInstanceProcesses, which needs a fresh uncached snapshot.
  */
 async function findDescendantPids(ancestorPid: number): Promise<number[]> {
   try {
     const processes = await psList();
-    const descendants: number[] = [];
-    const queue = [ancestorPid];
-    const visited = new Set<number>([ancestorPid]);
-
-    let currentPid: number | undefined;
-    while ((currentPid = queue.shift()) !== undefined) {
-      for (const p of processes) {
-        if (p.ppid === currentPid && !visited.has(p.pid)) {
-          visited.add(p.pid);
-          descendants.push(p.pid);
-          queue.push(p.pid);
-        }
-      }
-    }
-
-    return descendants;
+    return findDescendantPidsFromList(
+      processes.map((p) => ({ pid: p.pid, ppid: p.ppid ?? 0, name: p.name, cmdline: null })),
+      ancestorPid,
+    );
   } catch {
     return [];
   }
@@ -92,13 +112,26 @@ async function findDescendantPids(ancestorPid: number): Promise<number[]> {
 /**
  * Find the CDP debugging port for the given PID.
  *
- * Tries each listening port (excluding `excludePort`) with an HTTP fetch
- * to `/json/list`.  Returns the first port that responds successfully.
+ * When cmdline contains `--remote-debugging-port=<N>`, that port is probed
+ * directly — Electron binds multiple sockets and racing them with Promise.any()
+ * is non-deterministic.  Falls back to port-racing only when no cmdline hint
+ * is available (e.g. Win32_Process query unavailable).
  */
 async function findCdpPort(
   pid: number,
   excludePort: number,
+  cmdline: string | null,
 ): Promise<number | null> {
+  // Cmdline-authoritative path: trust the declared port, skip socket racing.
+  if (cmdline !== null) {
+    const cmdlinePort = parseCmdlineDebugPort(cmdline);
+    if (cmdlinePort !== null) {
+      if (cmdlinePort === excludePort) return null; // this process IS the launcher
+      return (await isCdpPort(cmdlinePort)) ? cmdlinePort : null;
+    }
+  }
+
+  // Fallback: probe all TCP ports when cmdline hint is unavailable.
   let ports: Set<number>;
   try {
     ports = await pidToPorts(pid);
@@ -121,7 +154,6 @@ async function findCdpPort(
       }),
     );
   } catch {
-    // AggregateError — no candidate port responded to CDP
     return null;
   }
 }

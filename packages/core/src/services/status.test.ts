@@ -37,7 +37,7 @@ vi.mock("./launcher.js", () => ({
   LauncherService: vi.fn(),
 }));
 
-import { discoverInstancePort, findApp, resolveLauncherPort, scanRunningInstances } from "../cdp/index.js";
+import { discoverInstancePort, findApp, scanRunningInstances } from "../cdp/index.js";
 import { DatabaseClient, discoverAllDatabases } from "../db/index.js";
 import { LauncherService } from "./launcher.js";
 import { checkStatus } from "./status.js";
@@ -45,7 +45,6 @@ import { checkStatus } from "./status.js";
 const mockedLauncherService = vi.mocked(LauncherService);
 const mockedDiscoverInstancePort = vi.mocked(discoverInstancePort);
 const mockedFindApp = vi.mocked(findApp);
-const mockedResolveLauncherPort = vi.mocked(resolveLauncherPort);
 const mockedScanRunningInstances = vi.mocked(scanRunningInstances);
 const mockedDiscoverAllDatabases = vi.mocked(discoverAllDatabases);
 const mockedDatabaseClient = vi.mocked(DatabaseClient);
@@ -66,8 +65,7 @@ function mockLauncher(overrides: Partial<LauncherService> = {}) {
 describe("checkStatus", () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    // Default: pass through explicit port, auto-discover returns 9222
-    mockedResolveLauncherPort.mockImplementation(async (port) => port ?? 9222);
+    mockedFindApp.mockResolvedValue([]);
   });
 
   afterEach(() => {
@@ -150,14 +148,15 @@ describe("checkStatus", () => {
   });
 
   it("auto-discovers launcher port when cdpPort omitted", async () => {
-    mockedResolveLauncherPort.mockResolvedValue(9222);
+    mockedFindApp.mockResolvedValue([
+      { pid: 12548, cdpPort: 9222, connectable: true, role: "launcher" as const, helperChildCount: 0 },
+    ]);
     mockLauncher();
-    mockedDiscoverInstancePort.mockResolvedValue(null);
     mockedDiscoverAllDatabases.mockReturnValue(new Map());
 
     const report = await checkStatus();
 
-    expect(mockedResolveLauncherPort).toHaveBeenCalledWith(undefined, undefined, 0);
+    expect(mockedFindApp).toHaveBeenCalled();
     expect(report.launcher.port).toBe(9222);
   });
 

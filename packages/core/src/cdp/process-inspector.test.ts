@@ -13,9 +13,13 @@ vi.mock("pid-port", () => ({
   pidToPorts: vi.fn().mockResolvedValue(new Set<number>()),
 }));
 
-vi.mock("../utils/cdp-port.js", () => ({
-  isCdpPort: vi.fn().mockResolvedValue(false),
-}));
+vi.mock("../utils/cdp-port.js", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../utils/cdp-port.js")>();
+  return {
+    ...actual,
+    isCdpPort: vi.fn().mockResolvedValue(false),
+  };
+});
 
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -520,5 +524,70 @@ describe("result ordering", () => {
     expect(instances[0]?.connectable).toBe(true);
     expect(instances[1]?.pid).toBe(100);
     expect(instances[1]?.connectable).toBe(false);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Multi-socket port selection (regression for instance CDP false-negative)
+//
+// Electron instance processes may bind TWO TCP sockets: the real CDP port
+// named by --remote-debugging-port AND an internal DevTools socket.  probeCdp
+// must select the cmdline port deterministically regardless of the Set order
+// returned by pidToPorts.
+// ---------------------------------------------------------------------------
+
+describe("multi-socket CDP port selection", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it("picks --remote-debugging-port when the sibling socket appears first in the Set", async () => {
+    // Instance with --remote-debugging-port=64038 but OS lists 52805 first
+    const cmdline = instanceCmdline({ appId: 347559 }) + " --remote-debugging-port=64038";
+    mockedGatherRawProcesses.mockResolvedValue([
+      proc(13004, 0, "linked-helper.exe", cmdline),
+    ]);
+    mockedPidToPorts.mockResolvedValue(new Set([52805, 64038]));
+    // Both sockets respond to isCdpPort (internal Electron + real CDP)
+    mockedIsCdpPort.mockImplementation(async (port) => port === 64038 || port === 52805);
+
+    const instances = await scanRunningInstances();
+
+    expect(instances[0]).toMatchObject({ cdpPort: 64038, connectable: true });
+    expect(mockedIsCdpPort).not.toHaveBeenCalledWith(52805);
+  });
+
+  it("reports cdpPort from cmdline when neither socket passes the CDP probe", async () => {
+    const cmdline = instanceCmdline({ appId: 347559 }) + " --remote-debugging-port=64038";
+    mockedGatherRawProcesses.mockResolvedValue([
+      proc(13004, 0, "linked-helper.exe", cmdline),
+    ]);
+    mockedPidToPorts.mockResolvedValue(new Set([52805, 64038]));
+    mockedIsCdpPort.mockResolvedValue(false);
+
+    const instances = await scanRunningInstances();
+
+    expect(instances[0]).toMatchObject({ cdpPort: 64038, connectable: false });
+  });
+
+  it("scanRunningInstances is consistent across repeated calls for the same process", async () => {
+    const cmdline = instanceCmdline({ appId: 347559 }) + " --remote-debugging-port=64038";
+    mockedGatherRawProcesses.mockResolvedValue([
+      proc(13004, 0, "linked-helper.exe", cmdline),
+    ]);
+    mockedPidToPorts.mockResolvedValue(new Set([52805, 64038]));
+    mockedIsCdpPort.mockImplementation(async (port) => port === 64038 || port === 52805);
+
+    const results = await Promise.all(
+      Array.from({ length: 10 }, () => scanRunningInstances()),
+    );
+
+    for (const instances of results) {
+      expect(instances[0]).toMatchObject({ cdpPort: 64038, connectable: true });
+    }
   });
 });

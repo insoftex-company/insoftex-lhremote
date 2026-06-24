@@ -3,7 +3,7 @@
 
 import { pidToPorts } from "pid-port";
 
-import { isCdpPort } from "../utils/cdp-port.js";
+import { isCdpPort, parseCmdlineDebugPort } from "../utils/cdp-port.js";
 import { gatherRawProcesses } from "./gather-raw-processes.js";
 
 /**
@@ -249,9 +249,32 @@ export function parseIdentityFromCmdline(cmdline: string): InstanceIdentity {
 // CDP probing
 // ---------------------------------------------------------------------------
 
+/**
+ * Probe a process for CDP connectivity.
+ *
+ * When `cmdline` contains `--remote-debugging-port=<N>`, only that port is
+ * tested — Electron processes bind both the intended CDP socket and an
+ * internal DevTools socket that also answers `/json/list`, so probing all
+ * sockets is non-deterministic.  The cmdline flag is the authoritative signal
+ * for which socket is the intended CDP endpoint.
+ *
+ * When no cmdline hint is available, all listening TCP ports are probed
+ * sequentially as before.
+ */
 async function probeCdp(
   pid: number,
+  cmdline?: string | null,
 ): Promise<{ cdpPort: number | null; connectable: boolean }> {
+  const cmdlinePort = cmdline ? parseCmdlineDebugPort(cmdline) : null;
+
+  if (cmdlinePort !== null) {
+    // Probe the declared port directly — pidToPorts() can be stale or incomplete
+    // and must not gate access to the authoritative cmdline port.
+    const connectable = await isCdpPort(cmdlinePort);
+    return { cdpPort: cmdlinePort, connectable };
+  }
+
+  // No cmdline hint — probe all TCP ports sequentially (legacy path)
   let ports: Set<number>;
   try {
     ports = await pidToPorts(pid);
@@ -315,7 +338,7 @@ export async function scanRunningInstances(): Promise<RunningInstance[]> {
   const results = await Promise.all(
     instanceProcs.map(async (p) => {
       const identity = parseIdentityFromCmdline(p.cmdline ?? "");
-      const { cdpPort, connectable } = await probeCdp(p.pid);
+      const { cdpPort, connectable } = await probeCdp(p.pid, p.cmdline);
       const instance: RunningInstance = {
         pid: p.pid,
         cdpPort,
@@ -381,7 +404,7 @@ export async function scanOrphans(
     if (livePids.has(proc.pid)) continue;
 
     // It's a non-live instance-side process — check if it's non-connectable
-    const { cdpPort, connectable } = await probeCdp(proc.pid);
+    const { cdpPort, connectable } = await probeCdp(proc.pid, proc.cmdline);
     if (connectable) continue; // Still connectable — not an orphan
 
     const identity = parseIdentityFromCmdline(proc.cmdline ?? "");
