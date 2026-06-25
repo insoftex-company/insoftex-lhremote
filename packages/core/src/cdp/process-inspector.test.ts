@@ -249,15 +249,20 @@ describe("identity parsing", () => {
     expect(names).toContain("Michael Fliorko");
   });
 
-  it("sets confidence=unknown when no identity fields are present", async () => {
-    const bareCmd = "C:\\path\\resources\\out\\linked-helper.exe --env=PROD";
+  it("sets accountId from --app-id with confidence=high even when --user-li details are absent", async () => {
+    // Process has --app-id=9999 but no --user-li-id or --user-li JSON.
+    // accountId must still be parsed from --app-id (the authoritative source)
+    // with confidence=high; name/email will be empty/undefined.
+    const cmdline =
+      `C:\\path\\linked-helper.exe --app-id=9999 --env=PROD`;
+    // --app-id present but no --user-li / --user-li-id → accountId parsed from --app-id, confidence=high
     mockedGatherRawProcesses.mockResolvedValue([
-      proc(99, 0, "linked-helper.exe", bareCmd),
+      proc(99, 0, "linked-helper.exe", cmdline),
     ]);
 
     const instances = await scanRunningInstances();
-    expect(instances[0]?.accountId).toBeNull();
-    expect(instances[0]?.confidence).toBe("unknown");
+    expect(instances[0]?.accountId).toBe(9999);
+    expect(instances[0]?.confidence).toBe("high");
   });
 });
 

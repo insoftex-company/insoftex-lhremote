@@ -136,6 +136,10 @@ export class CampaignRepository {
     queueTarget: PreparedStatement;
     insertTarget: PreparedStatement;
     countTarget: PreparedStatement;
+    getLastCampaignVersion: PreparedStatement;
+    insertCampaignVersion: PreparedStatement;
+    insertCampaignVersionAction: PreparedStatement | null;
+    copyCampaignVersionActions: PreparedStatement | null;
     deleteResultFlagsByCampaign: PreparedStatement;
     deleteResultMessagesByCampaign: PreparedStatement;
     deleteResultsByCampaign: PreparedStatement;
@@ -180,18 +184,45 @@ export class CampaignRepository {
        FROM campaigns WHERE id = ?`,
     );
 
-    this.stmtGetCampaignActions = db.prepare(
-      `SELECT a.id, a.campaign_id, a.name, a.description,
-              ac.id AS config_id, ac.actionType AS action_type,
-              ac.actionSettings AS action_settings, ac.coolDown AS cool_down,
-              ac.maxActionResultsPerIteration AS max_action_results_per_iteration,
-              ac.isDraft AS is_draft, av.id AS version_id
-       FROM actions a
-       JOIN action_versions av ON av.action_id = a.id
-       JOIN action_configs ac ON av.config_id = ac.id
-       WHERE a.campaign_id = ?
-       ORDER BY a.id`,
-    );
+    // Use the latest action_version per action (MAX id) to avoid the
+    // two-row duplication that createCampaign and addAction both produce.
+    // In real LH databases (which have campaign_version_actions), also
+    // order by the position in the last campaign version so post-reorder
+    // calls to getCampaignActions reflect the reordered chain.
+    // Fall back to ORDER BY a.id when the view does not exist (test fixture).
+    try {
+      this.stmtGetCampaignActions = db.prepare(
+        `SELECT a.id, a.campaign_id, a.name, a.description,
+                ac.id AS config_id, ac.actionType AS action_type,
+                ac.actionSettings AS action_settings, ac.coolDown AS cool_down,
+                ac.maxActionResultsPerIteration AS max_action_results_per_iteration,
+                ac.isDraft AS is_draft,
+                (SELECT MAX(av2.id) FROM action_versions av2 WHERE av2.action_id = a.id) AS version_id
+         FROM actions a
+         JOIN action_versions av ON av.id = (SELECT MAX(av2.id) FROM action_versions av2 WHERE av2.action_id = a.id)
+         JOIN action_configs ac ON av.config_id = ac.id
+         LEFT JOIN campaign_version_actions cva
+           ON cva.action_id = a.id
+           AND cva.version_id = (SELECT MAX(id) FROM campaign_versions WHERE campaign_id = a.campaign_id)
+         WHERE a.campaign_id = ?
+         ORDER BY CASE WHEN cva.id IS NOT NULL THEN cva.id ELSE 9999999999 + a.id END, a.id`,
+      );
+    } catch {
+      // campaign_version_actions does not exist in older schemas / test fixtures.
+      this.stmtGetCampaignActions = db.prepare(
+        `SELECT a.id, a.campaign_id, a.name, a.description,
+                ac.id AS config_id, ac.actionType AS action_type,
+                ac.actionSettings AS action_settings, ac.coolDown AS cool_down,
+                ac.maxActionResultsPerIteration AS max_action_results_per_iteration,
+                ac.isDraft AS is_draft,
+                (SELECT MAX(av2.id) FROM action_versions av2 WHERE av2.action_id = a.id) AS version_id
+         FROM actions a
+         JOIN action_versions av ON av.id = (SELECT MAX(av2.id) FROM action_versions av2 WHERE av2.action_id = a.id)
+         JOIN action_configs ac ON av.config_id = ac.id
+         WHERE a.campaign_id = ?
+         ORDER BY a.id`,
+      );
+    }
 
     this.stmtGetResults = db.prepare(
       `SELECT ar.id, ar.action_version_id, ar.person_id, ar.result,
@@ -607,6 +638,34 @@ export class CampaignRepository {
         `INSERT INTO collections (li_account_id, name, created_at, updated_at)
          VALUES (?, NULL, datetime('now'), datetime('now'))`,
       ),
+      getLastCampaignVersion: db.prepare(
+        `SELECT id, exclude_list_id FROM campaign_versions WHERE campaign_id = ? ORDER BY id DESC LIMIT 1`,
+      ),
+      insertCampaignVersion: db.prepare(
+        `INSERT INTO campaign_versions (campaign_id, exclude_list_id) VALUES (?, ?)`,
+      ),
+      insertCampaignVersionAction: (() => {
+        try {
+          return db.prepare(
+            `INSERT INTO campaign_version_actions (version_id, action_id) VALUES (?, ?)`,
+          );
+        } catch {
+          return null;
+        }
+      })(),
+      copyCampaignVersionActions: (() => {
+        try {
+          return db.prepare(
+            `INSERT INTO campaign_version_actions (version_id, action_id)
+             SELECT CAST(? AS INTEGER), action_id
+             FROM campaign_version_actions
+             WHERE version_id = ?
+             ORDER BY id`,
+          );
+        } catch {
+          return null;
+        }
+      })(),
       insertCollectionPeopleVersion: db.prepare(
         `INSERT INTO collection_people_versions
            (collection_id, version_operation_status, additional_data, created_at, updated_at)
@@ -841,10 +900,13 @@ export class CampaignRepository {
       );
       const actionId = (getLastId.get() as { id: number }).id;
 
-      // 3. Insert two action_versions (matching createCampaign pattern)
+      // 3. Insert two action_versions (matching createCampaign pattern).
+      //    Both rows receive the same config and the same exclude_list_id
+      //    (set in step 4).  The MAX id (second row) is what getCampaignActions
+      //    reports via its MAX(av2.id) subquery, so we capture that as versionId.
       stmts.insertActionVersion.run(actionId, configId);
-      const versionId1 = (getLastId.get() as { id: number }).id;
       stmts.insertActionVersion.run(actionId, configId);
+      const versionId = (getLastId.get() as { id: number }).id;
 
       // 4. Create exclude list chain for the new action
       stmts.insertCollection.run(liAccountId);
@@ -854,6 +916,29 @@ export class CampaignRepository {
       const cpvId = (getLastId.get() as { id: number }).id;
 
       stmts.setActionVersionExcludeList.run(cpvId, actionId);
+
+      // 5. Sync campaign_versions / campaign_version_actions so that LH's
+      //    moveActionInCampaignChain can find this action.  LH reads the
+      //    "last campaign version" from campaign_actions (a VIEW over
+      //    campaign_last_versions → campaign_version_actions); writing
+      //    directly to the actions table does not update that view, so
+      //    reorder would fail with "Action #N not found in last campaign
+      //    version".  We create a fresh version that copies the previous
+      //    version's action list and appends the new action at the end.
+      if (stmts.insertCampaignVersionAction !== null) {
+        const lastVersion = stmts.getLastCampaignVersion.get(campaignId) as
+          | { id: number; exclude_list_id: number | null }
+          | undefined;
+
+        stmts.insertCampaignVersion.run(campaignId, lastVersion?.exclude_list_id ?? null);
+        const newVersionId = (getLastId.get() as { id: number }).id;
+
+        if (lastVersion && stmts.copyCampaignVersionActions !== null) {
+          stmts.copyCampaignVersionActions.run(newVersionId, lastVersion.id);
+        }
+
+        stmts.insertCampaignVersionAction.run(newVersionId, actionId);
+      }
 
       db.exec("COMMIT");
 
@@ -873,7 +958,7 @@ export class CampaignRepository {
         name: actionConfig.name,
         description: actionConfig.description ?? null,
         config,
-        versionId: versionId1,
+        versionId,
       };
     } catch (e) {
       db.exec("ROLLBACK");

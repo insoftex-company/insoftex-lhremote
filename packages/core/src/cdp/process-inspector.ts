@@ -79,9 +79,10 @@ type DetailedRole = "launcher" | "instance" | "helper-child" | "unknown";
  *
  * Rules (applied in order):
  * 1. `--type=<something>` present → helper child (gpu/renderer/utility/crashpad).
- * 2. Path contains `resources[\/]out[\/]` → instance main (identity confidence
- *    depends on whether `--app-id` / `--user-li-id` are also present).
- * 3. Path does NOT contain `resources[\/]out[\/]` → launcher.
+ * 2. `--app-id=<N>` present → instance main (per-account LinkedIn session).
+ *    This is the authoritative discriminator: every instance carries --app-id
+ *    and neither the launcher nor helper children ever carry it.
+ * 3. Neither `--type=` nor `--app-id=` present → launcher.
  * 4. Fallback: parent PID in LH PID set → instance; otherwise launcher.
  */
 function classifyDetailedRole(
@@ -93,10 +94,7 @@ function classifyDetailedRole(
     if (/--type=/.test(cmdline)) {
       return "helper-child";
     }
-    // Any process running from resources/out/ is an instance main process.
-    // Identity confidence (high vs unknown) depends on whether --app-id is
-    // present; role classification does not require it.
-    if (/resources[/\\]out[/\\]/i.test(cmdline)) {
+    if (/--app-id=/.test(cmdline)) {
       return "instance";
     }
     return "launcher";

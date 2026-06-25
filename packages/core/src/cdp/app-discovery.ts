@@ -52,8 +52,8 @@ export interface DiscoveredApp {
    *
    * Classification uses command-line analysis when available:
    * - `--type=` flag → `"helper-child"` (never a real instance).
-   * - `resources[\/]out[\/]` path + no `--type=` → `"instance"`.
-   * - No `resources[\/]out[\/]` → `"launcher"`.
+   * - `--app-id=` flag → `"instance"` (per-account LinkedIn session process).
+   * - No `--app-id=` and no `--type=` → `"launcher"`.
    * Falls back to parent-PID heuristic when command lines are unavailable.
    */
   role: AppRole;
@@ -303,7 +303,9 @@ function classifyRole(
 ): AppRole {
   if (proc.cmdline) {
     if (/--type=/.test(proc.cmdline)) return "helper-child";
-    if (/resources[/\\]out[/\\]/i.test(proc.cmdline)) return "instance";
+    // --app-id= is the authoritative instance discriminator: it is present on every
+    // per-account instance process and absent on the launcher and helper children.
+    if (/--app-id=/.test(proc.cmdline)) return "instance";
     return "launcher";
   }
   return lhPids.has(proc.ppid) ? "instance" : "launcher";

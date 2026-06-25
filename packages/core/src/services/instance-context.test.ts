@@ -7,6 +7,7 @@ vi.mock("../cdp/index.js", () => ({
   discoverInstancePort: vi.fn(),
   findApp: vi.fn(),
   resolveAppPort: vi.fn(),
+  scanRunningInstances: vi.fn().mockResolvedValue([]),
 }));
 
 vi.mock("../db/index.js", () => ({
@@ -26,7 +27,7 @@ vi.mock("../utils/cdp-port.js", () => ({
   isCdpPort: vi.fn(),
 }));
 
-import { discoverInstancePort, findApp } from "../cdp/index.js";
+import { discoverInstancePort, findApp, resolveAppPort, scanRunningInstances } from "../cdp/index.js";
 import { DatabaseClient, discoverDatabase } from "../db/index.js";
 import { isCdpPort } from "../utils/cdp-port.js";
 import { InstanceService } from "./instance.js";
@@ -36,6 +37,8 @@ import { withDatabase, withInstanceDatabase } from "./instance-context.js";
 
 const mockedDiscoverInstancePort = vi.mocked(discoverInstancePort);
 const mockedFindApp = vi.mocked(findApp);
+const mockedResolveAppPort = vi.mocked(resolveAppPort);
+const mockedScanRunningInstances = vi.mocked(scanRunningInstances);
 const mockedDiscoverDatabase = vi.mocked(discoverDatabase);
 const mockedDatabaseClient = vi.mocked(DatabaseClient);
 const mockedIsCdpPort = vi.mocked(isCdpPort);
@@ -393,5 +396,118 @@ describe("withInstanceDatabase", () => {
     const healthChecker = extractHealthChecker(mockInstance);
 
     await expect(healthChecker()).resolves.toBeUndefined();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Write-path regression: instance-port fast path and account-aware discovery
+//
+// Codex review finding (Medium): withInstanceDatabase was not directly tested
+// for (a) the findApp() fast path when cdpPort is a known instance port, or
+// (b) the scanRunningInstances() account-aware auto-discovery path.
+// ---------------------------------------------------------------------------
+
+describe("withInstanceDatabase — write-path regression", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockedIsCdpPort.mockResolvedValue(false);
+    createMockLauncher();
+    mockedResolveAppPort.mockRejectedValue(new Error("no launcher"));
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it("uses instance port directly when findApp recognises it as role:instance (no launcher-child traversal)", async () => {
+    // Simulate: 6 instances up, launcher CDP down.  The caller passes port
+    // 49749 explicitly; findApp() classifies it as an instance port.
+    // resolveInstancePort must return immediately — discoverInstancePort must
+    // never be called (it would try to reach the launcher and time out).
+    const mockInstance = createMockInstance();
+    const mockDb = createMockDb();
+    mockedFindApp.mockResolvedValue([
+      {
+        pid: 14772,
+        role: "instance",
+        cdpPort: 49749,
+        connectable: true,
+        identity: { accountId: 570886, source: "cmdline", confidence: "high", name: "Oleksandra", email: "o@example.com" },
+      },
+    ] as Awaited<ReturnType<typeof findApp>>);
+    mockedDiscoverDatabase.mockReturnValue("/path/to/db.db");
+
+    let receivedCtx: unknown;
+    await withInstanceDatabase(49749, 570886, (ctx) => {
+      receivedCtx = ctx;
+    });
+
+    expect(mockedInstanceService).toHaveBeenCalledWith(49749, undefined);
+    expect(mockInstance.connect).toHaveBeenCalledOnce();
+    expect(mockedDiscoverDatabase).toHaveBeenCalledWith(570886);
+    expect(receivedCtx).toMatchObject({ accountId: 570886, instance: mockInstance, db: mockDb });
+    // The launcher-child traversal must never be attempted.
+    expect(mockedDiscoverInstancePort).not.toHaveBeenCalled();
+  });
+
+  it("resolves correct instance by accountId when cdpPort is undefined (account-aware auto-discovery)", async () => {
+    // Simulate: caller provides no cdpPort but knows accountId.
+    // scanRunningInstances finds account 570886 on port 49749.
+    const mockInstance = createMockInstance();
+    const mockDb = createMockDb();
+    mockedScanRunningInstances.mockResolvedValue([
+      {
+        pid: 14772,
+        accountId: 570886,
+        cdpPort: 49749,
+        connectable: true,
+        helperChildCount: 0,
+        name: "Oleksandra Ivanova",
+        email: "oleksandra@example.com",
+        source: "cmdline",
+        confidence: "high",
+      },
+    ] as Awaited<ReturnType<typeof scanRunningInstances>>);
+    mockedDiscoverDatabase.mockReturnValue("/path/to/db.db");
+
+    let receivedCtx: unknown;
+    await withInstanceDatabase(undefined, 570886, (ctx) => {
+      receivedCtx = ctx;
+    });
+
+    expect(mockedInstanceService).toHaveBeenCalledWith(49749, undefined);
+    expect(mockInstance.connect).toHaveBeenCalledOnce();
+    expect(mockedDiscoverDatabase).toHaveBeenCalledWith(570886);
+    expect(receivedCtx).toMatchObject({ accountId: 570886, instance: mockInstance, db: mockDb });
+    // discoverInstancePort is for the launcher-child path — must not be
+    // reached when scanRunningInstances already identified the port.
+    expect(mockedDiscoverInstancePort).not.toHaveBeenCalled();
+  });
+
+  it("selects the matching account's port when multiple instances are running", async () => {
+    // Simulate: two accounts running; cdpPort=undefined; accountId=329925.
+    // Must pick port 51275, NOT port 49749 belonging to account 570886.
+    createMockInstance();
+    createMockDb();
+    mockedScanRunningInstances.mockResolvedValue([
+      { pid: 14772, accountId: 570886, cdpPort: 49749, connectable: true, helperChildCount: 0, name: "Oleksandra", email: "o@example.com", source: "cmdline", confidence: "high" },
+      { pid: 2440,  accountId: 329925, cdpPort: 51275, connectable: true, helperChildCount: 0, name: "Mike",       email: "m@example.com", source: "cmdline", confidence: "high" },
+    ] as Awaited<ReturnType<typeof scanRunningInstances>>);
+    mockedDiscoverDatabase.mockReturnValue("/path/to/db.db");
+
+    await withInstanceDatabase(undefined, 329925, () => undefined);
+
+    expect(mockedInstanceService).toHaveBeenCalledWith(51275, undefined);
+  });
+
+  it("throws InstanceNotRunningError for the requested account when other accounts are running", async () => {
+    // Account 570886 not in the list; only 329925 is running.
+    mockedScanRunningInstances.mockResolvedValue([
+      { pid: 2440, accountId: 329925, cdpPort: 51275, connectable: true, helperChildCount: 0, name: "Mike", email: "m@example.com", source: "cmdline", confidence: "high" },
+    ] as Awaited<ReturnType<typeof scanRunningInstances>>);
+
+    await expect(
+      withInstanceDatabase(undefined, 570886, () => undefined),
+    ).rejects.toThrow(InstanceNotRunningError);
   });
 });

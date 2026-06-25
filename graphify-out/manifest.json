@@ -1,12 +1,12 @@
 {
   ".claude-plugin/marketplace.json": {
-    "mtime": 1782230293.9303503,
-    "ast_hash": "97181a4912c70035ddfc012ccd5b8730",
+    "mtime": 1782383432.4289002,
+    "ast_hash": "c99d9fe85c6283ffd1000439ad37a75f",
     "semantic_hash": ""
   },
   ".claude-plugin/plugin.json": {
-    "mtime": 1782230289.778608,
-    "ast_hash": "c6c0ba40589d28c0a7956f308b585819",
+    "mtime": 1782383431.3837776,
+    "ast_hash": "22d57115402878dc6a5033652aec992d",
     "semantic_hash": ""
   },
   ".claude/settings.json": {
@@ -55,13 +55,13 @@
     "semantic_hash": ""
   },
   "package.json": {
-    "mtime": 1782230289.2234006,
-    "ast_hash": "c9dd08efdf3239cc3eab7484af056ff4",
+    "mtime": 1782383419.363858,
+    "ast_hash": "76a72dddf2a17f56b5b31fc13e34247c",
     "semantic_hash": ""
   },
   "packages/cli/package.json": {
-    "mtime": 1782230289.2844708,
-    "ast_hash": "75504dc6206b4943f8c43ff1ca618899",
+    "mtime": 1782383421.4493847,
+    "ast_hash": "dc3a17467317824d0f2c0c6e3b6f1f89",
     "semantic_hash": ""
   },
   "packages/cli/src/cli.ts": {
@@ -845,18 +845,18 @@
     "semantic_hash": ""
   },
   "packages/core/package.json": {
-    "mtime": 1782230289.2509375,
-    "ast_hash": "33285185a063c602fcc4ed8b8c38da3f",
+    "mtime": 1782383420.4072423,
+    "ast_hash": "43d09c3f074094c21ca120a08ab33677",
     "semantic_hash": ""
   },
   "packages/core/src/cdp/app-discovery.test.ts": {
-    "mtime": 1782269129.1280959,
-    "ast_hash": "3522ada7a03fabd1cdc8c7e6dd21a6be",
+    "mtime": 1782352639.0980337,
+    "ast_hash": "a5f50b537908deb05410a068f3301c47",
     "semantic_hash": ""
   },
   "packages/core/src/cdp/app-discovery.ts": {
-    "mtime": 1782269060.8765097,
-    "ast_hash": "0a7ec0dc5361ab744eef707ae062311f",
+    "mtime": 1782352561.159474,
+    "ast_hash": "89d73cf68dff16d76d9411d90480da5f",
     "semantic_hash": ""
   },
   "packages/core/src/cdp/client.integration.test.ts": {
@@ -950,13 +950,13 @@
     "semantic_hash": ""
   },
   "packages/core/src/cdp/process-inspector.test.ts": {
-    "mtime": 1782267684.3342526,
-    "ast_hash": "134ef73f5d64430cdbed7ee88efe7728",
+    "mtime": 1782354600.2899911,
+    "ast_hash": "e1ee6dff0163b7f22686663ffd21f140",
     "semantic_hash": ""
   },
   "packages/core/src/cdp/process-inspector.ts": {
-    "mtime": 1782269069.3270953,
-    "ast_hash": "09bb7cfbdaad779a61b9956c587c2ff9",
+    "mtime": 1782352575.1705601,
+    "ast_hash": "5b17faab12bb50df7378b76ad6077b6e",
     "semantic_hash": ""
   },
   "packages/core/src/cdp/testing/launch-chromium.ts": {
@@ -1100,18 +1100,18 @@
     "semantic_hash": ""
   },
   "packages/core/src/db/repositories/campaign-statistics.ts": {
-    "mtime": 1781925780.4468915,
-    "ast_hash": "f89ca5bde76bef5a4d8df95c0ba15d50",
+    "mtime": 1782384509.0775294,
+    "ast_hash": "c7b10a8ebb67fee5e74848fd17e6fb10",
     "semantic_hash": ""
   },
   "packages/core/src/db/repositories/campaign.test.ts": {
-    "mtime": 1781925780.4468915,
-    "ast_hash": "7440998eebc56898419b1647ad2062f5",
+    "mtime": 1782384943.355239,
+    "ast_hash": "4ef93e46761e5091ddf6aaaad7c2770c",
     "semantic_hash": ""
   },
   "packages/core/src/db/repositories/campaign.ts": {
-    "mtime": 1781925780.4468915,
-    "ast_hash": "49dc023463cd8bc1c61c23077b0e1259",
+    "mtime": 1782384532.2572925,
+    "ast_hash": "08ac58bac5488cf797a84dc374e0a3c8",
     "semantic_hash": ""
   },
   "packages/core/src/db/repositories/collection-list.integration.test.ts": {
@@ -2020,13 +2020,13 @@
     "semantic_hash": ""
   },
   "packages/core/src/services/instance-context.test.ts": {
-    "mtime": 1782099658.0635045,
-    "ast_hash": "444dca44903f01515e97ba8731a4bd35",
+    "mtime": 1782354666.2532427,
+    "ast_hash": "2068d816c101526f7c0f5662407a6876",
     "semantic_hash": ""
   },
   "packages/core/src/services/instance-context.ts": {
-    "mtime": 1781967847.4111133,
-    "ast_hash": "a680f3e622b546f81665ad2181e97caf",
+    "mtime": 1782354244.4902346,
+    "ast_hash": "ef80238224ca618aa7fcd11c9a5547aa",
     "semantic_hash": ""
   },
   "packages/core/src/services/instance-lifecycle.test.ts": {
@@ -2315,8 +2315,8 @@
     "semantic_hash": ""
   },
   "packages/e2e/package.json": {
-    "mtime": 1782230289.390609,
-    "ast_hash": "36d7afd9f3b52976f72a01e3eb97d74a",
+    "mtime": 1782383424.5965776,
+    "ast_hash": "210c5ffda38eb3a97fdef89506b136de",
     "semantic_hash": ""
   },
   "packages/e2e/src/app-service.e2e.test.ts": {
@@ -2550,8 +2550,8 @@
     "semantic_hash": ""
   },
   "packages/lhremote/package.json": {
-    "mtime": 1782230289.3580706,
-    "ast_hash": "35babff33a87474e7061071dcc94e0ab",
+    "mtime": 1782383423.5478532,
+    "ast_hash": "51324c47d883ffbac326da29d3d2244c",
     "semantic_hash": ""
   },
   "packages/lhremote/src/cli.test.ts": {
@@ -2570,8 +2570,8 @@
     "semantic_hash": ""
   },
   "packages/mcp/package.json": {
-    "mtime": 1782230289.3215358,
-    "ast_hash": "97f6194ca1b1930dc68d900d1d50f8cb",
+    "mtime": 1782383422.4938085,
+    "ast_hash": "eead12eb5460179a8f02c27b58c7d0ca",
     "semantic_hash": ""
   },
   "packages/mcp/src/helpers.ts": {
@@ -3470,8 +3470,8 @@
     "semantic_hash": ""
   },
   "server.json": {
-    "mtime": 1782230295.2475598,
-    "ast_hash": "97760241ef2ca3882dee87cb2fae042f",
+    "mtime": 1782383433.4724288,
+    "ast_hash": "4148e699b009b113602bf651c3df13d4",
     "semantic_hash": ""
   },
   "tsconfig.base.json": {
@@ -3680,8 +3680,8 @@
     "semantic_hash": ""
   },
   "skills/lhremote-mcp/SKILL.md": {
-    "mtime": 1782101688.1786325,
-    "ast_hash": "e1e80023a005868a5d762ab479df647d",
+    "mtime": 1782310459.2521248,
+    "ast_hash": "fc095169b5082b1e8c64a0d250e6c8d3",
     "semantic_hash": ""
   },
   "packages/mcp/src/operation-registry.test.ts": {
@@ -3747,6 +3747,16 @@
   "packages/core/src/cdp/launcher-cdp-gate.ts": {
     "mtime": 1782230005.8679314,
     "ast_hash": "5966af83780a9a1d13b0c574e24db1ec",
+    "semantic_hash": ""
+  },
+  "packages/core/src/cdp/instance-detection.regression.test.ts": {
+    "mtime": 1782353020.6534567,
+    "ast_hash": "548da2629a678b42b2c4e0bce2cf159e",
+    "semantic_hash": ""
+  },
+  "packages/e2e/src/campaign-reorder-after-edits.e2e.test.ts": {
+    "mtime": 1782384646.3383913,
+    "ast_hash": "c61cde7042bd22907ba5bd14e23e6b05",
     "semantic_hash": ""
   }
 }

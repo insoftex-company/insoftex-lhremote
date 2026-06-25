@@ -2,7 +2,7 @@
 // Copyright (C) 2026 Oleksii PELYKH
 
 import { DatabaseClient, type DatabaseClientOptions, discoverDatabase } from "../db/index.js";
-import { discoverInstancePort, findApp, resolveAppPort } from "../cdp/index.js";
+import { discoverInstancePort, findApp, resolveAppPort, scanRunningInstances } from "../cdp/index.js";
 import type { UIHealthStatus } from "../types/index.js";
 import { isCdpPort } from "../utils/cdp-port.js";
 import { InstanceService } from "./instance.js";
@@ -73,7 +73,7 @@ export async function withInstanceDatabase<T>(
     launcher?: { host?: string; allowRemote?: boolean };
   },
 ): Promise<T> {
-  const { instancePort, launcherPort } = await resolveInstancePort(cdpPort);
+  const { instancePort, launcherPort } = await resolveInstancePort(cdpPort, accountId);
 
   const instance = new InstanceService(
     instancePort,
@@ -126,15 +126,46 @@ export async function withInstanceDatabase<T>(
 /**
  * Resolve the instance and launcher ports from the provided cdpPort.
  *
- * When cdpPort is undefined, auto-discovers via {@link resolveAppPort}.
+ * When cdpPort is undefined and accountId is given, scans running instances
+ * and returns the port for the specific account (account-aware auto-discovery).
+ * When cdpPort is undefined and no accountId, falls back to the first
+ * connectable instance via {@link resolveAppPort}.
  * When cdpPort is a launcher port, discovers instance from its children.
  * When cdpPort is an instance port, uses it directly.
  */
 async function resolveInstancePort(
   cdpPort: number | undefined,
+  accountId?: number,
 ): Promise<{ instancePort: number; launcherPort: number | null }> {
   // Auto-discover when no port provided
   if (cdpPort === undefined) {
+    // Account-aware path: find the specific account's running instance.
+    // This is essential when multiple instances are running simultaneously —
+    // resolveAppPort("instance") returns the first connectable instance which
+    // may belong to a different account.
+    if (accountId !== undefined) {
+      const instances = await scanRunningInstances();
+      const match = instances.find(
+        (i) => i.accountId === accountId && i.connectable && i.cdpPort !== null,
+      );
+      if (match?.cdpPort !== null && match?.cdpPort !== undefined) {
+        let launcherPort: number | null = null;
+        try {
+          launcherPort = await resolveAppPort("launcher", 0);
+        } catch {
+          // Launcher not available — proceed without it
+        }
+        return { instancePort: match.cdpPort, launcherPort };
+      }
+      if (instances.length > 0) {
+        // Other accounts are running but not this one.
+        throw new InstanceNotRunningError(
+          `Account ${String(accountId)} instance is not running. Use start-instance first.`,
+        );
+      }
+      // No instances at all — fall through to resolveAppPort which throws a
+      // richer LinkedHelperNotRunningError / LinkedHelperUnreachableError.
+    }
     const instancePort = await resolveAppPort("instance");
     // Try to find a launcher port for health checking
     let launcherPort: number | null = null;
@@ -146,37 +177,37 @@ async function resolveInstancePort(
     return { instancePort, launcherPort };
   }
 
-  // Try launcher-based discovery (current behavior)
-  const instancePort = await discoverInstancePort(cdpPort);
-  if (instancePort !== null) {
-    return { instancePort, launcherPort: cdpPort };
-  }
-
-  // The provided port might be an instance port itself.
-  // findApp() is best-effort — if it fails or does not list the port,
-  // we fall back to probing the port directly with isCdpPort.  When the
-  // port is valid, InstanceService.connect will succeed regardless of
-  // what findApp() reports.
+  // Fast path: classify the supplied port via findApp() before running
+  // launcher-child discovery.  When the port is already recognized as a
+  // connectable instance port (the common case for explicit caller-supplied
+  // ports), return immediately — no launcher-child traversal needed.
   let launcherPort: number | null = null;
   try {
     const apps = await findApp();
-    const match = apps.find(
+    const instanceMatch = apps.find(
       (a) => a.cdpPort === cdpPort && a.role === "instance" && a.connectable,
     );
-    if (match) {
-      const launcherMatch = apps.find(
+    if (instanceMatch) {
+      const launcherApp = apps.find(
         (a) => a.role === "launcher" && a.connectable && a.cdpPort !== null,
       );
-      return { instancePort: cdpPort, launcherPort: launcherMatch?.cdpPort ?? null };
+      return { instancePort: cdpPort, launcherPort: launcherApp?.cdpPort ?? null };
     }
-    // Capture launcher port even when the instance match fails —
-    // we may still succeed via the CDP probe below.
+    // Not an instance port — capture launcher port for later rejection guard.
     const launcherApp = apps.find(
       (a) => a.role === "launcher" && a.connectable && a.cdpPort !== null,
     );
     launcherPort = launcherApp?.cdpPort ?? null;
   } catch {
-    // findApp() failed — fall through to CDP probe
+    // findApp() failed — proceed with other strategies
+  }
+
+  // Fallback: treat the supplied port as a launcher port and discover the
+  // account-instance child.  Handles the case where the caller passed the
+  // launcher port explicitly (e.g. when auto-discovery is not available).
+  const instancePort = await discoverInstancePort(cdpPort);
+  if (instancePort !== null) {
+    return { instancePort, launcherPort: cdpPort };
   }
 
   // Last resort: probe the port directly, but reject known launcher ports

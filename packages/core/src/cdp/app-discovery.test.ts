@@ -196,7 +196,7 @@ describe("findApp role classification", () => {
     vi.restoreAllMocks();
   });
 
-  it("classifies resources/out/ path as instance", async () => {
+  it("classifies process with --app-id= as instance", async () => {
     mockedGatherRawProcesses.mockResolvedValue([
       launcherProc(1000),
       instanceProc(2000, 1000, 347559),
@@ -363,18 +363,18 @@ describe("findApp identity parsing", () => {
     expect(result[0]?.identity?.source).toBe("cmdline");
   });
 
-  it("sets identity.confidence=unknown for instance without --app-id", async () => {
+  it("classifies process without --app-id as launcher (not instance)", async () => {
+    // A process with no --app-id is the launcher regardless of path.
     mockedGatherRawProcesses.mockResolvedValue([{
       pid: 2000,
       ppid: 0,
       name: "linked-helper.exe",
-      cmdline: "C:\\path\\resources\\out\\linked-helper.exe --env=PROD",
+      cmdline: "C:\\path\\linked-helper.exe --env=PROD",
     }]);
 
     const result = await findApp();
-    expect(result[0]?.role).toBe("instance");
-    expect(result[0]?.identity?.accountId).toBeNull();
-    expect(result[0]?.identity?.confidence).toBe("unknown");
+    expect(result[0]?.role).toBe("launcher");
+    expect(result[0]).not.toHaveProperty("identity");
   });
 
   it("does not add identity to launcher processes", async () => {
