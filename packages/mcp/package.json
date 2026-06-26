@@ -1,6 +1,6 @@
 {
   "name": "@insoftex/lhremote-mcp",
-  "version": "0.23.4",
+  "version": "0.23.5",
   "description": "MCP server for LinkedHelper automation",
   "type": "module",
   "engines": {
@@ -63,4 +63,3 @@
     "vitest": "catalog:"
   }
 }
-

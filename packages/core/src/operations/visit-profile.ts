@@ -5,13 +5,13 @@ import type { Profile } from "../types/index.js";
 import { resolveAccount } from "../services/account-resolution.js";
 import { withInstanceDatabase } from "../services/instance-context.js";
 import { ProfileRepository } from "../db/index.js";
-import { extractPublicId } from "./navigate-to-profile.js";
-import { buildCdpOptions, type ConnectionOptions } from "./types.js";
+import { EphemeralCampaignService } from "../services/ephemeral-campaign.js";
+import { CampaignExecutionError } from "../services/errors.js";
+import { buildCdpOptions } from "./types.js";
+import { type EphemeralActionInput } from "./ephemeral-action.js";
 import { waitForLoggedInState } from "./wait-for-logged-in-state.js";
 
-export interface VisitProfileInput extends ConnectionOptions {
-  readonly personId?: number | undefined;
-  readonly url?: string | undefined;
+export interface VisitProfileInput extends EphemeralActionInput {
   readonly extractCurrentOrganizations?: boolean | undefined;
 }
 
@@ -35,30 +35,32 @@ export async function visitProfile(
   return withInstanceDatabase(cdpPort, accountId, async ({ instance, db }) => {
     const repo = new ProfileRepository(db);
 
-    let personId: number;
-    if (input.personId != null) {
-      personId = input.personId;
-    } else {
-      const publicId = extractPublicId(input.url as string);
-      const existing = repo.findByPublicId(publicId);
-      personId = existing.id;
-    }
-
     await waitForLoggedInState(instance, { timeout: 60_000 });
 
-    await instance.executeAction("VisitAndExtract", {
-      personIds: [personId],
-      ...(input.extractCurrentOrganizations !== undefined && {
-        extractCurrentOrganizations: input.extractCurrentOrganizations,
-      }),
+    const target: number | string = input.personId ?? (input.url as string);
+    const actionSettings = input.extractCurrentOrganizations !== undefined
+      ? { extractCurrentOrganizations: input.extractCurrentOrganizations }
+      : undefined;
+
+    const ephemeral = new EphemeralCampaignService(instance, db);
+    const result = await ephemeral.execute("VisitAndExtract", target, actionSettings, {
+      ...(input.keepCampaign !== undefined && { keepCampaign: input.keepCampaign }),
+      ...(input.timeout !== undefined && { timeout: input.timeout }),
     });
 
-    const profile = repo.findById(personId, { includePositions: true });
+    if (!result.success) {
+      throw new CampaignExecutionError(
+        `VisitAndExtract action did not complete successfully for person ${String(result.personId)}`,
+        result.campaignId,
+      );
+    }
+
+    const profile = repo.findById(result.personId, { includePositions: true });
 
     return {
       success: true as const,
       actionType: "VisitAndExtract" as const,
       profile,
     };
-  }, { instanceTimeout: 120_000 });
+  }, { instanceTimeout: 120_000, db: { readOnly: false } });
 }

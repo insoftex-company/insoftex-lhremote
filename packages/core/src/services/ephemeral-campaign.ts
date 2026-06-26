@@ -279,6 +279,10 @@ export class EphemeralCampaignService {
    */
   private async cleanup(campaignId: number, keepCampaign: boolean): Promise<void> {
     await this.safeStop(campaignId);
+    // Sweep any dialog the action left behind. A failure popup can appear
+    // after the last health-checked poll, leaving the UI blocked even though
+    // the ephemeral execute path itself completed without a UIBlockedError.
+    await this.instance.dismissInstancePopups().catch(() => {});
 
     if (keepCampaign) {
       await this.safeArchive(campaignId);

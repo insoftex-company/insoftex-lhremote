@@ -1,6 +1,6 @@
 {
   "name": "@insoftex/lhremote",
-  "version": "0.23.4",
+  "version": "0.23.5",
   "description": "LinkedHelper automation toolkit Ã¢â‚¬â€ CLI & MCP server",
   "type": "module",
   "engines": {
@@ -54,4 +54,3 @@
     "vitest": "catalog:"
   }
 }
-

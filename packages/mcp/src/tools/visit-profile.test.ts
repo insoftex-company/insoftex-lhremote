@@ -17,6 +17,8 @@ import {
   visitProfile,
 } from "@insoftex/lhremote-core";
 
+import { describeEphemeralActionErrors } from "./testing/ephemeral-action-errors.js";
+
 import { registerVisitProfile } from "./visit-profile.js";
 import { describeInfrastructureErrors } from "./testing/infrastructure-errors.js";
 import { createMockServer } from "./testing/mock-server.js";
@@ -223,6 +225,14 @@ describe("registerVisitProfile", () => {
   });
 
   describeInfrastructureErrors(
+    registerVisitProfile,
+    "visit-profile",
+    () => ({ personId: 100, cdpPort: 9222 }),
+    (error) => vi.mocked(visitProfile).mockRejectedValue(error),
+    "Failed to visit profile",
+  );
+
+  describeEphemeralActionErrors(
     registerVisitProfile,
     "visit-profile",
     () => ({ personId: 100, cdpPort: 9222 }),

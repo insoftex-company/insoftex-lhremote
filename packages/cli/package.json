@@ -1,6 +1,6 @@
 {
   "name": "@insoftex/lhremote-cli",
-  "version": "0.23.4",
+  "version": "0.23.5",
   "description": "CLI for LinkedHelper automation",
   "type": "module",
   "engines": {
@@ -50,4 +50,3 @@
     "vitest": "catalog:"
   }
 }
-

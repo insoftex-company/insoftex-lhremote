@@ -1,6 +1,6 @@
 {
   "name": "@insoftex/lhremote-e2e",
-  "version": "0.23.4",
+  "version": "0.23.5",
   "private": true,
   "description": "End-to-end tests for LinkedHelper automation",
   "type": "module",
@@ -29,4 +29,3 @@
     "vitest": "catalog:"
   }
 }
-

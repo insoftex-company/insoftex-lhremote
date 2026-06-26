@@ -1,6 +1,6 @@
 {
   "name": "insoftex-lhremote",
-  "version": "0.23.4",
+  "version": "0.23.5",
   "description": "LinkedHelper automation toolkit â€” MCP server and workflow guidance for Claude Code",
   "author": {
     "name": "Insoftex",
@@ -16,4 +16,3 @@
     "mcp"
   ]
 }
-

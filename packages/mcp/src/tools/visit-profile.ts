@@ -25,7 +25,7 @@ export function registerVisitProfile(server: McpServer): void {
         .string()
         .optional()
         .describe(
-          "LinkedIn profile URL (e.g. https://www.linkedin.com/in/jane-doe-123). The person must already exist in the database.",
+          "LinkedIn profile URL (e.g. https://www.linkedin.com/in/jane-doe-123). The person will be imported if not already in the database.",
         ),
       extractCurrentOrganizations: z
         .boolean()
@@ -33,9 +33,19 @@ export function registerVisitProfile(server: McpServer): void {
         .describe(
           "Extract current company info during profile visit",
         ),
+      keepCampaign: z
+        .boolean()
+        .optional()
+        .describe("Archive the ephemeral campaign instead of deleting it"),
+      timeout: z
+        .number()
+        .int()
+        .positive()
+        .optional()
+        .describe("Maximum time to wait for action completion in milliseconds (default: 5 min)"),
       ...cdpConnectionSchema,
     },
-    async ({ personId, url, extractCurrentOrganizations, cdpPort, cdpHost, allowRemote, accountId }) => {
+    async ({ personId, url, extractCurrentOrganizations, keepCampaign, timeout, cdpPort, cdpHost, allowRemote, accountId }) => {
       if ((personId == null) === (url == null)) {
         return mcpError(
           "Exactly one of personId or url must be provided.",
@@ -47,7 +57,7 @@ export function registerVisitProfile(server: McpServer): void {
           cdpPort,
           cdpHost ?? "127.0.0.1",
           allowRemote ?? false,
-          () => visitProfile({ personId, url, extractCurrentOrganizations, cdpPort, cdpHost, allowRemote, accountId }),
+          () => visitProfile({ personId, url, extractCurrentOrganizations, keepCampaign, timeout, cdpPort, cdpHost, allowRemote, accountId }),
         );
         return mcpSuccess(JSON.stringify(result, null, 2));
       } catch (error) {
