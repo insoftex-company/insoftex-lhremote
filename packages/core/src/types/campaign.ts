@@ -152,6 +152,8 @@ export interface ListCampaignPeopleOptions {
   actionId?: number;
   /** Filter by processing status. */
   status?: CampaignPersonState;
+  /** Filter to people whose LinkedIn public ID (URL slug) is in this list. */
+  publicIds?: string[];
   /** Maximum number of results (default: 20). */
   limit?: number;
   /** Pagination offset (default: 0). */

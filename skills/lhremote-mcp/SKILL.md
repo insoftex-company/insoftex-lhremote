@@ -1,8 +1,8 @@
 ---
 name: lhremote-mcp
 description: This skill should be used when the user asks about lhremote MCP tools, LinkedHelper automation workflows, campaign management, account selection, instance lifecycle, instance health/connectability, CDP port discovery, people collection, messaging, or any lhremote CLI/MCP commands. Provides tool discovery, instance/account visibility, the CDP connection/port model, lifecycle and stability patterns, Windows auto-start behavior, workflow sequences, parameter conventions, error handling, diagnostics, and resource/rate guidance for automating LinkedHelper via CDP.
-version: 0.25.0
-updated: 2026-06-29
+version: 0.26.0
+updated: 2026-07-01
 ---
 
 # lhremote MCP — Tool Surface & Workflow Guide
@@ -161,10 +161,12 @@ Canonical example: `CEO: Lead Automation follow-up`
 
 The prefix must match the account where the campaign is created. Missing, unrecognized, or mismatched prefixes are validation failures. Do not invent a prefix for an unlisted account.
 
+Beyond the prefix, apply the **extended naming convention**: use **"Invites"** not Connect/Connection/Invite, **omit "EspoCRM"**, **"Contacts for Cold Emails"** not "Cold Email", **"Contact"** not "Profile", **omit "Campaign"** unless needed; keep names **≤60 chars** and **unique** with a `(Mon YYYY)` suffix; name empty stubs `<PREFIX>: Untitled — Stub #<id>`; fix Cyrillic/wrong-account/duplicate anomalies on sight. Full rules live in the **linkedhelper-webhooks** skill / `campaign-templates.md` — enforce them there, not here.
+
 ### Campaign Action Chain Management
 `campaign-add-action`, `campaign-remove-action`, `campaign-reorder-actions`, `campaign-move-next`, `campaign-update-action`.
 
-> **`isDraft` / commit reality (2026-06-26):** `campaign-add-action` inserts new actions with `isDraft = 0` (lhremote does **not** create drafts). `campaign-update-action` does a shallow merge on `actionSettings` and **preserves** the existing `isDraft` flag — it will **not** clear `isDraft = 1`. Clearing a draft action requires a save in the LH UI. Whether LinkedHelper's runner skips `isDraft = 1` actions is **unverified**; to settle it, query LinkedHelper's SQLite (read-only) and check whether the action_ids appear in the latest committed `campaign_version` via `campaign_version_actions`. Never assert a draft node is skipped without that probe.
+> **`isDraft` / commit reality (2026-06-26):** `campaign-add-action` inserts new actions with `isDraft = 0` (lhremote does **not** create drafts). `campaign-update-action` does a shallow merge on `actionSettings` and **preserves** the existing `isDraft` flag — it will **not** clear `isDraft = 1`. Clearing a draft action requires a save in the LH UI. Whether LinkedHelper's runner skips `isDraft = 1` actions is **unverified**; to settle it, query LinkedHelper's SQLite (read-only) and check whether the action_ids appear in the latest committed `campaign_version` via `campaign_version_actions`. Never assert a draft node is skipped without that probe. **Invisible in the LH UI (verified 2026-07-01):** there is no per-block draft indicator — draft and committed blocks look identical on the workflow screen (official "Draft" is a campaign-level status only). **Statistics can't settle it, either direction:** `campaign-get` shows the *current* flag, not the flag/config at execution time — so `successful: 0` / `firstResultAt: null` is explained by queue-gating (not proof of skip), and non-zero history on a currently-draft block can reflect a run made while committed before a later edit (observed: campaign 32 action 259 — 526 runs under a config its current 25-day window couldn't have produced). Only the `campaign_version` membership probe indicates current live/skip state.
 
 ### Lists Management
 ```
@@ -317,6 +319,7 @@ Base `https://www.linkedin.com/search/results/people/?` with `&key=value`. Facet
 | Using `query-profiles` IDs in account-scoped tools | It's global; use `campaign-list-people` for scoped IDs |
 | Expecting `campaign-update-action` to clear `isDraft` | It preserves the flag; clearing needs the LH UI |
 | Asserting a draft node is skipped | Unverified — run the `campaign_version` membership probe |
+| Using `campaign-statistics` to prove a block's draft/live state (either direction) | Zeros = queue-gating; non-zeros on a currently-draft block = ran while committed then edited. `campaign-get` shows only the *current* flag. Only `campaign_version` membership indicates current live/skip state |
 | Blaming lhremote for the `workspaceId` launcher error | It's LH's own workspace sync; re-login/re-select workspace in LH |
 | Reading a Filter's `failed` count as errors | It's not-yet-accepted profiles; report acceptance rate |
 | Creating a campaign with no prefix or the wrong account prefix | Use `<ABBREVIATION>: <descriptive name>` and match the owning account |

@@ -128,7 +128,7 @@ lhremote campaign-stop <campaignId> [--cdp-port <port>] [--account-id <id>] [--j
 lhremote campaign-status <campaignId> [--include-results] [--limit <n>] [--cdp-port <port>] [--account-id <id>] [--json]
 lhremote campaign-statistics <campaignId> [--action-id <id>] [--max-errors <n>] [--cdp-port <port>] [--account-id <id>] [--json]
 lhremote campaign-retry <campaignId> --person-ids <ids> | --person-ids-file <path> [--cdp-port <port>] [--account-id <id>] [--json]
-lhremote campaign-list-people <campaignId> [--action-id <id>] [--status <status>] [--limit <n>] [--offset <n>] [--cdp-port <port>] [--account-id <id>] [--json]
+lhremote campaign-list-people <campaignId> [--action-id <id>] [--status <status>] [--urls <urls> | --urls-file <path>] [--limit <n>] [--offset <n>] [--cdp-port <port>] [--account-id <id>] [--json]
 ```
 
 ### Campaign Actions
@@ -579,14 +579,23 @@ Remove people from a campaign or action exclude list.
 
 #### `campaign-list-people`
 
-List people assigned to a campaign with their processing status.
+List people assigned to a campaign with their processing status. Also
+usable as a read-only confirmation step after `import-people-from-urls`:
+pass `linkedInUrls` to check which of a batch of submitted URLs actually
+landed on the target list (see ADR-010) — the matched entries come back in
+`people`, and any URLs with no match come back in `notFoundLinkedInUrls`.
+Because this reads the campaign's actual target-list state from disk
+instead of trusting the immediately-returned import stats, it's more
+reliable right after a large or rapid import, when LinkedHelper's own
+async processing may not have caught up yet.
 
 | Parameter | Type | Required | Default | Description |
 |-----------|------|----------|---------|-------------|
 | `campaignId` | number | Yes | — | Campaign ID |
 | `actionId` | number | No | — | Filter to a specific action |
 | `status` | string | No | — | Filter by status (`queued`, `processed`, `successful`, `failed`) |
-| `limit` | number | No | 20 | Max results |
+| `linkedInUrls` | string[] | No | — | Filter/verify by LinkedIn profile URLs (CLI: `--urls` or `--urls-file`) |
+| `limit` | number | No | 20 (or the URL count, capped at 200, when `linkedInUrls` is given) | Max results |
 | `offset` | number | No | 0 | Pagination offset |
 | `cdpPort` | number | No | 9222 | CDP port |
 | `accountId` | number | No | auto-select if single account | Account ID to target when multiple accounts exist |

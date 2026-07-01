@@ -100,6 +100,7 @@ Architecture Decision Records live in `docs/adr/` and explain *why* the codebase
 | [007](docs/adr/007-profile-ready-selector-strategy.md) | Profile page readiness selector strategy | `packages/core/src/operations/navigate-to-profile.ts` |
 | [008](docs/adr/008-launcher-queue-readiness.md) | Launcher queue serialization and instance readiness model | `packages/core/src/cdp/launcher-queue.ts`, `instance-readiness.ts` |
 | [009](docs/adr/009-async-operation-model.md) | Async operation model (grace window, OperationRegistry, AbortSignal threading) | `packages/mcp/src/operation-registry.ts`, `tools/get-operation.ts` |
+| [010](docs/adr/010-campaign-target-verification-by-url.md) | Campaign target-people verification by LinkedIn URL (batch import + read-only DB confirmation) | `packages/core/src/operations/campaign-list-people.ts`, `packages/core/src/db/repositories/campaign.ts` |
 
 ## Task Tracking
 

@@ -9,6 +9,7 @@ import {
   type CampaignListPeopleOutput,
   type CampaignPersonState,
 } from "@insoftex/lhremote-core";
+import { parseUrls, readUrlsFile } from "../url-list.js";
 
 /** Handle the {@link https://github.com/insoftex-company/insoftex-lhremote#campaigns | campaign-list-people} CLI command. */
 export async function handleCampaignListPeople(
@@ -16,6 +17,8 @@ export async function handleCampaignListPeople(
   options: {
     actionId?: number;
     status?: string;
+    urls?: string;
+    urlsFile?: string;
     limit?: number;
     offset?: number;
     cdpPort?: number;
@@ -25,12 +28,33 @@ export async function handleCampaignListPeople(
     json?: boolean;
   },
 ): Promise<void> {
+  if (options.urls && options.urlsFile) {
+    process.stderr.write("Use only one of --urls or --urls-file.\n");
+    process.exitCode = 1;
+    return;
+  }
+
+  let linkedInUrls: string[] | undefined;
+  if (options.urls) {
+    linkedInUrls = parseUrls(options.urls);
+  } else if (options.urlsFile) {
+    try {
+      linkedInUrls = readUrlsFile(options.urlsFile);
+    } catch (error) {
+      const message = errorMessage(error);
+      process.stderr.write(`${message}\n`);
+      process.exitCode = 1;
+      return;
+    }
+  }
+
   let result: CampaignListPeopleOutput;
   try {
     result = await campaignListPeople({
       campaignId,
       actionId: options.actionId,
       status: options.status as CampaignPersonState | undefined,
+      linkedInUrls,
       limit: options.limit,
       offset: options.offset,
       cdpPort: options.cdpPort,
@@ -77,6 +101,15 @@ export async function handleCampaignListPeople(
         process.stdout.write(
           `\nShowing ${String(result.offset + 1)}-${String(result.offset + result.people.length)} of ${String(result.total)}. Use --offset and --limit for pagination.\n`,
         );
+      }
+    }
+
+    if (result.notFoundLinkedInUrls && result.notFoundLinkedInUrls.length > 0) {
+      process.stdout.write(
+        `\n${String(result.notFoundLinkedInUrls.length)} of the given URLs are not on the target list:\n`,
+      );
+      for (const url of result.notFoundLinkedInUrls) {
+        process.stdout.write(`  ${url}\n`);
       }
     }
   }
