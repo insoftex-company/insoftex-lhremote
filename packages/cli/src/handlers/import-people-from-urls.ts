@@ -1,8 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 // Copyright (C) 2026 Oleksii PELYKH
 
-import { readFileSync } from "node:fs";
-
 import {
   CampaignExecutionError,
   CampaignNotFoundError,
@@ -11,21 +9,7 @@ import {
   importPeopleFromUrls,
   type ImportPeopleFromUrlsOutput,
 } from "@insoftex/lhremote-core";
-
-function parseUrls(raw: string): string[] {
-  return raw
-    .split(",")
-    .map((s) => s.trim())
-    .filter((s) => s.length > 0);
-}
-
-function readUrlsFile(filePath: string): string[] {
-  const content = readFileSync(filePath, "utf-8");
-  return content
-    .split(/[\n,]/)
-    .map((s) => s.trim())
-    .filter((s) => s.length > 0);
-}
+import { parseUrls, readUrlsFile } from "../url-list.js";
 
 /** Handle the {@link https://github.com/insoftex-company/insoftex-lhremote#campaign-targeting | import-people-from-urls} CLI command. */
 export async function handleImportPeopleFromUrls(

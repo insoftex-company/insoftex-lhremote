@@ -190,4 +190,103 @@ describe("campaignListPeople", () => {
       campaignListPeople({ campaignId: 42, cdpPort: 9222 }),
     ).rejects.toThrow("repository error");
   });
+
+  describe("linkedInUrls filter", () => {
+    it("translates URLs to public IDs and passes them to the repository", async () => {
+      setupMocks();
+
+      await campaignListPeople({
+        campaignId: 42,
+        cdpPort: 9222,
+        linkedInUrls: ["https://www.linkedin.com/in/alice-smith/", "https://www.linkedin.com/in/carol-jones"],
+      });
+
+      const mockResult = vi.mocked(CampaignRepository).mock.results[0] as {
+        value: InstanceType<typeof CampaignRepository>;
+      };
+      expect(mockResult.value.listPeople).toHaveBeenCalledWith(42, {
+        publicIds: ["alice-smith", "carol-jones"],
+        limit: 2,
+        offset: 0,
+      });
+    });
+
+    it("returns notFoundLinkedInUrls for URLs with no matching target", async () => {
+      setupMocks();
+
+      const result = await campaignListPeople({
+        campaignId: 42,
+        cdpPort: 9222,
+        linkedInUrls: [
+          "https://www.linkedin.com/in/alice-smith/",
+          "https://www.linkedin.com/in/nobody-here/",
+        ],
+      });
+
+      // MOCK_PEOPLE only contains alice-smith (Bob's publicId is null).
+      expect(result.notFoundLinkedInUrls).toEqual([
+        "https://www.linkedin.com/in/nobody-here/",
+      ]);
+    });
+
+    it("omits notFoundLinkedInUrls when linkedInUrls was not given", async () => {
+      setupMocks();
+
+      const result = await campaignListPeople({ campaignId: 42, cdpPort: 9222 });
+
+      expect(result.notFoundLinkedInUrls).toBeUndefined();
+    });
+
+    it("caps the default limit at IMPORT_CHUNK_SIZE for large URL batches", async () => {
+      setupMocks();
+
+      const manyUrls = Array.from(
+        { length: 250 },
+        (_, i) => `https://www.linkedin.com/in/person-${String(i)}/`,
+      );
+
+      await campaignListPeople({ campaignId: 42, cdpPort: 9222, linkedInUrls: manyUrls });
+
+      const mockResult = vi.mocked(CampaignRepository).mock.results[0] as {
+        value: InstanceType<typeof CampaignRepository>;
+      };
+      expect(mockResult.value.listPeople).toHaveBeenCalledWith(
+        42,
+        expect.objectContaining({ limit: 200 }),
+      );
+    });
+
+    it("respects an explicit limit even when linkedInUrls is given", async () => {
+      setupMocks();
+
+      await campaignListPeople({
+        campaignId: 42,
+        cdpPort: 9222,
+        linkedInUrls: ["https://www.linkedin.com/in/alice-smith/"],
+        limit: 5,
+      });
+
+      const mockResult = vi.mocked(CampaignRepository).mock.results[0] as {
+        value: InstanceType<typeof CampaignRepository>;
+      };
+      expect(mockResult.value.listPeople).toHaveBeenCalledWith(
+        42,
+        expect.objectContaining({ limit: 5 }),
+      );
+    });
+
+    it("rejects a malformed LinkedIn URL before touching the repository", async () => {
+      setupMocks();
+
+      await expect(
+        campaignListPeople({
+          campaignId: 42,
+          cdpPort: 9222,
+          linkedInUrls: ["not-a-linkedin-url"],
+        }),
+      ).rejects.toThrow(/Invalid LinkedIn profile URL/);
+
+      expect(CampaignRepository).not.toHaveBeenCalled();
+    });
+  });
 });

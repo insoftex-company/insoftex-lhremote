@@ -215,6 +215,35 @@ describeE2E("Campaign people management", () => {
       expect(person.currentActionId).toBeGreaterThan(0);
     }, 30_000);
 
+    it("campaign-list-people --urls confirms the imported URL and flags a missing one", async () => {
+      assertDefined(campaignId, "campaign-create must run first");
+
+      const stdoutSpy = vi
+        .spyOn(process.stdout, "write")
+        .mockReturnValue(true);
+
+      const missingUrl = "https://www.linkedin.com/in/e2e-nonexistent-contact/";
+
+      await handleCampaignListPeople(campaignId, {
+        urls: `${TEST_URL},${missingUrl}`,
+        cdpPort: port,
+        json: true,
+      });
+
+      expect(process.exitCode).toBeUndefined();
+
+      const output = stdoutSpy.mock.calls
+        .map((call) => String(call[0]))
+        .join("");
+      const parsed = JSON.parse(output) as {
+        people: { personId: number; publicId: string | null }[];
+        notFoundLinkedInUrls: string[];
+      };
+
+      expect(parsed.people.some((p) => p.personId === personId)).toBe(true);
+      expect(parsed.notFoundLinkedInUrls).toEqual([missingUrl]);
+    }, 30_000);
+
     it("campaign-list-people prints human-friendly output", async () => {
       assertDefined(campaignId, "campaign-create must run first");
 
@@ -425,6 +454,37 @@ describeE2E("Campaign people management", () => {
       assertDefined(person, `person ${String(personId)} not found in list`);
       expect(person.status).toBe("queued");
       expect(person.currentActionId).toBeGreaterThan(0);
+    }, 30_000);
+
+    it("campaign-list-people tool confirms the imported URL and flags a missing one", async () => {
+      assertDefined(campaignId, "campaign-create must run first");
+
+      const { server, getHandler } = createMockServer();
+      registerCampaignListPeople(server);
+
+      const missingUrl = "https://www.linkedin.com/in/e2e-nonexistent-contact/";
+
+      const handler = getHandler("campaign-list-people");
+      const result = (await handler({
+        campaignId,
+        linkedInUrls: [TEST_URL, missingUrl],
+        cdpPort: port,
+      })) as {
+        isError?: boolean;
+        content: { type: string; text: string }[];
+      };
+
+      expect(result.isError, `MCP tool error: ${result.content?.[0]?.text}`).toBeUndefined();
+
+      const parsed = JSON.parse(
+        (result.content[0] as { text: string }).text,
+      ) as {
+        people: { personId: number; publicId: string | null }[];
+        notFoundLinkedInUrls: string[];
+      };
+
+      expect(parsed.people.some((p) => p.personId === personId)).toBe(true);
+      expect(parsed.notFoundLinkedInUrls).toEqual([missingUrl]);
     }, 30_000);
 
     it("campaign-remove-people tool removes the imported person", async () => {

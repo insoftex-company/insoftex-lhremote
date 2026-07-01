@@ -30,13 +30,20 @@ export function registerCampaignListPeople(server: McpServer): void {
         .enum(["queued", "processed", "successful", "failed"])
         .optional()
         .describe("Filter by processing status"),
+      linkedInUrls: z
+        .array(z.string())
+        .optional()
+        .describe(
+          "Filter to (and verify) these LinkedIn profile URLs. Use this after a bulk " +
+            "import-people-from-urls call to confirm, per URL, which contacts actually landed " +
+            "on the target list — see notFoundLinkedInUrls in the response for the rest.",
+        ),
       limit: z
         .number()
         .int()
         .positive()
         .optional()
-        .default(20)
-        .describe("Maximum number of results (default: 20)"),
+        .describe("Maximum number of results (default: 20, or the number of linkedInUrls when filtering by URL)"),
       offset: z
         .number()
         .int()
@@ -46,9 +53,9 @@ export function registerCampaignListPeople(server: McpServer): void {
         .describe("Pagination offset (default: 0)"),
       ...cdpConnectionSchema,
     },
-    async ({ campaignId, actionId, status, limit, offset, cdpPort, cdpHost, allowRemote, accountId }) => {
+    async ({ campaignId, actionId, status, linkedInUrls, limit, offset, cdpPort, cdpHost, allowRemote, accountId }) => {
       try {
-        const result = await campaignListPeople({ campaignId, actionId, status, limit, offset, cdpPort, cdpHost, allowRemote, accountId });
+        const result = await campaignListPeople({ campaignId, actionId, status, linkedInUrls, limit, offset, cdpPort, cdpHost, allowRemote, accountId });
         return mcpSuccess(JSON.stringify(result, null, 2));
       } catch (error) {
         if (error instanceof ActionNotFoundError) {

@@ -1,15 +1,15 @@
 ---
 name: lhremote-mcp
 description: This skill should be used when the user asks about lhremote MCP tools, LinkedHelper automation workflows, campaign management, account selection, instance lifecycle, instance health/connectability, CDP port discovery, people collection, messaging, or any lhremote CLI/MCP commands. Provides tool discovery, instance/account visibility, the CDP connection/port model, lifecycle and stability patterns, Windows auto-start behavior, workflow sequences, parameter conventions, error handling, diagnostics, and resource/rate guidance for automating LinkedHelper via CDP.
-version: 0.23.2
-updated: 2026-06-24
+version: 0.26.0
+updated: 2026-07-01
 ---
 
 # lhremote MCP — Tool Surface & Workflow Guide
 
 This skill teaches lhremote MCP workflow patterns, conventions, and error handling for automating LinkedHelper (LH) via Chrome DevTools Protocol (CDP).
 
-It reflects the Insoftex **dev fork** of lhremote, including the **CDP port-validation fix** (validated 2026-06-24) that resolved intermittent false "CDP not reachable" failures on launcher operations. Set the exact fork version string in your deployment notes; the behavioral baseline below assumes that fix is present.
+It reflects the Insoftex **dev fork** of lhremote, including the **CDP port-validation fix** (validated 2026-06-24) that resolved intermittent false "CDP not reachable" failures on launcher operations. The **2026-06-26** update adds an error-code reference, the `query-profiles` scoping footgun, the `isDraft`/commit reality, and ephemeral single-action status. The **2026-06-29** update adds the mandatory Insoftex account-prefix convention for campaign names.
 
 ## Prerequisites
 
@@ -19,267 +19,190 @@ LinkedHelper must be installed locally with an active license per LinkedIn accou
 
 ## CDP Connection Model & Port Discovery
 
-This section is the foundation for understanding every "is it reachable?" question. Read it before trusting or doubting any reachability result.
+Read this before trusting or doubting any reachability result.
 
 ### Each LH process binds TWO listening sockets
 
-A running launcher (and each running instance) opens **two** listening TCP sockets at once:
+A running launcher (and each running instance) opens **two** listening TCP sockets:
 
-- the **real CDP/DevTools endpoint** — the port that answers `http://127.0.0.1:<port>/json/version`;
-- a **secondary ephemeral socket** the same Chromium/Electron process also opens, which does **not** speak CDP.
-
-Observed examples (from process inspection):
+- the **real CDP/DevTools endpoint** — answers `http://127.0.0.1:<port>/json/version`;
+- a **secondary ephemeral socket** the same Chromium/Electron process opens, which does **not** speak CDP.
 
 ```
 launcher  PID 12548  --remote-debugging-port=9222  listening=[9222, 51664]
 instance  PID 9852   (--remote-debugging-port=0)    listening=[52805, 64038]
 ```
 
-Here `9222`/`52805` are the CDP ports; `51664`/`64038` are the non-CDP secondary sockets.
+`9222`/`52805` are CDP; `51664`/`64038` are non-CDP secondary sockets.
 
 ### The correct way to identify a CDP port
 
-A CDP port is **only** confirmed by a successful `/json/version` probe — never by "this PID has a listening socket." Enumerating listening sockets and picking one without validation is how the historical discovery bug arose (it sometimes latched onto the secondary socket, e.g. `51664`, and falsely reported the launcher unreachable while `9222` was serving the whole time).
+A CDP port is confirmed **only** by a successful `/json/version` probe — never by "this PID has a listening socket." The historical discovery bug latched onto the secondary socket (e.g. `51664`) and falsely reported the launcher unreachable while `9222` was serving. The current fork validates candidate ports via `/json/version` and pins the validated port.
 
-The current fork validates candidate ports via `/json/version` before accepting them and pins the validated port. With the fix in place:
+### Regression signals
 
-- `check-status` reports `launcher.reachable` from the **same validated probe** used for the per-process detail — the summary and the `processes[]` detail no longer contradict each other.
-- `start-instance` reports `… — verified` (not `NOT verified — duplicate port suspected`) and the reported instance port matches `check-status` immediately after.
-
-### Regression signals (if the discovery bug ever returns)
-
-Treat any of these as a discovery regression, not a real outage:
-
-- A launcher op fails with "CDP is not reachable" while `/json/version` on the expected port (e.g. 9222) answers fine.
-- `check-status` summary says `reachable: false` while its own `processes[]` entry for the same launcher PID shows `connectable: true`.
-- The same launcher PID is reported on different ports across consecutive calls (e.g. 9222 then 51664).
-
-Confirm with the **Diagnostic Recipes** below, then fall back to the explicit-port escape hatch.
+- A launcher op fails with "CDP is not reachable" while `/json/version` on the expected port answers fine.
+- `check-status` summary says `reachable: false` while its `processes[]` entry shows `connectable: true`.
+- The same launcher PID is reported on different ports across consecutive calls.
 
 ### Explicit-port escape hatch
 
-Every lifecycle/launcher tool accepts an explicit `cdpPort`. Passing it bypasses auto-discovery entirely:
+Every lifecycle/launcher tool accepts an explicit `cdpPort`, bypassing auto-discovery:
 
 ```
 start-instance(accountId, cdpPort: 9222)
 stop-instance(accountId, cdpPort: 9222)
-launch-app(cdpPort: 9222, force: true)   # pin a known port on relaunch
+launch-app(cdpPort: 9222, force: true)
 ```
 
-With the fix present you should **not** need this for normal operation. Keep it as a deterministic override for debugging or if a regression appears. Note: `9222` is only the right value when LH was started by the auto-start script (or `launch-app cdpPort: 9222`); a plain `launch-app force:true` picks a **new** dynamic port.
+`9222` is correct only when LH was started by the auto-start script (or `launch-app cdpPort: 9222`); a plain `launch-app force:true` picks a **new** dynamic port.
+
+> **Operational note (2026-06-26):** the explicit-port escape hatch remains valuable. Several reads this session were most reliable when the **instance** `cdpPort` was passed explicitly (e.g. campaign reads on a specific account). Reads are launcher-independent; passing the instance port avoids any launcher-side flakiness.
 
 ---
 
 ## Windows Auto-Start & Boot Behavior
 
-Knowing exactly how LH comes up after a reboot is required to plan remote management.
-
-### What auto-starts, and what does not
-
 - The **launcher auto-starts** at Windows sign-in via a Startup-folder shortcut chain.
-- **Account instances do NOT auto-start.** This is expected and acceptable. Instances are started on demand with `start-instance` / `ensure-instances` and stopped when idle.
+- **Account instances do NOT auto-start.** Start them on demand with `start-instance` / `ensure-instances`.
 
-### Auto-start chain (reference deployment)
+Auto-start chain:
 
 ```
 Startup shortcut
-  → C:\Users\xuser\scripts\launch-linkedhelper-silent.vbs   (runs the .cmd hidden)
+  → C:\Users\xuser\scripts\launch-linkedhelper-silent.vbs
     → C:\Users\xuser\scripts\launch-linkedhelper-silent.cmd
 ```
 
-The silent `.cmd` is the one that actually runs at sign-in. It:
+The silent `.cmd` launches `linked-helper.exe --remote-debugging-port=9222`, polls `http://127.0.0.1:9222/json/version`, force-relaunches a stale non-debug instance, and logs to `%TEMP%\lh-cdp-startup.log`.
 
-1. launches `linked-helper.exe --remote-debugging-port=9222`;
-2. validates readiness the correct way — polling `http://127.0.0.1:9222/json/version`;
-3. if LH is already running **without** CDP (stale non-debug instance), force-kills it and relaunches with the flag (mirrors `launch-app --force`);
-4. waits up to 60s and logs to `%TEMP%\lh-cdp-startup.log`.
-
-A verbose, interactive variant (`launch-linkedhelper.cmd`, with `pause`/echo) exists for manual runs. The boot log line to look for:
-
-```
-[<date> <time>] Launching with --remote-debugging-port=9222
-[<date> <time>] CDP up after N check(s)
-```
-
-### Timing reality (measured)
-
-- **Launcher CDP comes up in ~4s** after launch. There is no slow launcher warm-up. If launcher ops fail right after boot, suspect a discovery regression, not warm-up.
-- **Instance startup is genuinely slow: ~35–90s** from spawn to `connectable` (webview load + LinkedIn sign-in). Budget ~1–1.5 min per instance start. Do **not** shorten this wait.
+Timing (measured): **launcher CDP up ~4s**; **instance startup ~35–90s**. Do not shorten the instance wait.
 
 ---
 
 ## Instance & Account Visibility
 
-Answer "which accounts are started?" with `check-status`, not by guessing from ports.
+### Process model
 
-### Process model (how lhremote classifies LH processes)
-
-- **Launcher** — single shared process; manages all instances; owns the launcher CDP port (dynamic — e.g. 9222 from the startup script, or auto-selected). Binds CDP + a secondary socket (see CDP model above).
-- **Account-instance main process** — launched from `…\resources\out\linked-helper.exe`; its command line carries `--app-id`/`--user-li-id`/`--user-li`; has **no** `--type=` flag; listens on its own dynamic CDP port (plus a secondary socket). This is the thing you start/stop/restart.
-- **Helper children** — Chromium subprocesses with a `--type=` flag (`gpu-process`, `renderer`, `utility`, `crashpad-handler`). They never expose a CDP port and are **never** instances or orphans. Each is attributed to its parent and collapsed into `helperChildCount` (typically ~12 per running instance).
+- **Launcher** — single shared process; owns the launcher CDP port (dynamic). Binds CDP + a secondary socket.
+- **Account-instance main process** — command line carries `--app-id`/`--user-li-id`/`--user-li`; no `--type=`; own dynamic CDP port. This is what you start/stop/restart.
+- **Helper children** — `--type=` subprocesses; never instances/orphans; collapsed into `helperChildCount` (~12 per instance).
 
 ### Identity resolution
 
-Account identity (`accountId`, `name`, `email`) is parsed from the instance main process command line (`--app-id`/`--user-li-id`/`--user-li`) via process inspection. This works **even when the launcher CDP is down** (`source: "cmdline"`, `confidence: "high"`).
-
-- **Decoy field:** the command line also carries `--lh-account`, the **license owner**, identical across all instances. Never use it for per-instance identity.
-- **Security:** identity parsing uses a strict allowlist. Credentials (`--app-credentials`), proxy (`--upstream-proxy`), and Sentry DSN are never captured, logged, or surfaced.
+Parsed from the instance main process command line (`source: "cmdline"`, `confidence: "high"`), even when launcher CDP is down. `--lh-account` is the **license owner** (identical across instances) — never use it for per-instance identity.
 
 ### `check-status` — authoritative running state
 
-Returns:
-- `launcher: { reachable, port }` — derived from a validated `/json/version` probe.
-- `runningInstances[]` — the genuinely running set (process-inspected, launcher-independent). Each: `{ accountId, name, email, pid, cdpPort, connectable, readiness, helperChildCount, source, confidence }`.
-- `databases[]` — all configured accounts (the full roster). Being in `databases` does **not** mean an instance is running.
-- `warnings[]` — actionable notes (e.g. "LinkedHelper is not running.", launcher unreachable).
-
-Read the running set from `runningInstances[]`, not from `databases[]`. The number running is typically smaller than the number configured.
+Returns `launcher: { reachable, port }`, `runningInstances[]` (process-inspected), `databases[]` (full roster), `warnings[]`. Read the running set from `runningInstances[]`, not `databases[]`.
 
 ### `find-app` — process/role view
 
-Returns the launcher plus classified account instances (each with `accountId` and `helperChildCount`), connectable-first. Helper children are collapsed into counts. Use `find-app` for process/PID/port detail; use `check-status` for the account-level running set.
+Launcher + classified instances, connectable-first. Use `find-app` for PID/port detail; `check-status` for the account-level running set.
+
+> **Resource note:** the reference box runs 7 configured accounts. At **6 instances running concurrently** (~9 GB on a 16 GB box) the host approaches saturation and BOTH lhremote and Windows-MCP can hang together — a host-resource symptom, not an lhremote bug. Prefer **2–3 concurrent instances**; `stop-instance` when idle.
 
 ---
 
 ## Workflow Patterns
 
 ### Discovery Flow
-
-Start here when connecting for the first time in a session:
-
 ```
 find-app → check-status → list-accounts
 ```
-
-- `find-app` — detect LH processes, launcher, and classified instances.
-- `check-status` — authoritative running set + launcher health (fast; bypasses retry).
-- `list-accounts` — full configured roster (a **launcher** op; needs the launcher reachable).
-
-If `find-app` returns nothing / `check-status` warns "LinkedHelper is not running," use `launch-app` first.
+If nothing is running, `launch-app` first.
 
 ### Instance Lifecycle
-
-An instance must be running before campaign/query operations:
-
 ```
 launch-app → start-instance → [work] → stop-instance → quit-app
+restart-instance(accountId)          # recycle one stuck instance
+ensure-instances(accountIds[])       # serialized starts + settle for a set
 ```
+Lifecycle ops are launcher operations (need launcher CDP); they return `{ status:'in_progress', operationId }` when >2s — poll `get-operation`. Start ~35–90s, launch ~5–10s, stop ~10–60s. Confirm true state with `check-status`, not the immediate return payload.
 
-Recycle a single stuck instance with `restart-instance` rather than manual stop+start:
-
-```
-restart-instance(accountId)   # stop → wait for exit → start → wait until connectable → verify
-```
-
-Bring up a set of accounts safely with `ensure-instances`:
-
-```
-ensure-instances(accountIds[])  # serialized starts + settle, skips already-running, verifies each
-```
-
-Key rules:
-- `start-instance`/`stop-instance` auto-select the account only when one exists; pass `accountId` when multiple are configured.
-- Lifecycle ops (`start`/`stop`/`restart`/`launch`/`quit`, and `list-accounts`) are **launcher operations** — they go through the launcher and require its CDP reachable. They are serialized internally with settle barriers; expect a brief launcher "wobble" that self-recovers.
-- `restart-instance`/`stop-instance` affect **only the target account's process**. Other instances keep running.
-- Confirm true state with `check-status` (process inspection) — do not trust the immediate `start`/`stop` return payload for port detail.
-- These ops return `{ status:'in_progress', operationId }` when they take >2s. Poll `get-operation`; cancel with `cancel-operation`. Expect start ~35–90s, launch ~5–10s, stop ~10–60s.
-
-### Instance Connectability & Stability
-
-**Connectability is eventually-consistent.** A just-started or momentarily-disrupted instance can report `connectable: false` for up to ~30s, then become connectable on its own. A single non-connectable read is **not** a failure.
-
-- **Re-poll before concluding failure.** Poll `check-status` across the grace window. Use the `readiness` field (`connectable` / `starting` / `degraded` / `stuck`) when present.
-- **Transient vs stuck.** `degraded` (within grace) → wait. `stuck` (past grace) → `restart-instance(accountId)`.
-- **Don't restart healthy instances.** Diagnose first; needless restarts trigger launcher churn.
-- **Never rapid-fire `start-instance`.** Use `ensure-instances` (sets) or `restart-instance` (one) — they serialize and settle. Back-to-back raw starts are a known cause of launcher CDP drops.
-- **Reads are launcher-independent; writes are not.** `check-status`/`find-app`/`query-*` work even when the launcher CDP is down. Lifecycle ops need the launcher and auto-recover within ~30s.
-- **Verify lifecycle results by re-poll.** After start/restart, confirm via `check-status` that the account is connectable on a real port. An unlicensed/failed account produces **no** instance process — expect `failed`/`verified: false`, never a phantom "started."
+### Connectability & Stability
+Connectability is eventually-consistent — a fresh instance can read `connectable: false` for ~30s then self-recover. Re-poll before concluding failure (`readiness`: `connectable`/`starting`/`degraded`/`stuck`). `stuck` past grace → `restart-instance`. Never rapid-fire `start-instance`; use `ensure-instances`/`restart-instance`.
 
 ### Orphan Management
+`list-orphans` (true orphans only; helpers never count). `reap-orphans` — dry-run by default, requires `confirm: true`.
 
-- `list-orphans` — true orphans only: non-connectable instance-side processes not mapped to any live account. Helper children (`--type=`) are never orphans. Healthy state = empty.
-- `reap-orphans` — terminates orphans; **dry-run by default**, requires `confirm: true`; never touches connectable/mapped instances, the launcher, or helpers of a live parent.
-
-### Collection Workflow (primary targeting)
-
+### Collection Workflow
 ```
 [build search URL] → collect-people(campaignId, sourceUrl) → campaign-status → campaign-start
 ```
-
-- `collect-people` accepts a LinkedIn page URL + campaign ID; source type auto-detected from the URL; runs asynchronously.
-- Optional params: `limit`, `maxPages`, `pageSize`, `sourceType`, `accountId` (required with multiple accounts).
-- Poll `campaign-status`; start with `campaign-start` once enough people are collected.
-- Only one collection runs at a time per instance (`CollectionBusyError` otherwise).
+One collection per instance (`CollectionBusyError` otherwise).
 
 ### Campaign Creation & Execution
-
 ```
 describe-actions → campaign-create → [populate targets] → campaign-start → campaign-status / campaign-statistics
 ```
+`campaign-create` accepts YAML (default) or JSON. Populate via `collect-people`, `import-people-from-collection`, or `import-people-from-urls` (CLI `--urls-file` for 1000+). `campaign-start` needs `campaignId` + `personIds`.
 
-- Use `describe-actions` for authoritative action config schemas before building.
-- `campaign-create` accepts YAML (default) or JSON.
-- Populate targets via `collect-people` (recommended), `import-people-from-collection`, or `import-people-from-urls` (use the CLI `--urls-file` for 1000+ URLs).
-- `campaign-start` requires `campaignId` + `personIds`; returns immediately (async).
-- Monitor with `campaign-status` (optional `includeResults`) and `campaign-statistics`.
+> For campaign **design/validation** (action ordering, reply detection, webhook placement, CRM rules, action `actionSettings` shapes), use the **linkedhelper-webhooks** skill and `lhremote-action-config-samples.md` — not this file.
 
-> For campaign **design/validation** (action ordering, reply detection, webhook placement, Insoftex CRM rules), use the LinkedHelper campaign skill, not this file.
+### Insoftex Campaign Name Prefix
+
+Before `campaign-create`, resolve the owning `accountId` and require the campaign name to use this format:
+
+```text
+<ACCOUNT_ABBREVIATION>: <descriptive campaign name>
+```
+
+Canonical example: `CEO: Lead Automation follow-up`
+
+| LinkedHelper account | Required prefix |
+|---|---|
+| Michael Fliorko | `CEO:` |
+| Mike Florko | `CTO:` |
+| Michael Babylon | `MB:` |
+| Liza Feder | `LF:` |
+| Vira Lyn | `VL:` |
+| Oleksandra Fliorko | `OF:` |
+
+The prefix must match the account where the campaign is created. Missing, unrecognized, or mismatched prefixes are validation failures. Do not invent a prefix for an unlisted account.
+
+Beyond the prefix, apply the **extended naming convention**: use **"Invites"** not Connect/Connection/Invite, **omit "EspoCRM"**, **"Contacts for Cold Emails"** not "Cold Email", **"Contact"** not "Profile", **omit "Campaign"** unless needed; keep names **≤60 chars** and **unique** with a `(Mon YYYY)` suffix; name empty stubs `<PREFIX>: Untitled — Stub #<id>`; fix Cyrillic/wrong-account/duplicate anomalies on sight. Full rules live in the **linkedhelper-webhooks** skill / `campaign-templates.md` — enforce them there, not here.
 
 ### Campaign Action Chain Management
+`campaign-add-action`, `campaign-remove-action`, `campaign-reorder-actions`, `campaign-move-next`, `campaign-update-action`.
 
-`campaign-add-action`, `campaign-remove-action`, `campaign-reorder-actions`, `campaign-move-next`.
+> **`isDraft` / commit reality (2026-06-26):** `campaign-add-action` inserts new actions with `isDraft = 0` (lhremote does **not** create drafts). `campaign-update-action` does a shallow merge on `actionSettings` and **preserves** the existing `isDraft` flag — it will **not** clear `isDraft = 1`. Clearing a draft action requires a save in the LH UI. Whether LinkedHelper's runner skips `isDraft = 1` actions is **unverified**; to settle it, query LinkedHelper's SQLite (read-only) and check whether the action_ids appear in the latest committed `campaign_version` via `campaign_version_actions`. Never assert a draft node is skipped without that probe. **Invisible in the LH UI (verified 2026-07-01):** there is no per-block draft indicator — draft and committed blocks look identical on the workflow screen (official "Draft" is a campaign-level status only). **Statistics can't settle it, either direction:** `campaign-get` shows the *current* flag, not the flag/config at execution time — so `successful: 0` / `firstResultAt: null` is explained by queue-gating (not proof of skip), and non-zero history on a currently-draft block can reflect a run made while committed before a later edit (observed: campaign 32 action 259 — 526 runs under a config its current 25-day window couldn't have produced). Only the `campaign_version` membership probe indicates current live/skip state.
 
 ### Lists Management
-
 ```
 create-collection → add-people-to-collection → import-people-from-collection → [reuse across campaigns]
 ```
 
-`list-collections`, `delete-collection`, `remove-people-from-collection`. Adding an already-present person is idempotent.
-
 ### Messaging Workflow
-
 ```
 check-replies → query-messages
 ```
 
-`scrape-messaging-history` does a full scrape. `query-messages` filters by `personId`, `chatId`, or `search`.
-
 ### Data Queries (instance required, no campaign)
+`query-profile` (by `personId`/`publicId`), `query-profiles` (by name/headline/company), `campaign-list-people`, `campaign-list`.
 
-`query-profile` (by `personId` or `publicId`), `query-profiles` (by name/headline/company with pagination). `campaign-list` connects via CDP and requires a running instance; pass `accountId` with multiple accounts.
+> **`query-profiles` scoping footgun (2026-06-26):** `query-profiles` is **GLOBAL** across all configured account DBs (no `accountId` scoping; reference box totaled ~195k profiles across 7 accounts). The `personId`s it returns are **not** valid in account-scoped tools and will fail there. For clean, account-scoped `personId`s (e.g. to feed `campaign-*` tools), use **`campaign-list-people`** instead.
 
 ---
 
 ## Parameter Conventions
 
-- **`accountId`** — required for campaign/targeting/import/lifecycle tools when multiple accounts are configured; auto-resolved only with a single account.
-- **`cdpPort`** — optional; auto-discovered (validated via `/json/version`) from running LH processes. Ports are **dynamic** — never hardcode. Pass explicitly only as a deterministic override/escape hatch (see CDP model). `9222` is valid only when LH was started by the auto-start script.
-- **`cdpHost` / `allowRemote`** — default loopback (`127.0.0.1`). `allowRemote` enables non-loopback CDP (remote code execution risk) — only on a secured network path.
+- **`accountId`** — required for campaign/targeting/import/lifecycle tools when multiple accounts exist.
+- **`cdpPort`** — optional; auto-discovered (validated via `/json/version`). Dynamic — never hardcode. Pass the **instance** port explicitly as a deterministic override for account-scoped reads/edits.
 - **`campaignId` / `actionId` / `personId`** — internal LH integer IDs (not LinkedIn public IDs).
-- **`publicId`** — LinkedIn URL slug (e.g. `jane-doe-12345`).
+- **`publicId`** — LinkedIn URL slug.
+- **`coolDown`** — top-level action field, ms = LH UI **"bunch time" / "Bunch Settings"**. **`maxActionResultsPerIteration`** = bunch size (`-1` unlimited). **`moveToSuccessfulAfterMs`** (in `actionSettings`) = "message analyzer period". **`Waiter.delay`** is in **hours**.
 - **`format`** — campaign config `"yaml"` (default) or `"json"`.
 
 ---
 
 ## Resource & Time Efficiency
 
-For a single-function automation box running several accounts:
-
-- **Each running instance costs ~300–500 MB+** plus ~12 helper child processes. The launcher alone is ~350 MB. Start instances on demand; `stop-instance` when a job is done rather than leaving all accounts up.
-- **Reads are cheap and launcher-independent.** Prefer `check-status`/`query-*` for status; don't spin up an instance just to read state you already have.
-- **Don't over-poll.** `get-operation` every few seconds is enough; instance starts legitimately take ~35–90s.
-- **Boot plan:** launcher auto-starts (~4s to CDP); then `ensure-instances([...])` only the accounts you need for the current run.
-- **Antivirus:** exclude the LinkedHelper data dirs (`…\AppData\Local\linked-helper`, `…\AppData\Roaming\linked-helper`) to cut scan overhead and timing jitter — but keep AV running.
-
----
-
-## Startup & Launcher Timing on Windows
-
-- After `launch-app`, LH briefly drops its CDP port while reconnecting; auto-discovery retries up to ~30s. Expected.
-- Lifecycle ops are serialized with settle barriers; a launcher CDP drop during them auto-recovers within ~30s.
-- `check-status` intentionally bypasses retry for a fast health probe and remains correct even when the launcher is unreachable.
-- Launcher CDP readiness ~4s post-launch; instance readiness ~35–90s.
+- Each running instance ~300–500 MB + ~12 helper children; launcher ~350 MB. Start on demand; stop idle instances.
+- Reads are cheap and launcher-independent — prefer `check-status`/`query-*` for status.
+- Don't over-poll `get-operation` (every few seconds). Instance starts legitimately take ~35–90s.
+- Boot plan: launcher auto-starts (~4s); then `ensure-instances([...])` only the accounts you need. Keep concurrency to 2–3.
+- Antivirus: exclude LH data dirs (`…\AppData\Local\linked-helper`, `…\AppData\Roaming\linked-helper`).
 
 ---
 
@@ -288,26 +211,52 @@ For a single-function automation box running several accounts:
 | Error / symptom | Cause | Fix |
 |---|---|---|
 | "LinkedHelper is not running." | No LH process | `launch-app` |
-| "LinkedHelper is running but CDP is not reachable" | Launcher CDP genuinely down (started without the flag), **or** — if `/json/version` actually answers — a discovery regression | Verify with Diagnostic Recipes; if `/json/version` answers, pass explicit `cdpPort` and flag a regression; else `launch-app --force` |
-| "Instance not running" | Instance not started for account | `start-instance` (or `ensure-instances`) |
-| "No accounts found" / "Multiple accounts" | Account resolution failed | `list-accounts`, then pass explicit `accountId` |
-| "Campaign not found" | Invalid campaign ID | `campaign-list` for valid IDs |
-| "Cannot collect — instance is busy" | Another collection in progress | Wait, then retry |
-| Instance started but **not connectable** | Transient — launcher churn or still initializing | Re-poll `check-status` for ~30s; usually self-recovers |
-| Instance non-connectable **past grace window** | Genuinely stuck | `restart-instance <accountId>` |
-| `start-instance` result says `verified` with a real port matching `check-status` | Normal success (post-fix) | None |
-| `start-instance` says `NOT verified — duplicate port suspected` | Verification ran during a port wobble — **or** a discovery regression | Confirm with `check-status`; if the instance is connectable, it's up. Persisting = regression |
-| Launcher `reachable: false` while `processes[]` shows it connectable | Discovery regression (summary vs detail mismatch) | Use explicit `cdpPort`; flag for source fix |
-| Account requested but **no instance process** appears | Account has no LH license / failed to launch | Reported as `failed`/`verified: false`; verify the license — not a tooling error |
+| "running but CDP is not reachable" | Launcher CDP down, **or** discovery regression if `/json/version` answers | Probe `/json/version`; if it answers, pass explicit `cdpPort` + flag regression; else `launch-app --force` |
+| "Instance not running" | Instance not started | `start-instance` / `ensure-instances` |
+| "No accounts found" / "Multiple accounts" | Resolution failed | `list-accounts`, pass explicit `accountId` |
+| "Campaign not found" | Invalid ID | `campaign-list` |
+| "Cannot collect — instance is busy" | Collection in progress | wait, retry |
+| Instance started but not connectable | Transient | re-poll ~30s |
+| Non-connectable past grace | Stuck | `restart-instance` |
+| Account requested but no instance process | No LH license / failed launch | reported `failed`/`verified:false` — verify license |
+| `"workspaceId" must be a number` (launcher UI) | **LinkedHelper's own launcher↔cloud workspace sync** — not lhremote | re-login / re-select workspace in LH; check for LH update. Not caused by lhremote campaign/instance ops; does not block CDP reads while instances stay connectable |
+| Single Action "X" failed: "incorrect action type" | Ephemeral single-action path (see below) | `dismiss-errors`; use fixed build — re-test required |
 
 ---
 
-## Diagnostic Recipes
+## Ephemeral single-action tools (status 2026-06-26)
 
-When a reachability result looks wrong, confirm against the OS directly (PowerShell).
+`visit-profile`, `follow-person`, `unfollow-profile`, `like-person-posts`, `endorse-skills`, `message-person`, `send-invite`, `send-inmail`, `remove-connection`, `comment-on-post`, `react-to-post`, `react-to-comment` run as "ephemeral campaigns" / single actions.
 
-**What ports is each LH process actually listening on?**
+- A bug caused these to fail with LH "incorrect action type: VisitAndExtract" and leave a **blocking instance popup**; a full LH crash followed in one case. `get-errors` detects the popup; `dismiss-errors` (with explicit instance `cdpPort`) clears it.
+- A fix was applied via Claude Code this session. **Re-test required** before relying on the family: confirm `visit-profile(accountId, personId)` succeeds with no leftover popup, confirm one reversible sibling (e.g. `follow-person` → `unfollow-profile`), and confirm a clean failure path leaves no blocking popup and no crash. Until re-tested, treat as **unverified**.
+- For benign validation prefer `visit-profile` (a profile view); do **not** fire outreach-type ephemeral actions (invite/message/like/comment) at cold/non-consenting people during testing.
 
+---
+
+## Error-Code Reference (from live `campaign-statistics`, 2026-06-26)
+
+`topErrors[]` carries `{ code, count, isException, whoToBlame }`. Working key (interpretation inferred from `whoToBlame` + context — not an official LH codebook):
+
+| Code | Blame | Action(s) | Working interpretation |
+|---|---|---|---|
+| 271403 | LinkedIn | InvitePerson | Invite can't complete for this profile (out-of-network / restricted / changed). Per-contact, retryable |
+| 270013 | LinkedIn | InvitePerson | Most common LinkedIn invite rejection (limit / cannot-invite class) |
+| 270008 / 270009 | LinkedIn | InvitePerson | LinkedIn invite-rejection variants |
+| 270020 / 340001 | LH | InvitePerson | LH-side exception during invite (low rate) |
+| 380001 | LH | MessageToPerson | **Recurring** LH-side message exception (135 ×70, 141 ×4) — escalate to dev |
+| 60016 / 60031 / 60403 / 30003 | LinkedIn | MessageToPerson | LinkedIn message rejections (cannot message / restricted thread) |
+| 870030 | LH | SendPersonToWebhook | Webhook-delivery exception (record not pushed to EspoCRM/n8n) |
+| 1140006 | LH | PersonPostsLiker | LH-side engagement exception |
+| 1140010 | Proxy | PersonPostsLiker | Proxy-side failure |
+
+Interpretation rules: a `FilterContactsOutOfMyNetwork` **`failed`** count = profiles **not yet accepted** (held in Queue), **not** errors — report acceptance rate instead. `whoToBlame: LinkedIn` = per-contact / external (often retryable via `campaign-retry`); `whoToBlame: LH` with `isException: true` = tooling/runtime issue worth escalating; `whoToBlame: Proxy` = network/proxy.
+
+---
+
+## Diagnostic Recipes (PowerShell)
+
+**Ports each LH process listens on:**
 ```powershell
 Get-CimInstance Win32_Process -Filter "Name='linked-helper.exe'" | ForEach-Object {
   $rdp = if ($_.CommandLine -match '--remote-debugging-port=(\d+)') { $matches[1] } else { 'none' }
@@ -317,18 +266,18 @@ Get-CimInstance Win32_Process -Filter "Name='linked-helper.exe'" | ForEach-Objec
 }
 ```
 
-A launcher line like `listening=[9222, 51664]` is normal (CDP + secondary socket). The CDP port is the one with `--remote-debugging-port`.
-
-**Does a candidate port actually speak CDP?**
-
+**Does a candidate port speak CDP?**
 ```powershell
 curl.exe --silent --fail http://127.0.0.1:9222/json/version
 ```
 
-A JSON payload (with `webSocketDebuggerUrl`) = real CDP endpoint. No response = not CDP.
+**Find a specific account's instance port:**
+```powershell
+Get-CimInstance Win32_Process -Filter "Name='linked-helper.exe'" |
+  ? { $_.CommandLine -match '--app-id=570886' -and $_.CommandLine -notmatch '--type=' }
+```
 
-**Did the launcher come up cleanly at boot?**
-
+**Boot log:**
 ```powershell
 Get-Content (Join-Path $env:TEMP 'lh-cdp-startup.log') -Tail 20
 ```
@@ -337,45 +286,40 @@ Get-Content (Join-Path $env:TEMP 'lh-cdp-startup.log') -Tail 20
 
 ## Action Type Reference
 
-Use `describe-actions` for full schemas. Types: `VisitAndExtract`, `InvitePerson`, `MessageToPerson`, `InMail`, `CheckForReplies`, `Follow`, `EndorseSkills`, `PersonPostsLiker`, `FilterContactsOutOfMyNetwork`, `RemoveFromFirstConnection`, `DataEnrichment`, `ScrapeMessagingHistory`, `Waiter`.
+Use `describe-actions` for full schemas. Types: `VisitAndExtract`, `InvitePerson`, `MessageToPerson`, `InMail`, `CheckForReplies`, `Follow`, `EndorseSkills`, `PersonPostsLiker`, `FilterContactsOutOfMyNetwork`, `RemoveFromFirstConnection`, `DataEnrichment`, `ScrapeMessagingHistory`, `Waiter`. Note `SendPersonToWebhook` executes at runtime but is not in the modeled catalog (linter "unknown type" is expected). For verified `actionSettings` shapes, see `lhremote-action-config-samples.md`.
 
 ## Source Type Reference (`collect-people` auto-detects from URL)
 
-**Free tier:** `SearchPage` (`/search/results/people/`), `MyConnections` (`/mynetwork/invite-connect/connections/`), `Alumni` (`/school/{id}/people/`), `OrganizationPeople` (`/company/{id}/people/`), `Group` (`/groups/{id}/members/`), `Event` (`/events/{id}/attendees/`), `LWVYPP` (`/me/profile-views/`), `SentInvitationPage`, `FollowersPage`, `FollowingPage`.
-**Sales Navigator:** `SNSearchPage` (`/sales/search/people`), `SNListPage`, `SNOrgsPage` (`/sales/search/company`), `SNOrgsListsPage`.
+**Free:** `SearchPage`, `MyConnections`, `Alumni`, `OrganizationPeople`, `Group`, `Event`, `LWVYPP`, `SentInvitationPage`, `FollowersPage`, `FollowingPage`.
+**Sales Navigator:** `SNSearchPage`, `SNListPage`, `SNOrgsPage`, `SNOrgsListsPage`.
 **Recruiter:** `TSearchPage`, `TProjectPage`, `RSearchPage`, `RProjectPage`.
 
 ## Building LinkedIn Search URLs
 
-Base: `https://www.linkedin.com/search/results/people/?` with `&key=value`. Faceted filters (except `keywords`/`firstName`/`lastName`/`title`) use URL-encoded JSON arrays (`[` → `%5B`, `]` → `%5D`, `"` → `%22`, `,` → `%2C`).
-
-Key params: `keywords` (Boolean-capable), `network` (`F`/`S`/`O`), `geoUrn`, `currentCompany`, `pastCompany`, `school`, `industry`, `profileLanguage`, `title`, `connectionOf`.
-
-Common geo URN IDs: US 103644278, Canada 101174742, UK 101165590, France 105015875, Germany 101282230, Spain 105646813, Italy 103350119, Netherlands 102890719, Switzerland 106693272, India 102713980, Australia 101452733, Brazil 106057199, Japan 101355337, SF Bay Area 90000084.
-
-Discover other IDs via the LinkedIn URL bar after applying a filter, the company-page "See all jobs" `f_C=` trick, or the typeahead XHR in DevTools. LinkedIn caps search results at ~2,500 per query — split large targets. Sales Navigator uses the nested `query=(filters:List(...))` syntax (percent-encoded).
+Base `https://www.linkedin.com/search/results/people/?` with `&key=value`. Faceted filters use URL-encoded JSON arrays. Key params: `keywords`, `network` (`F`/`S`/`O`), `geoUrn`, `currentCompany`, `pastCompany`, `school`, `industry`, `profileLanguage`, `title`, `connectionOf`. Geo URNs: US 103644278, Canada 101174742, UK 101165590, France 105015875, Germany 101282230, India 102713980, Australia 101452733, SF Bay Area 90000084. LinkedIn caps search at ~2,500/query — split large targets.
 
 ## Rate Limiting
 
-- Campaign actions: 100–200 visits/day safe; start at 50/day and scale; cooldown ≥60s; set `cooldownMs` (60000–90000) and `maxActionsPerRun` (5–10).
-- Collection: cap with `limit` (~1000/run) and `maxPages`; one collection per instance.
-- LinkedIn warnings are far easier to prevent than to undo — start conservative.
+- Campaign actions: 100–200 visits/day safe; start at 50/day; cooldown ≥60s (`coolDown` 60000–90000); `maxActionResultsPerIteration` 5–10.
+- Collection: `limit` (~1000/run), `maxPages`; one collection per instance.
+- LinkedIn warnings are easier to prevent than undo — start conservative.
 
 ## Common Pitfalls
 
 | Pitfall | Correct approach |
 |---|---|
-| Treating "CDP not reachable" as a real outage without checking | First probe `/json/version`; if it answers, it's a discovery issue — use explicit `cdpPort` and flag a regression |
-| Identifying a CDP port by "the PID has a listening socket" | A CDP port is the one that answers `/json/version`; processes bind a second non-CDP socket |
-| Expecting a long launcher warm-up after boot | Launcher CDP is up ~4s; post-boot failures point to discovery, not warm-up |
-| Shortening the instance start wait | Instance readiness genuinely takes ~35–90s; let it warm up |
-| Reading the running set from `databases[]` / the roster | Use `runningInstances[]` from `check-status` |
-| Judging instance health on a single `connectable` read | Connectability is eventually-consistent; re-poll across the grace window |
-| Raw back-to-back `start-instance` calls | Use `ensure-instances`/`restart-instance` — they serialize and settle |
-| Trusting the `start-instance` payload port | Confirm real ports via `check-status` after settle |
-| `launch-app force:true` then assuming port 9222 | Force picks a **new** dynamic port; pin with `launch-app cdpPort: 9222` if you need 9222 |
-| Treating `--lh-account` as the instance's account | It's the license owner; use `--app-id`/`--user-li-id` |
-| Counting `--type=` helper processes as instances/orphans | Helpers are children of a live parent — never instances/orphans |
-| Hardcoding CDP ports | Re-derive each session — ports are dynamic |
-| Leaving every account instance running | Each is ~300–500 MB; stop idle instances to free resources |
-| Expecting instances to auto-start after reboot | Only the launcher auto-starts; start instances on demand |
+| Treating "CDP not reachable" as an outage without checking | Probe `/json/version`; if it answers, use explicit `cdpPort` + flag regression |
+| Identifying a CDP port by "PID has a listening socket" | Confirm via `/json/version`; processes bind a second non-CDP socket |
+| Reading running set from `databases[]` | Use `runningInstances[]` |
+| Judging health on a single `connectable` read | Re-poll across the grace window |
+| Raw back-to-back `start-instance` | Use `ensure-instances` / `restart-instance` |
+| Hardcoding CDP ports | Re-derive each session |
+| Leaving every instance running | Stop idle instances; keep 2–3 concurrent |
+| Expecting instances to auto-start after reboot | Only the launcher auto-starts |
+| Using `query-profiles` IDs in account-scoped tools | It's global; use `campaign-list-people` for scoped IDs |
+| Expecting `campaign-update-action` to clear `isDraft` | It preserves the flag; clearing needs the LH UI |
+| Asserting a draft node is skipped | Unverified — run the `campaign_version` membership probe |
+| Using `campaign-statistics` to prove a block's draft/live state (either direction) | Zeros = queue-gating; non-zeros on a currently-draft block = ran while committed then edited. `campaign-get` shows only the *current* flag. Only `campaign_version` membership indicates current live/skip state |
+| Blaming lhremote for the `workspaceId` launcher error | It's LH's own workspace sync; re-login/re-select workspace in LH |
+| Reading a Filter's `failed` count as errors | It's not-yet-accepted profiles; report acceptance rate |
+| Creating a campaign with no prefix or the wrong account prefix | Use `<ABBREVIATION>: <descriptive name>` and match the owning account |

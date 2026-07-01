@@ -378,7 +378,7 @@ export class CampaignRepository {
     // Verify campaign exists
     this.getCampaign(campaignId);
 
-    const { actionId, status, limit = 20, offset = 0 } = options;
+    const { actionId, status, publicIds, limit = 20, offset = 0 } = options;
 
     // If actionId is provided, verify it belongs to this campaign
     if (actionId !== undefined) {
@@ -402,6 +402,13 @@ export class CampaignRepository {
         conditions.push("atp.state = ?");
         params.push(stateNum);
       }
+    }
+
+    if (publicIds !== undefined && publicIds.length > 0) {
+      // pei is LEFT JOINed below — this condition naturally excludes rows
+      // with no matching 'public' external ID, since NULL IN (...) is not true.
+      conditions.push(`pei.external_id IN (${publicIds.map(() => "?").join(", ")})`);
+      params.push(...publicIds);
     }
 
     const where = conditions.join(" AND ");

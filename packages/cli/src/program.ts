@@ -266,6 +266,8 @@ Examples:
     .argument("<campaignId>", "Campaign ID", parsePositiveInt)
     .option("--action-id <id>", "Filter to a specific action", parsePositiveInt)
     .option("--status <status>", "Filter by status (queued, processed, successful, failed)")
+    .option("--urls <urls>", "Filter/verify by comma-separated LinkedIn profile URLs")
+    .option("--urls-file <path>", "Filter/verify by LinkedIn profile URLs read from a file (newline- or comma-separated)")
     .option("--limit <n>", "Max results (default: 20)", parsePositiveInt)
     .option("--offset <n>", "Pagination offset (default: 0)", parseNonNegativeInt)
     .option("--cdp-port <port>", "CDP debugging port (auto-discovered when omitted)", parsePositiveInt)

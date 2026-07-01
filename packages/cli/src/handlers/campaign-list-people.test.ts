@@ -11,12 +11,21 @@ vi.mock("@insoftex/lhremote-core", async (importOriginal) => {
   };
 });
 
+vi.mock("node:fs", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("node:fs")>();
+  return {
+    ...actual,
+    readFileSync: vi.fn(),
+  };
+});
+
 import {
   type CampaignListPeopleOutput,
   ActionNotFoundError,
   CampaignNotFoundError,
   campaignListPeople,
 } from "@insoftex/lhremote-core";
+import { readFileSync } from "node:fs";
 
 import { handleCampaignListPeople } from "./campaign-list-people.js";
 import { getStdout } from "./testing/mock-helpers.js";
@@ -179,5 +188,88 @@ describe("handleCampaignListPeople", () => {
 
     expect(process.exitCode).toBe(1);
     expect(stderrSpy).toHaveBeenCalledWith("timeout\n");
+  });
+
+  describe("--urls / --urls-file", () => {
+    it("parses --urls into linkedInUrls", async () => {
+      vi.mocked(campaignListPeople).mockResolvedValue(MOCK_RESULT);
+
+      await handleCampaignListPeople(1, {
+        urls: "https://www.linkedin.com/in/alice-smith/, https://www.linkedin.com/in/carol-jones/",
+      });
+
+      expect(campaignListPeople).toHaveBeenCalledWith(
+        expect.objectContaining({
+          linkedInUrls: [
+            "https://www.linkedin.com/in/alice-smith/",
+            "https://www.linkedin.com/in/carol-jones/",
+          ],
+        }),
+      );
+    });
+
+    it("reads --urls-file into linkedInUrls", async () => {
+      vi.mocked(campaignListPeople).mockResolvedValue(MOCK_RESULT);
+      vi.mocked(readFileSync).mockReturnValue(
+        "https://www.linkedin.com/in/alice-smith/\nhttps://www.linkedin.com/in/carol-jones/\n",
+      );
+
+      await handleCampaignListPeople(1, { urlsFile: "urls.txt" });
+
+      expect(campaignListPeople).toHaveBeenCalledWith(
+        expect.objectContaining({
+          linkedInUrls: [
+            "https://www.linkedin.com/in/alice-smith/",
+            "https://www.linkedin.com/in/carol-jones/",
+          ],
+        }),
+      );
+    });
+
+    it("sets exitCode 1 when both --urls and --urls-file are given", async () => {
+      await handleCampaignListPeople(1, {
+        urls: "https://www.linkedin.com/in/alice-smith/",
+        urlsFile: "urls.txt",
+      });
+
+      expect(process.exitCode).toBe(1);
+      expect(campaignListPeople).not.toHaveBeenCalled();
+      expect(stderrSpy).toHaveBeenCalledWith("Use only one of --urls or --urls-file.\n");
+    });
+
+    it("sets exitCode 1 when urls-file read fails", async () => {
+      vi.mocked(readFileSync).mockImplementation(() => {
+        throw new Error("ENOENT: no such file");
+      });
+
+      await handleCampaignListPeople(1, { urlsFile: "missing.txt" });
+
+      expect(process.exitCode).toBe(1);
+      expect(campaignListPeople).not.toHaveBeenCalled();
+    });
+
+    it("prints notFoundLinkedInUrls when present", async () => {
+      vi.mocked(campaignListPeople).mockResolvedValue({
+        ...MOCK_RESULT,
+        notFoundLinkedInUrls: ["https://www.linkedin.com/in/nobody-here/"],
+      });
+
+      await handleCampaignListPeople(1, {
+        urls: "https://www.linkedin.com/in/nobody-here/",
+      });
+
+      const output = getStdout(stdoutSpy);
+      expect(output).toContain("1 of the given URLs are not on the target list");
+      expect(output).toContain("https://www.linkedin.com/in/nobody-here/");
+    });
+
+    it("omits the not-found section when notFoundLinkedInUrls is absent", async () => {
+      vi.mocked(campaignListPeople).mockResolvedValue(MOCK_RESULT);
+
+      await handleCampaignListPeople(1, {});
+
+      const output = getStdout(stdoutSpy);
+      expect(output).not.toContain("not on the target list");
+    });
   });
 });

@@ -242,4 +242,45 @@ describe("registerCampaignListPeople", () => {
     mockResolvedValue: { people: [], total: 0 },
   });
 
+  it("passes linkedInUrls to the operation", async () => {
+    const { server, getHandler } = createMockServer();
+    registerCampaignListPeople(server);
+    vi.mocked(campaignListPeople).mockResolvedValue(SAMPLE_OUTPUT);
+
+    const handler = getHandler("campaign-list-people");
+    await handler({
+      campaignId: 10,
+      linkedInUrls: ["https://www.linkedin.com/in/alice-smith/"],
+      offset: 0,
+      cdpPort: 9222,
+    });
+
+    expect(campaignListPeople).toHaveBeenCalledWith(
+      expect.objectContaining({
+        campaignId: 10,
+        linkedInUrls: ["https://www.linkedin.com/in/alice-smith/"],
+      }),
+    );
+  });
+
+  it("surfaces notFoundLinkedInUrls in the response", async () => {
+    const { server, getHandler } = createMockServer();
+    registerCampaignListPeople(server);
+    vi.mocked(campaignListPeople).mockResolvedValue({
+      ...SAMPLE_OUTPUT,
+      notFoundLinkedInUrls: ["https://www.linkedin.com/in/nobody-here/"],
+    });
+
+    const handler = getHandler("campaign-list-people");
+    const result = await handler({
+      campaignId: 10,
+      linkedInUrls: ["https://www.linkedin.com/in/nobody-here/"],
+      offset: 0,
+      cdpPort: 9222,
+    });
+
+    const text = (result as { content: { text: string }[] }).content[0]?.text;
+    expect(text).toContain("notFoundLinkedInUrls");
+    expect(text).toContain("https://www.linkedin.com/in/nobody-here/");
+  });
 });

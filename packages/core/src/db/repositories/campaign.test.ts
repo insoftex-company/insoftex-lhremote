@@ -591,6 +591,48 @@ describe("CampaignRepository", () => {
     });
   });
 
+  describe("listPeople", () => {
+    // Campaign 5 / action 5: person 1 (Ada, public id "ada-lovelace-test")
+    // queued, person 3 (Grace, public id "grace-hopper-test") processed.
+    // Person 2 (Charlie, "charlie-test") is not a target of campaign 5.
+
+    it("filters to people matching the given public IDs", () => {
+      const result = repo.listPeople(5, {
+        publicIds: ["ada-lovelace-test", "charlie-test"],
+      });
+
+      expect(result.people).toHaveLength(1);
+      expect(result.people[0]?.personId).toBe(1);
+      expect(result.people[0]?.publicId).toBe("ada-lovelace-test");
+      expect(result.total).toBe(1);
+    });
+
+    it("returns no people when no public IDs match", () => {
+      const result = repo.listPeople(5, { publicIds: ["nonexistent-slug"] });
+
+      expect(result.people).toHaveLength(0);
+      expect(result.total).toBe(0);
+    });
+
+    it("combines the public ID filter with actionId and status", () => {
+      const result = repo.listPeople(5, {
+        actionId: 5,
+        status: "queued",
+        publicIds: ["ada-lovelace-test", "grace-hopper-test"],
+      });
+
+      // Grace is "processed" in action 5, not "queued" — excluded by status.
+      expect(result.people).toHaveLength(1);
+      expect(result.people[0]?.personId).toBe(1);
+    });
+
+    it("ignores an empty public ID list (no filtering)", () => {
+      const result = repo.listPeople(5, { publicIds: [] });
+
+      expect(result.people.map((p) => p.personId).sort()).toEqual([1, 3]);
+    });
+  });
+
   describe("addAction", () => {
     it("creates action with correct fields", () => {
       const action = repo.addAction(1, {
