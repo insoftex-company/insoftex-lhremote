@@ -4,17 +4,7 @@
 import { pidToPorts } from "pid-port";
 
 import { isCdpPort, parseCmdlineDebugPort } from "../utils/cdp-port.js";
-import { gatherRawProcesses } from "./gather-raw-processes.js";
-
-/**
- * Known LinkedHelper binary names (case-insensitive) for filtering processes.
- */
-const BINARY_NAMES_LOWERCASE = new Set([
-  "linked-helper",
-  "linked-helper.exe",
-  "linkedhelper",
-  "linkedhelper.exe",
-]);
+import { gatherLhProcesses } from "./gather-lh-processes.js";
 
 // ---------------------------------------------------------------------------
 // Public types
@@ -286,7 +276,11 @@ async function probeCdp(
     }
   }
 
-  return { cdpPort: [...ports][0] ?? null, connectable: false };
+  // None of this PID's listening ports answered as CDP, and we have no cmdline hint to say which
+  // one *should* be the CDP port. Reporting an arbitrary port here would misrepresent an
+  // unconfirmed guess as identified state — see the matching fix in app-discovery.ts's
+  // probeProcess() for the full rationale.
+  return { cdpPort: null, connectable: false };
 }
 
 // ---------------------------------------------------------------------------
@@ -307,10 +301,11 @@ async function probeCdp(
  * Results are sorted connectable-first.
  */
 export async function scanRunningInstances(): Promise<RunningInstance[]> {
-  const allProcs = await gatherRawProcesses();
-  const lhProcs = allProcs.filter((p) =>
-    BINARY_NAMES_LOWERCASE.has(p.name.toLowerCase()),
-  );
+  // gatherLhProcesses() retries once when a process comes back with cmdline: null (a transient
+  // Windows WMI quirk right after a process spawns). Without it, a freshly-spawned instance can
+  // lose its account identity entirely (accountId: null) and never match its account, which
+  // resolveInstancePort (instance-context.ts) then reports as "this account isn't running."
+  const lhProcs = await gatherLhProcesses();
 
   if (lhProcs.length === 0) return [];
 
@@ -376,10 +371,10 @@ export async function scanRunningInstances(): Promise<RunningInstance[]> {
 export async function scanOrphans(
   liveInstances: RunningInstance[],
 ): Promise<OrphanProcess[]> {
-  const allProcs = await gatherRawProcesses();
-  const lhProcs = allProcs.filter((p) =>
-    BINARY_NAMES_LOWERCASE.has(p.name.toLowerCase()),
-  );
+  // Same cmdline: null retry as scanRunningInstances (see gather-lh-processes.ts) — without it, a
+  // freshly-spawned, legitimate instance whose --app-id hasn't shown up in WMI yet could be
+  // probed as non-connectable and flagged as an orphan candidate for reap-orphans to kill.
+  const lhProcs = await gatherLhProcesses();
 
   if (lhProcs.length === 0) return [];
 

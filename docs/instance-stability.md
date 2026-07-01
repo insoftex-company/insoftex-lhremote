@@ -76,24 +76,39 @@ Returns `WaitForConnectableResult { cdpPort, pid, verified }`. `verified:false` 
 - In `waitForPidExit` before each poll iteration
 - In `findApp` when it retries after a `cmdline: null` sighting (see below)
 
-### 4a. `cmdline: null` retry (`app-discovery.ts`)
+### 4a. `cmdline: null` retry (`gather-lh-processes.ts`)
 
 Windows WMI's `Win32_Process.CommandLine` can come back `null` for a process in the first moment
-or two after it spawns, before `findApp()` next probes it. Without a cmdline, role classification
-falls back to a parent-PID heuristic and CDP-port discovery falls back to probing every TCP port
-the process holds — reporting whichever port answered (or, if none did, the first one seen) as
-if it were the identified CDP port. Since `pidToPorts()` result ordering isn't guaranteed stable
-across scans, this made the same PID's reported CDP port appear to change between two `find-app`
-calls a moment apart, and the reported port was frequently wrong (not a CDP port at all) even when
-stable.
+or two after it spawns, before the next scan probes it. Without a cmdline:
 
-When `findApp()` sees any matched LinkedHelper process with `cmdline: null`, it waits
-`LHREMOTE_CMDLINE_RETRY_DELAY_MS` (default 500 ms), invalidates the process cache, and re-scans
-once — by then WMI has almost always populated `CommandLine`, and the deterministic
-`--remote-debugging-port=` cmdline path is used instead of the port-probing fallback. If a process
-still has no cmdline after the retry, `probeProcess()` now reports `cdpPort: null` rather than an
-unconfirmed port when nothing answers as CDP, so callers can tell "no signal" apart from "unstable
-signal."
+- Role classification falls back to a parent-PID heuristic instead of reading `--app-id=`.
+- CDP-port discovery falls back to probing every TCP port the process holds, reporting whichever
+  port answered (or, if none did, the first one seen) as if it were the identified CDP port. Since
+  `pidToPorts()` result ordering isn't guaranteed stable across scans, this made the same PID's
+  reported CDP port appear to change between two `find-app` calls a moment apart.
+- Account identity resolves to `accountId: null` (`parseIdentityFromCmdline("")` has nothing to
+  parse), so the process can never be matched to its real account.
+
+That last one is the more dangerous failure mode: `resolveInstancePort` (`instance-context.ts`,
+used by every write-path tool that takes `--account-id`) matches running instances by account id.
+If the target account's instance was still mid-spawn during the scan, it resolves as
+`accountId: null`, never matches, and the caller gets `InstanceNotRunningError` — "Account `<id>`
+instance is not running" — for an account that is, in fact, running.
+
+`gatherLhProcesses()` is the single, shared implementation of "scan for LinkedHelper processes,
+retrying once past this race" used by both `findApp()` (`app-discovery.ts`) and
+`scanRunningInstances()` / `scanOrphans()` (`process-inspector.ts`). When it sees any matched
+LinkedHelper process with `cmdline: null`, it waits `LHREMOTE_CMDLINE_RETRY_DELAY_MS` (default
+500 ms), invalidates the process cache, and re-scans once — by then WMI has almost always
+populated `CommandLine`. If a process still has no cmdline after the retry, both `probeProcess()`
+(`app-discovery.ts`) and `probeCdp()` (`process-inspector.ts`) report `cdpPort: null` rather than
+an unconfirmed port when nothing answers as CDP, so callers can tell "no signal" apart from
+"unstable signal."
+
+This used to be two independent copies of the same scan logic, one per file — the retry fix
+originally landed only in `app-discovery.ts`, which fixed `find-app`'s display but left the
+write-path account resolution above still vulnerable. Keeping this in one shared module means a
+future fix here only has to happen once.
 
 ### 5. `waitForPidExit(pid, timeoutMs?)`
 

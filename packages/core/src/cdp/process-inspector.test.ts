@@ -7,6 +7,7 @@
 
 vi.mock("./gather-raw-processes.js", () => ({
   gatherRawProcesses: vi.fn().mockResolvedValue([]),
+  invalidateProcessCache: vi.fn(),
 }));
 
 vi.mock("pid-port", () => ({
@@ -23,7 +24,7 @@ vi.mock("../utils/cdp-port.js", async (importOriginal) => {
 
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import { gatherRawProcesses } from "./gather-raw-processes.js";
+import { gatherRawProcesses, invalidateProcessCache } from "./gather-raw-processes.js";
 import { pidToPorts } from "pid-port";
 import { isCdpPort } from "../utils/cdp-port.js";
 import { parseIdentityFromCmdline, reapOrphans, scanOrphans, scanRunningInstances } from "./process-inspector.js";
@@ -31,6 +32,7 @@ import type { OrphanProcess } from "./process-inspector.js";
 import type { RawProcess } from "./gather-raw-processes.js";
 
 const mockedGatherRawProcesses = vi.mocked(gatherRawProcesses);
+const mockedInvalidateProcessCache = vi.mocked(invalidateProcessCache);
 const mockedPidToPorts = vi.mocked(pidToPorts as (pid: number) => Promise<Set<number>>);
 const mockedIsCdpPort = vi.mocked(isCdpPort);
 
@@ -189,6 +191,74 @@ describe("role classification", () => {
     expect(instances).toHaveLength(3);
     const ids = instances.map((i) => i.accountId).sort((a, b) => (a ?? 0) - (b ?? 0));
     expect(ids).toEqual([329925, 331874, 347559]);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// cmdline: null retry (Windows WMI CommandLine race right after process spawn)
+//
+// Regression for the account-not-running write-path bug: resolveInstancePort()
+// (instance-context.ts) calls scanRunningInstances() and matches by accountId. If a
+// freshly-spawned instance's cmdline came back null from WMI, parseIdentityFromCmdline("")
+// resolves accountId: null for it — so it can never match its real account, and
+// resolveInstancePort throws "Account <id> instance is not running" even though the process is
+// actually up. This block proves scanRunningInstances (and scanOrphans) retry past that race
+// instead of reporting a live account as unresolvable.
+// ---------------------------------------------------------------------------
+
+describe("cmdline: null retry", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockedPidToPorts.mockResolvedValue(new Set());
+    mockedIsCdpPort.mockResolvedValue(false);
+    vi.stubEnv("LHREMOTE_CMDLINE_RETRY_DELAY_MS", "0");
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+    vi.unstubAllEnvs();
+  });
+
+  it("resolves the correct accountId on retry instead of returning accountId:null", async () => {
+    // account 570886's instance: first scan catches it mid-spawn (WMI CommandLine not yet
+    // populated), second scan (after the retry) sees its real --app-id.
+    mockedGatherRawProcesses
+      .mockResolvedValueOnce([proc(14772, 9924, "linked-helper.exe", null)])
+      .mockResolvedValueOnce([proc(14772, 9924, "linked-helper.exe", instanceCmdline({ appId: 570886, fullName: "Oleksandra Ivanova", email: "oleksandra@example.com" }))]);
+
+    const instances = await scanRunningInstances();
+
+    expect(mockedInvalidateProcessCache).toHaveBeenCalledTimes(1);
+    expect(mockedGatherRawProcesses).toHaveBeenCalledTimes(2);
+    expect(instances).toHaveLength(1);
+    expect(instances[0]?.accountId).toBe(570886);
+    expect(instances[0]?.confidence).toBe("high");
+  });
+
+  it("does not retry when every process already has a cmdline", async () => {
+    mockedGatherRawProcesses.mockResolvedValue([
+      proc(13004, 0, "linked-helper.exe", instanceCmdline({ appId: 347559 })),
+    ]);
+
+    await scanRunningInstances();
+
+    expect(mockedInvalidateProcessCache).not.toHaveBeenCalled();
+    expect(mockedGatherRawProcesses).toHaveBeenCalledTimes(1);
+  });
+
+  it("scanOrphans also retries past a null-cmdline scan instead of misreporting a live instance's identity", async () => {
+    mockedGatherRawProcesses
+      .mockResolvedValueOnce([proc(14772, 9924, "linked-helper.exe", null)])
+      .mockResolvedValueOnce([proc(14772, 9924, "linked-helper.exe", instanceCmdline({ appId: 570886 }))]);
+    // instanceCmdline() has no --remote-debugging-port=, so probeCdp falls back to probing
+    // whatever TCP ports pidToPorts() reports for the PID.
+    mockedPidToPorts.mockResolvedValue(new Set([49749]));
+    mockedIsCdpPort.mockResolvedValue(true); // connectable — not an orphan candidate
+
+    const orphans = await scanOrphans([]);
+
+    expect(mockedInvalidateProcessCache).toHaveBeenCalledTimes(1);
+    expect(orphans).toHaveLength(0);
   });
 });
 

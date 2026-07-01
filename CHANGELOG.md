@@ -15,6 +15,18 @@ All notable changes to this project will be documented in this file.
   cmdline hint is available and nothing answers as CDP — it reports `cdpPort: null` — since the
   same PID could otherwise appear to have a different CDP port across successive `find-app` calls.
 
+- **Write-path account resolution (`import-people-from-urls` and friends) no longer reports a
+  running account as "instance is not running"** — `scanRunningInstances()` and `scanOrphans()`
+  (`process-inspector.ts`) had their own, separately-implemented copy of the process scan that
+  `find-app` uses, and it hadn't received the `cmdline: null` retry above: a freshly-spawned
+  instance whose `CommandLine` WMI hadn't populated yet would resolve as `accountId: null` instead
+  of its real account id, so `resolveInstancePort` (`instance-context.ts`) — which matches running
+  instances by account id — could never find it and threw `InstanceNotRunningError` for an account
+  that was, in fact, running. The scan-and-retry logic used by `find-app` is now shared
+  (`gather-lh-processes.ts`) between both code paths so this class of bug can't drift out of sync
+  between them again. `scanOrphans()`'s CDP-port fallback was aligned the same way as `find-app`'s
+  (`cdpPort: null` instead of an unconfirmed guess) to avoid the same failure mode there.
+
 ## [0.24.0] — 2026-07-01
 
 ### Added

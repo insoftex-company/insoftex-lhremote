@@ -9,37 +9,8 @@ import { isCdpPort, parseCmdlineDebugPort } from "../utils/cdp-port.js";
 import { isLoopbackAddress } from "../utils/loopback.js";
 import type { InstanceIdentity } from "./process-inspector.js";
 import { parseIdentityFromCmdline } from "./process-inspector.js";
-import { gatherRawProcesses, invalidateProcessCache } from "./gather-raw-processes.js";
+import { gatherLhProcesses } from "./gather-lh-processes.js";
 import type { RawProcess } from "./gather-raw-processes.js";
-
-/**
- * Known LinkedHelper binary names across platforms.
- */
-const BINARY_NAMES_LOWERCASE = new Set([
-  "linked-helper",
-  "linked-helper.exe",
-  "linkedhelper",
-  "linkedhelper.exe",
-]);
-
-/**
- * How long to wait before retrying the process scan when a LinkedHelper process was found with
- * `cmdline: null` (Windows WMI occasionally returns no `CommandLine` for a process in the first
- * moment or two after it spawns). Long enough for WMI to catch up, short enough not to noticeably
- * slow down `find-app` / `check-status` in the common case where this doesn't happen.
- * Configurable via `LHREMOTE_CMDLINE_RETRY_DELAY_MS` (matches the other timing knobs documented
- * in docs/instance-stability.md).
- */
-function getCmdlineRetryDelayMs(): number {
-  const v = process.env["LHREMOTE_CMDLINE_RETRY_DELAY_MS"];
-  return v ? Number(v) : 500;
-}
-
-/** Fetch all processes and filter down to the ones matching a known LinkedHelper binary name. */
-async function gatherLhProcesses(): Promise<RawProcess[]> {
-  const allProcs = await gatherRawProcesses().catch((): RawProcess[] => []);
-  return allProcs.filter((p) => BINARY_NAMES_LOWERCASE.has(p.name.toLowerCase()));
-}
 
 /**
  * Role of a discovered LinkedHelper process.
@@ -133,24 +104,13 @@ export interface FindAppOptions {
  *   group, launchers precede instances.
  */
 export async function findApp(options: FindAppOptions = {}): Promise<DiscoveredApp[]> {
-  let lhProcs = await gatherLhProcesses();
+  // gatherLhProcesses() retries once when a process comes back with cmdline: null (a transient
+  // Windows WMI quirk right after a process spawns) — see gather-lh-processes.ts for why that
+  // matters here: without it, role classification and CDP-port discovery both fall back to
+  // unreliable heuristics.
+  const lhProcs = await gatherLhProcesses();
 
   if (lhProcs.length === 0) return [];
-
-  // Win32_Process's CommandLine can come back null for a brief window right after a process is
-  // spawned (a known WMI quirk on Windows). Without a cmdline, role classification falls back to
-  // a ppid heuristic and CDP-port discovery falls back to probing every TCP port the process
-  // holds — which reports whichever port happens to be open first as "the" port, even when it
-  // isn't a CDP port at all. That bogus port then looks different on the next scan once the real
-  // `--remote-debugging-port=` cmdline becomes visible, which is exactly the "same PID, different
-  // port" symptom this retry avoids. One bounded retry gives WMI a chance to catch up before we
-  // fall back to that unreliable path.
-  if (lhProcs.some((p) => p.cmdline === null)) {
-    await delay(getCmdlineRetryDelayMs());
-    invalidateProcessCache();
-    const retried = await gatherLhProcesses();
-    if (retried.length > 0) lhProcs = retried;
-  }
 
   const lhPids = new Set(lhProcs.map((p) => p.pid));
 
