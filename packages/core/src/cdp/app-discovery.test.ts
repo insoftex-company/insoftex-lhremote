@@ -7,6 +7,7 @@
 
 vi.mock("./gather-raw-processes.js", () => ({
   gatherRawProcesses: vi.fn().mockResolvedValue([]),
+  invalidateProcessCache: vi.fn(),
 }));
 
 vi.mock("pid-port", () => ({
@@ -23,7 +24,7 @@ vi.mock("../utils/cdp-port.js", async (importOriginal) => {
 
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import { gatherRawProcesses } from "./gather-raw-processes.js";
+import { gatherRawProcesses, invalidateProcessCache } from "./gather-raw-processes.js";
 import { pidToPorts } from "pid-port";
 import { isCdpPort } from "../utils/cdp-port.js";
 import { findApp, resolveAppPort, resolveInstancePort, resolveLauncherPort } from "./app-discovery.js";
@@ -31,6 +32,7 @@ import { LinkedHelperNotRunningError, LinkedHelperUnreachableError } from "../se
 import type { RawProcess } from "./gather-raw-processes.js";
 
 const mockedGatherRawProcesses = vi.mocked(gatherRawProcesses);
+const mockedInvalidateProcessCache = vi.mocked(invalidateProcessCache);
 const mockedPidToPorts = vi.mocked(pidToPorts as (pid: number) => Promise<Set<number>>);
 const mockedIsCdpPort = vi.mocked(isCdpPort);
 
@@ -179,6 +181,21 @@ describe("findApp basic discovery", () => {
     const result = await findApp();
     expect(result[0]).toMatchObject({ pid: 1000, cdpPort: 9222, connectable: true });
   });
+
+  it("reports cdpPort:null (not an arbitrary port) when there is no cmdline hint and nothing is connectable", async () => {
+    // Regression: previously reported the first port pidToPorts() happened to return as though it
+    // were the identified CDP port, even though it was never confirmed as one. Since pidToPorts()
+    // set ordering isn't guaranteed stable across scans, that made the same PID appear to have a
+    // "different" CDP port on a later find-app call.
+    mockedGatherRawProcesses.mockResolvedValue([
+      { pid: 1000, ppid: 1, name: "linked-helper.exe", cmdline: "linked-helper.exe --some-other-flag" },
+    ]);
+    mockedPidToPorts.mockResolvedValue(new Set([61807, 54156]));
+    mockedIsCdpPort.mockResolvedValue(false);
+
+    const result = await findApp();
+    expect(result[0]).toMatchObject({ pid: 1000, cdpPort: null, connectable: false });
+  });
 });
 
 // ---------------------------------------------------------------------------
@@ -190,10 +207,13 @@ describe("findApp role classification", () => {
     vi.clearAllMocks();
     mockedPidToPorts.mockResolvedValue(new Set());
     mockedIsCdpPort.mockResolvedValue(false);
+    // Skip the real retry delay in the null-cmdline tests below.
+    vi.stubEnv("LHREMOTE_CMDLINE_RETRY_DELAY_MS", "0");
   });
 
   afterEach(() => {
     vi.restoreAllMocks();
+    vi.unstubAllEnvs();
   });
 
   it("classifies process with --app-id= as instance", async () => {
@@ -245,6 +265,37 @@ describe("findApp role classification", () => {
     const result = await findApp();
     expect(result.find((a) => a.pid === 1000)?.role).toBe("launcher");
     expect(result.find((a) => a.pid === 2000)?.role).toBe("instance");
+  });
+
+  it("retries the scan once when cmdline is null, and uses the retried result once WMI catches up", async () => {
+    // Simulates the real-world case: a freshly-spawned instance whose Win32_Process.CommandLine
+    // comes back null on the first scan (a known Windows WMI quirk) but is populated by the time
+    // of the retry, once the process has finished initializing.
+    mockedGatherRawProcesses
+      .mockResolvedValueOnce([{ pid: 2000, ppid: 1000, name: "linked-helper.exe", cmdline: null }])
+      .mockResolvedValueOnce([instanceProc(2000, 1000, 347559)]);
+    mockedPidToPorts.mockResolvedValue(new Set());
+    mockedIsCdpPort.mockResolvedValue(false);
+
+    const result = await findApp();
+
+    expect(mockedInvalidateProcessCache).toHaveBeenCalledTimes(1);
+    expect(mockedGatherRawProcesses).toHaveBeenCalledTimes(2);
+    // Role/identity now come from the retried cmdline (--app-id=347559), not the ppid heuristic
+    // the first, cmdline-less scan would have fallen back to.
+    expect(result[0]).toMatchObject({ pid: 2000, role: "instance" });
+    expect(result[0]?.identity?.accountId).toBe(347559);
+  });
+
+  it("does not retry the scan when every process already has a cmdline", async () => {
+    mockedGatherRawProcesses.mockResolvedValue([launcherProc(1000), instanceProc(2000, 1000, 347559)]);
+    mockedPidToPorts.mockResolvedValue(new Set());
+    mockedIsCdpPort.mockResolvedValue(true);
+
+    await findApp();
+
+    expect(mockedInvalidateProcessCache).not.toHaveBeenCalled();
+    expect(mockedGatherRawProcesses).toHaveBeenCalledTimes(1);
   });
 });
 

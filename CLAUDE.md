@@ -29,6 +29,18 @@ Do **not** add issue numbers (e.g. `(#12)`) to commit messages. GitHub links PRs
 - Run `pnpm lint` before pushing
 - PR body must include `Closes #N` to link the related issue
 
+### Copyright And Attribution
+
+- This repository is an Insoftex fork of the upstream `alexey-pelykh/lhremote` project.
+- Preserve existing upstream source headers by default. Do not replace
+  `// Copyright (C) 2026 Oleksii PELYKH` on inherited files just because the fork modified them.
+- Repo/package metadata may attribute the fork and published artifacts to Insoftex
+  (`author`, README, plugin metadata, npm package ownership).
+- Add an extra `// Copyright (C) 2026 Insoftex` line only intentionally, for files that are
+  newly authored by Insoftex or have been substantially rewritten under Insoftex ownership.
+- Do not introduce mixed header styles ad hoc. If a broader relicensing or dual-notice policy is
+  desired later, apply it repo-wide in one explicit pass rather than opportunistically file by file.
+
 #### Copilot Review Cycle
 
 After pushing a PR, follow this cycle until Copilot has no actionable comments:

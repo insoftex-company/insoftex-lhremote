@@ -74,6 +74,26 @@ Returns `WaitForConnectableResult { cdpPort, pid, verified }`. `verified:false` 
 
 - In `withLauncherQueue`'s `finally` block (after every lifecycle op)
 - In `waitForPidExit` before each poll iteration
+- In `findApp` when it retries after a `cmdline: null` sighting (see below)
+
+### 4a. `cmdline: null` retry (`app-discovery.ts`)
+
+Windows WMI's `Win32_Process.CommandLine` can come back `null` for a process in the first moment
+or two after it spawns, before `findApp()` next probes it. Without a cmdline, role classification
+falls back to a parent-PID heuristic and CDP-port discovery falls back to probing every TCP port
+the process holds — reporting whichever port answered (or, if none did, the first one seen) as
+if it were the identified CDP port. Since `pidToPorts()` result ordering isn't guaranteed stable
+across scans, this made the same PID's reported CDP port appear to change between two `find-app`
+calls a moment apart, and the reported port was frequently wrong (not a CDP port at all) even when
+stable.
+
+When `findApp()` sees any matched LinkedHelper process with `cmdline: null`, it waits
+`LHREMOTE_CMDLINE_RETRY_DELAY_MS` (default 500 ms), invalidates the process cache, and re-scans
+once — by then WMI has almost always populated `CommandLine`, and the deterministic
+`--remote-debugging-port=` cmdline path is used instead of the port-probing fallback. If a process
+still has no cmdline after the retry, `probeProcess()` now reports `cdpPort: null` rather than an
+unconfirmed port when nothing answers as CDP, so callers can tell "no signal" apart from "unstable
+signal."
 
 ### 5. `waitForPidExit(pid, timeoutMs?)`
 
@@ -140,6 +160,7 @@ All timing constants have sane defaults and are overridable via environment vari
 | `LHREMOTE_SETTLE_BARRIER_TIMEOUT_MS` | `30000` | Same as grace window; after 30 s the next op won't benefit from more waiting |
 | `LHREMOTE_INSPECTION_CACHE_TTL_MS` | `1500` | Amortises WMI cost across poll loops without becoming stale |
 | `LHREMOTE_LAUNCHER_RECOVERY_TIMEOUT_MS` | `30000` | (existing) Cap for auto-reconnect on CDP drop |
+| `LHREMOTE_CMDLINE_RETRY_DELAY_MS` | `500` | Wait before re-scanning when a LinkedHelper process was seen with `cmdline: null` (WMI hasn't populated `CommandLine` yet for a just-spawned process) |
 
 Reduce all values in integration test environments to speed up test runs. Increase `LHREMOTE_CONNECTABLE_TIMEOUT_MS` on machines with very slow disk/startup (e.g. under heavy I/O load).
 

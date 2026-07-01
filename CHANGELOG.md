@@ -4,6 +4,17 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+### Fixed
+
+- **`find-app` no longer reports a bogus, shifting CDP port for a freshly-spawned instance** — When
+  Windows WMI's `Win32_Process.CommandLine` briefly comes back `null` for a process right after it
+  spawns (a known WMI quirk), process discovery now retries the scan once, after a short delay
+  (`LHREMOTE_CMDLINE_RETRY_DELAY_MS`, default 500 ms), instead of immediately falling back to
+  probing every TCP port the process holds and reporting whichever one happened to come back
+  first as "the" CDP port. That fallback also no longer reports an unconfirmed port at all when no
+  cmdline hint is available and nothing answers as CDP — it reports `cdpPort: null` — since the
+  same PID could otherwise appear to have a different CDP port across successive `find-app` calls.
+
 ## [0.24.0] — 2026-07-01
 
 ### Added

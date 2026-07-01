@@ -1169,3 +1169,8 @@ This tool is for **legitimate productivity**. Do NOT use for spam, scraping at s
 ## License
 
 [AGPL-3.0-only](LICENSE) — For commercial licensing, contact the maintainer.
+
+This repository is maintained as an Insoftex fork of the upstream `lhremote` project. In practice,
+that means package/release metadata may identify Insoftex as the distributor of this fork, while
+existing source-file copyright headers from the upstream codebase are preserved unless a file is
+newly authored or intentionally re-attributed under a separate repo-wide policy.
