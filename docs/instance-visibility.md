@@ -104,12 +104,23 @@ The `runningInstances[]` array in `StatusReport` is populated exclusively by `so
 
 ---
 
-## Launcher auto-recovery policy (F3)
+## Launcher auto-recovery policy
 
-When the launcher CDP drops (for example while reconciling instances after a fresh launch), `resolveLauncherPort` retries with 1-second intervals for up to **30 seconds** (`REACHABILITY_RETRY_TIMEOUT`).  This window is enough for LinkedHelper to re-bind its debugging port.
+Two related retry budgets exist and they are not the same:
 
-- Status queries (`check-status`) always succeed during a launcher outage because `runningInstances[]` is populated from process inspection, independent of the launcher.
-- Launcher operations (`start-instance`, `stop-instance`, `list-accounts`) will block and retry within the 30-second cap before failing with a structured error.
+- Low-level port discovery (`resolveAppPort`) retries with 1-second intervals for up to
+  **30 seconds** (`REACHABILITY_RETRY_TIMEOUT`) when LinkedHelper processes are present but the
+  requested CDP endpoint is temporarily unreachable.
+- Launcher operation recovery (`withLauncherRecovery` / `LauncherService.reconnect`) uses a
+  higher-level recovery budget that defaults to **60 seconds**
+  (`LHREMOTE_LAUNCHER_RECOVERY_TIMEOUT_MS`), allowing repeated resolve+connect attempts while the
+  launcher is flapping or re-binding its debugging port.
+
+- Status queries (`check-status`) always succeed during a launcher outage because `runningInstances[]`
+  is populated from process inspection, independent of the launcher.
+- Launcher operations (`start-instance`, `stop-instance`, `list-accounts`, `restart-instance`,
+  `ensure-instances`) can block and retry within the higher-level recovery budget before failing
+  with a structured error.
 
 ---
 

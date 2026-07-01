@@ -224,12 +224,19 @@ check-replies → query-messages
 
 ---
 
-## Ephemeral single-action tools (status 2026-06-26)
+## Ephemeral single-action tools (status 2026-07-01)
 
 `visit-profile`, `follow-person`, `unfollow-profile`, `like-person-posts`, `endorse-skills`, `message-person`, `send-invite`, `send-inmail`, `remove-connection`, `comment-on-post`, `react-to-post`, `react-to-comment` run as "ephemeral campaigns" / single actions.
 
-- A bug caused these to fail with LH "incorrect action type: VisitAndExtract" and leave a **blocking instance popup**; a full LH crash followed in one case. `get-errors` detects the popup; `dismiss-errors` (with explicit instance `cdpPort`) clears it.
-- A fix was applied via Claude Code this session. **Re-test required** before relying on the family: confirm `visit-profile(accountId, personId)` succeeds with no leftover popup, confirm one reversible sibling (e.g. `follow-person` → `unfollow-profile`), and confirm a clean failure path leaves no blocking popup and no crash. Until re-tested, treat as **unverified**.
+- A bug previously caused these to fail with LH "incorrect action type: VisitAndExtract" and leave a
+  **blocking instance popup**; a full LH crash followed in one case. `get-errors` detects the popup;
+  `dismiss-errors` (with explicit instance `cdpPort`) clears it.
+- `visit-profile` is now re-verified by code coverage: unit tests cover the `success:false` failure
+  path plus `keepCampaign` / `timeout` passthrough, and end-to-end coverage confirms both URL-based
+  visits and a clean failure path that leaves the instance connectable with no lingering popup.
+- Do **not** generalize that verification to the whole family. Sibling ephemeral actions still need
+  live re-checks before being treated as equally well validated; for a conservative smoke test,
+  confirm one reversible sibling such as `follow-person` -> `unfollow-profile`.
 - For benign validation prefer `visit-profile` (a profile view); do **not** fire outreach-type ephemeral actions (invite/message/like/comment) at cold/non-consenting people during testing.
 
 ---

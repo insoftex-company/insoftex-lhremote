@@ -4,6 +4,49 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+## [0.24.0] — 2026-07-01
+
+### Added
+
+- **Campaign target verification by LinkedIn URL** — `campaign-list-people` now supports
+  `--urls` and `--urls-file` on the CLI, with matching MCP support underneath.  The operation
+  parses LinkedIn profile URLs into public IDs, filters campaign people against those IDs,
+  returns matched entries plus unresolved URLs, and is covered by unit and end-to-end tests.
+  ADR-010 documents the decision and tradeoffs.
+
+- **Regression coverage for launcher and campaign edits** — Added a multi-instance detection
+  regression test for the "launcher CDP down" case and an end-to-end test that verifies campaign
+  action reordering still behaves correctly after edits.
+
+- **Broader visit-profile end-to-end coverage** — Added tests for URL-based profile visits and
+  for failure handling when a bad `personId` is supplied, including verification that the
+  instance remains connectable after the failed action.
+
+### Fixed
+
+- **Launcher CDP port discovery is more reliable when the launcher is degraded** — Instance and
+  app discovery now better distinguish real instance endpoints from launcher or non-instance CDP
+  targets when multiple processes are present or the launcher CDP is unavailable.  Status and
+  discovery flows now classify running instances more accurately in that failure mode.
+
+- **`visit-profile` no longer reports false success on failed ephemeral execution** — When the
+  ephemeral campaign service returns `success: false`, the operation now throws a
+  `CampaignExecutionError` instead of returning stale profile data as though the action succeeded.
+
+- **Ephemeral cleanup clears leftover LinkedHelper dialogs** — After `safeStop()`,
+  `EphemeralCampaignService.cleanup()` now performs a best-effort popup-dismiss sweep so action
+  failure dialogs do not poison the next ephemeral run.
+
+- **`visit-profile` API surface now matches sibling ephemeral action tools** — `keepCampaign`
+  and `timeout` are now accepted and forwarded consistently through core and MCP layers, with
+  tests covering the passthrough behavior.
+
+### Changed
+
+- **Version surface advanced to `0.24.0`** — The workspace package manifests, package-specific
+  manifests, plugin/server metadata, and staging dist manifest now advertise the same feature
+  release version.
+
 ## [0.23.2] — 2026-06-23
 
 ### Fixed
