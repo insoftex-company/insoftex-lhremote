@@ -21,13 +21,15 @@ Types: `feat`, `fix`, `refactor`, `docs`, `test`, `chore`
 
 Example: `(feat) mcp: add campaign-create tool`
 
-Do **not** add issue numbers (e.g. `(#12)`) to commit messages. GitHub links PRs to issues via `Closes #N` in the PR body, not in commits.
+When a commit resolves a tracked issue, put `Closes #N` in the commit message body (not the subject line) — with direct pushes to `main`, GitHub closes issues from commit messages.
 
-### PR Workflow
+### Workflow
 
-- Never push directly to `main` — always create a feature/fix branch, even for small changes (`enforce_admins` is enabled)
-- Run `pnpm lint` before pushing
-- PR body must include `Closes #N` to link the related issue
+Single-developer repository — no PRs, no human or Copilot code review (Copilot review is not provisioned for this account anyway; requests silently no-op).
+
+- Commit directly to `main` (`main` has no branch protection). Use a short-lived branch only when work needs to stay unmerged for a while.
+- Run `pnpm lint` and `pnpm test` before pushing.
+- CI (`ci.yml`) runs on every push to `main` — verify it stays green after pushing.
 
 ### Copyright And Attribution
 
@@ -41,19 +43,6 @@ Do **not** add issue numbers (e.g. `(#12)`) to commit messages. GitHub links PRs
 - Do not introduce mixed header styles ad hoc. If a broader relicensing or dual-notice policy is
   desired later, apply it repo-wide in one explicit pass rather than opportunistically file by file.
 
-#### Copilot Review Cycle
-
-After pushing a PR, follow this cycle until Copilot has no actionable comments:
-
-1. **Request** Copilot review (if not auto-requested by ruleset)
-2. **Wait** for Copilot to post its review
-3. **Address** every Copilot comment systematically
-4. **Push** fixes
-5. **Re-request** Copilot review
-6. **Repeat** from step 2 until Copilot returns no actionable comments
-
-Do **not** dismiss or ignore Copilot feedback. Every comment must be explicitly addressed (fixed, rejected with rationale, or deferred with tracking).
-
 ## Testing
 
 | Tier | Scope | Environment | Dependency |
@@ -66,7 +55,7 @@ Do **not** dismiss or ignore Copilot feedback. Every comment must be explicitly 
 - Integration tests use `*.integration.test.ts` suffix.
 - Test helper `packages/core/src/cdp/testing/launch-chromium.ts` manages Chromium lifecycle.
 - Chromium is installed in CI via `npx playwright-core install chromium --with-deps`.
-- E2E tests live in `packages/e2e/src/` and are **not** run in CI. Always run `pnpm test:e2e` locally before submitting PRs that add or modify E2E tests.
+- E2E tests live in `packages/e2e/src/` and are **not** run in CI. Always run `pnpm test:e2e` locally before pushing changes that add or modify E2E tests.
 - Run a single E2E file: `pnpm --filter @insoftex/lhremote-e2e test:e2e:file <pattern>` (e.g., `list-accounts`). Do **not** use `--` before the pattern — pnpm forwards it literally and vitest ignores args after `--` for file filtering.
 - E2E tests must assert preconditions explicitly — never silently skip via `if (accounts.length > 0)`. Use `resolveAccountId(port)` from `@insoftex/lhremote-core/testing` which throws if no accounts exist.
 - Shared E2E helpers (`resolveAccountId`, `forceStopInstance`, `assertDefined`, `getE2EPersonId`) are exported from `@insoftex/lhremote-core/testing` — do not duplicate them locally in test files.
@@ -95,7 +84,7 @@ Do **not** dismiss or ignore Copilot feedback. Every comment must be explicitly 
   | `.claude-plugin/plugin.json` | `version` |
   | `.claude-plugin/marketplace.json` | `plugins[0].version` |
   | `server.json` | `version` and `packages[0].version` |
-  - The release workflow stamps the 6 `package.json` files from the git tag but does **not** auto-bump the plugin/server files — after each release, open a PR to update them to match the new tag.
+  - The release workflow stamps the 6 `package.json` files from the git tag but does **not** auto-bump the plugin/server files — after each release, commit an update to match the new tag.
 
 ## Design Decisions
 
