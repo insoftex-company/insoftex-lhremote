@@ -23,9 +23,8 @@ vi.mock("./gather-raw-processes.js", () => ({
   gatherRawProcesses: vi.fn().mockResolvedValue([]),
 }));
 
-vi.mock("pid-port", () => ({
-  pidToPorts: vi.fn().mockResolvedValue(new Set<number>()),
-  portToPid: vi.fn().mockResolvedValue(null),
+vi.mock("./list-listening-ports.js", () => ({
+  listListeningTcpPorts: vi.fn().mockResolvedValue([]),
 }));
 
 vi.mock("../utils/cdp-port.js", async (importOriginal) => {

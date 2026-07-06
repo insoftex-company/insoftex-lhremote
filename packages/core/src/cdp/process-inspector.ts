@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 // Copyright (C) 2026 Oleksii PELYKH
 
-import { pidToPorts } from "pid-port";
+import { listListeningTcpPorts } from "./list-listening-ports.js";
 
 import { isCdpPort, parseCmdlineDebugPort } from "../utils/cdp-port.js";
 import { gatherLhProcesses } from "./gather-lh-processes.js";
@@ -256,16 +256,16 @@ async function probeCdp(
   const cmdlinePort = cmdline ? parseCmdlineDebugPort(cmdline) : null;
 
   if (cmdlinePort !== null) {
-    // Probe the declared port directly — pidToPorts() can be stale or incomplete
-    // and must not gate access to the authoritative cmdline port.
+    // Probe the declared port directly — port enumeration can be stale or
+    // incomplete and must not gate access to the authoritative cmdline port.
     const connectable = await isCdpPort(cmdlinePort);
     return { cdpPort: cmdlinePort, connectable };
   }
 
-  // No cmdline hint — probe all TCP ports sequentially (legacy path)
-  let ports: Set<number>;
+  // No cmdline hint — probe the PID's listening TCP ports sequentially
+  let ports: number[];
   try {
-    ports = await pidToPorts(pid);
+    ports = await listListeningTcpPorts(pid);
   } catch {
     return { cdpPort: null, connectable: false };
   }

@@ -1,8 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 // Copyright (C) 2026 Oleksii PELYKH
 
-import { pidToPorts } from "pid-port";
-
 import { LinkedHelperNotRunningError, LinkedHelperUnreachableError } from "../services/errors.js";
 import { delay } from "../utils/index.js";
 import { isCdpPort, parseCmdlineDebugPort } from "../utils/cdp-port.js";
@@ -11,6 +9,7 @@ import type { InstanceIdentity } from "./process-inspector.js";
 import { parseIdentityFromCmdline } from "./process-inspector.js";
 import { gatherLhProcesses } from "./gather-lh-processes.js";
 import type { RawProcess } from "./gather-raw-processes.js";
+import { listListeningTcpPorts } from "./list-listening-ports.js";
 
 /**
  * Role of a discovered LinkedHelper process.
@@ -318,16 +317,16 @@ async function probeProcess(pid: number, role: AppRole, cmdline?: string | null)
   const cmdlinePort = cmdline ? parseCmdlineDebugPort(cmdline) : null;
 
   if (cmdlinePort !== null) {
-    // Probe the declared port directly — pidToPorts() can be stale or incomplete
-    // and must not gate access to the authoritative cmdline port.
+    // Probe the declared port directly — port enumeration can be stale or
+    // incomplete and must not gate access to the authoritative cmdline port.
     const connectable = await isCdpPort(cmdlinePort);
     return { pid, cdpPort: cmdlinePort, connectable, role };
   }
 
-  // No cmdline hint — probe all TCP ports sequentially (legacy path)
-  let ports: Set<number>;
+  // No cmdline hint — probe the PID's listening TCP ports sequentially
+  let ports: number[];
   try {
-    ports = await pidToPorts(pid);
+    ports = await listListeningTcpPorts(pid);
   } catch {
     return { pid, cdpPort: null, connectable: false, role };
   }
@@ -339,9 +338,37 @@ async function probeProcess(pid: number, role: AppRole, cmdline?: string | null)
   }
 
   // None of this PID's listening ports answered as CDP, and we have no cmdline hint to say which
-  // one *should* be the CDP port. Reporting an arbitrary port here (e.g. the first one in the Set)
-  // would misrepresent an unconfirmed guess as identified state — and since which port comes back
-  // first from pidToPorts() isn't stable across scans, it also produces the appearance of the same
-  // PID's CDP port "changing" between calls. Report unknown instead.
+  // one *should* be the CDP port. Reporting an arbitrary port here (e.g. the first one in the list)
+  // would misrepresent an unconfirmed guess as identified state. Report unknown instead.
   return { pid, cdpPort: null, connectable: false, role };
+}
+
+/** Result of probing one listening TCP port of a process for CDP. */
+export interface PortProbe {
+  /** TCP port number the process is listening on. */
+  port: number;
+
+  /** Whether the port answered the CDP `/json/list` probe. */
+  cdp: boolean;
+}
+
+/**
+ * List every TCP port `pid` is listening on and probe each one for a CDP
+ * `/json/list` endpoint.
+ *
+ * Diagnostic helper behind `lhremote find-app --ports`: it shows exactly which
+ * sockets a launcher or instance process has open and which of them actually
+ * speak CDP, so a "no CDP port" result can be investigated on the target
+ * machine instead of guessed at. Works for any PID, not just LinkedHelper
+ * processes.
+ *
+ * @throws when listening ports cannot be enumerated for the PID.
+ */
+export async function probePidPorts(pid: number): Promise<PortProbe[]> {
+  const ports = await listListeningTcpPorts(pid);
+  const probes: PortProbe[] = [];
+  for (const port of ports) {
+    probes.push({ port, cdp: await isCdpPort(port) });
+  }
+  return probes;
 }

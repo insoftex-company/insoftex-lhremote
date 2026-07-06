@@ -10,8 +10,8 @@ vi.mock("./gather-raw-processes.js", () => ({
   invalidateProcessCache: vi.fn(),
 }));
 
-vi.mock("pid-port", () => ({
-  pidToPorts: vi.fn().mockResolvedValue(new Set<number>()),
+vi.mock("./list-listening-ports.js", () => ({
+  listListeningTcpPorts: vi.fn().mockResolvedValue([]),
 }));
 
 vi.mock("../utils/cdp-port.js", async (importOriginal) => {
@@ -25,7 +25,7 @@ vi.mock("../utils/cdp-port.js", async (importOriginal) => {
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { gatherRawProcesses, invalidateProcessCache } from "./gather-raw-processes.js";
-import { pidToPorts } from "pid-port";
+import { listListeningTcpPorts } from "./list-listening-ports.js";
 import { isCdpPort } from "../utils/cdp-port.js";
 import { parseIdentityFromCmdline, reapOrphans, scanOrphans, scanRunningInstances } from "./process-inspector.js";
 import type { OrphanProcess } from "./process-inspector.js";
@@ -33,7 +33,7 @@ import type { RawProcess } from "./gather-raw-processes.js";
 
 const mockedGatherRawProcesses = vi.mocked(gatherRawProcesses);
 const mockedInvalidateProcessCache = vi.mocked(invalidateProcessCache);
-const mockedPidToPorts = vi.mocked(pidToPorts as (pid: number) => Promise<Set<number>>);
+const mockedListListeningPorts = vi.mocked(listListeningTcpPorts);
 const mockedIsCdpPort = vi.mocked(isCdpPort);
 
 // ---------------------------------------------------------------------------
@@ -133,7 +133,7 @@ function proc(pid: number, ppid: number, name: string, cmdline: string | null): 
 describe("role classification", () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    mockedPidToPorts.mockResolvedValue(new Set());
+    mockedListListeningPorts.mockResolvedValue([]);
     mockedIsCdpPort.mockResolvedValue(false);
   });
 
@@ -209,7 +209,7 @@ describe("role classification", () => {
 describe("cmdline: null retry", () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    mockedPidToPorts.mockResolvedValue(new Set());
+    mockedListListeningPorts.mockResolvedValue([]);
     mockedIsCdpPort.mockResolvedValue(false);
     vi.stubEnv("LHREMOTE_CMDLINE_RETRY_DELAY_MS", "0");
   });
@@ -251,8 +251,8 @@ describe("cmdline: null retry", () => {
       .mockResolvedValueOnce([proc(14772, 9924, "linked-helper.exe", null)])
       .mockResolvedValueOnce([proc(14772, 9924, "linked-helper.exe", instanceCmdline({ appId: 570886 }))]);
     // instanceCmdline() has no --remote-debugging-port=, so probeCdp falls back to probing
-    // whatever TCP ports pidToPorts() reports for the PID.
-    mockedPidToPorts.mockResolvedValue(new Set([49749]));
+    // whatever TCP ports listListeningTcpPorts() reports for the PID.
+    mockedListListeningPorts.mockResolvedValue([49749]);
     mockedIsCdpPort.mockResolvedValue(true); // connectable — not an orphan candidate
 
     const orphans = await scanOrphans([]);
@@ -269,7 +269,7 @@ describe("cmdline: null retry", () => {
 describe("identity parsing", () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    mockedPidToPorts.mockResolvedValue(new Set());
+    mockedListListeningPorts.mockResolvedValue([]);
     mockedIsCdpPort.mockResolvedValue(false);
   });
 
@@ -343,7 +343,7 @@ describe("identity parsing", () => {
 describe("secret redaction", () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    mockedPidToPorts.mockResolvedValue(new Set());
+    mockedListListeningPorts.mockResolvedValue([]);
     mockedIsCdpPort.mockResolvedValue(false);
   });
 
@@ -398,14 +398,14 @@ describe("secret redaction", () => {
 describe("scanOrphans", () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    mockedPidToPorts.mockResolvedValue(new Set());
+    mockedListListeningPorts.mockResolvedValue([]);
     mockedIsCdpPort.mockResolvedValue(false);
   });
 
   it("returns zero orphans when every non-connectable is a --type= child of a live parent", async () => {
-    mockedPidToPorts.mockImplementation(async (pid: number) => {
-      if (pid === 13004) return new Set([54321]);
-      return new Set();
+    mockedListListeningPorts.mockImplementation(async (pid: number) => {
+      if (pid === 13004) return [54321];
+      return [];
     });
     mockedIsCdpPort.mockImplementation(async (port: number) => port === 54321);
 
@@ -433,9 +433,9 @@ describe("scanOrphans", () => {
   });
 
   it("does not report live connectable instances as orphans", async () => {
-    mockedPidToPorts.mockImplementation(async (pid: number) => {
-      if (pid === 13004) return new Set([54321]);
-      return new Set();
+    mockedListListeningPorts.mockImplementation(async (pid: number) => {
+      if (pid === 13004) return [54321];
+      return [];
     });
     mockedIsCdpPort.mockImplementation(async (port: number) => port === 54321);
 
@@ -529,7 +529,7 @@ describe("reapOrphans", () => {
 describe("Windows-quoted cmdline parsing", () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    mockedPidToPorts.mockResolvedValue(new Set());
+    mockedListListeningPorts.mockResolvedValue([]);
     mockedIsCdpPort.mockResolvedValue(false);
   });
 
@@ -583,9 +583,9 @@ describe("result ordering", () => {
   });
 
   it("sorts connectable instances before non-connectable", async () => {
-    mockedPidToPorts.mockImplementation(async (pid: number) => {
-      if (pid === 200) return new Set([54321]);
-      return new Set();
+    mockedListListeningPorts.mockImplementation(async (pid: number) => {
+      if (pid === 200) return [54321];
+      return [];
     });
     mockedIsCdpPort.mockImplementation(async (port: number) => port === 54321);
 
@@ -608,7 +608,7 @@ describe("result ordering", () => {
 // Electron instance processes may bind TWO TCP sockets: the real CDP port
 // named by --remote-debugging-port AND an internal DevTools socket.  probeCdp
 // must select the cmdline port deterministically regardless of the Set order
-// returned by pidToPorts.
+// returned by listListeningTcpPorts.
 // ---------------------------------------------------------------------------
 
 describe("multi-socket CDP port selection", () => {
@@ -626,7 +626,7 @@ describe("multi-socket CDP port selection", () => {
     mockedGatherRawProcesses.mockResolvedValue([
       proc(13004, 0, "linked-helper.exe", cmdline),
     ]);
-    mockedPidToPorts.mockResolvedValue(new Set([52805, 64038]));
+    mockedListListeningPorts.mockResolvedValue([52805, 64038]);
     // Both sockets respond to isCdpPort (internal Electron + real CDP)
     mockedIsCdpPort.mockImplementation(async (port) => port === 64038 || port === 52805);
 
@@ -641,7 +641,7 @@ describe("multi-socket CDP port selection", () => {
     mockedGatherRawProcesses.mockResolvedValue([
       proc(13004, 0, "linked-helper.exe", cmdline),
     ]);
-    mockedPidToPorts.mockResolvedValue(new Set([52805, 64038]));
+    mockedListListeningPorts.mockResolvedValue([52805, 64038]);
     mockedIsCdpPort.mockResolvedValue(false);
 
     const instances = await scanRunningInstances();
@@ -654,7 +654,7 @@ describe("multi-socket CDP port selection", () => {
     mockedGatherRawProcesses.mockResolvedValue([
       proc(13004, 0, "linked-helper.exe", cmdline),
     ]);
-    mockedPidToPorts.mockResolvedValue(new Set([52805, 64038]));
+    mockedListListeningPorts.mockResolvedValue([52805, 64038]);
     mockedIsCdpPort.mockImplementation(async (port) => port === 64038 || port === 52805);
 
     const results = await Promise.all(

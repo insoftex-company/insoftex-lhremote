@@ -1,10 +1,11 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 // Copyright (C) 2026 Oleksii PELYKH
 
-import { pidToPorts, portToPid } from "pid-port";
+import { portToPid } from "pid-port";
 import psList from "ps-list";
 import { DEFAULT_CDP_PORT } from "../constants.js";
 import { gatherRawProcesses, type RawProcess } from "./gather-raw-processes.js";
+import { listListeningTcpPorts } from "./list-listening-ports.js";
 import { isCdpPort, parseCmdlineDebugPort } from "../utils/cdp-port.js";
 
 /**
@@ -13,7 +14,7 @@ import { isCdpPort, parseCmdlineDebugPort } from "../utils/cdp-port.js";
  * LinkedHelper spawns a separate Electron process for each LinkedIn account.
  * That process listens for CDP connections on a dynamic port that changes
  * every session.  This function discovers the port cross-platform using
- * `pid-port` and `ps-list`.
+ * OS socket tables (`netstat`/`lsof`) and `ps-list`.
  *
  * The heuristic is:
  * 1. Find the launcher PID by looking for a process listening on `launcherPort`.
@@ -131,15 +132,15 @@ async function findCdpPort(
     }
   }
 
-  // Fallback: probe all TCP ports when cmdline hint is unavailable.
-  let ports: Set<number>;
+  // Fallback: probe the PID's listening TCP ports when no cmdline hint is available.
+  let ports: number[];
   try {
-    ports = await pidToPorts(pid);
+    ports = await listListeningTcpPorts(pid);
   } catch {
     return null;
   }
 
-  const candidates = [...ports].filter((p) => p !== excludePort);
+  const candidates = ports.filter((p) => p !== excludePort);
   if (candidates.length === 0) {
     return null;
   }
