@@ -59,7 +59,10 @@ function replaceGeneratedSection(readmeText, sectionName, generatedMarkdown) {
 }
 
 function updateReadme(pathLike, sectionName, generatedMarkdown) {
-  const original = readFileSync(pathLike, "utf8");
+  // Normalize CRLF: with core.autocrlf the Windows checkout has CRLF line
+  // endings (the repo has no .gitattributes), while the generated section is
+  // joined with \n — an up-to-date README would still never compare equal.
+  const original = readFileSync(pathLike, "utf8").replaceAll("\r\n", "\n");
   const updated = replaceGeneratedSection(original, sectionName, generatedMarkdown);
 
   if (checkOnly) {

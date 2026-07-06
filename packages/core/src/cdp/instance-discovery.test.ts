@@ -7,7 +7,10 @@ vi.mock("./gather-raw-processes.js", () => ({
 
 vi.mock("pid-port", () => ({
   portToPid: vi.fn(),
-  pidToPorts: vi.fn(),
+}));
+
+vi.mock("./list-listening-ports.js", () => ({
+  listListeningTcpPorts: vi.fn(),
 }));
 
 // psList is still imported by killInstanceProcesses; keep the mock to prevent
@@ -19,7 +22,8 @@ vi.mock("ps-list", () => ({
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { discoverInstancePort } from "./instance-discovery.js";
 import { gatherRawProcesses } from "./gather-raw-processes.js";
-import { pidToPorts, portToPid } from "pid-port";
+import { portToPid } from "pid-port";
+import { listListeningTcpPorts } from "./list-listening-ports.js";
 import type { RawProcess } from "./gather-raw-processes.js";
 
 const mockedGatherRawProcesses = vi.mocked(gatherRawProcesses);
@@ -75,8 +79,8 @@ describe("discoverInstancePort", () => {
 
     const port = await discoverInstancePort(9222);
     expect(port).toBe(55123);
-    // pidToPorts must NOT have been called — cmdline is authoritative
-    expect(pidToPorts).not.toHaveBeenCalled();
+    // Listening-port enumeration must NOT have been called — cmdline is authoritative
+    expect(listListeningTcpPorts).not.toHaveBeenCalled();
   });
 
   it("should return null when cmdline port does not respond to CDP", async () => {
@@ -90,13 +94,13 @@ describe("discoverInstancePort", () => {
     expect(port).toBeNull();
   });
 
-  it("should fall back to pidToPorts when no cmdline hint is available", async () => {
+  it("should fall back to listening-port enumeration when no cmdline hint is available", async () => {
     vi.mocked(portToPid).mockResolvedValue(12345 as never);
     mockedGatherRawProcesses.mockResolvedValue([
       proc(12346, 12345, null),  // no cmdline
       proc(99999, 1),
     ]);
-    vi.mocked(pidToPorts).mockResolvedValue(new Set([55123]) as never);
+    vi.mocked(listListeningTcpPorts).mockResolvedValue([55123]);
 
     const port = await discoverInstancePort(9222);
     expect(port).toBe(55123);
@@ -138,12 +142,12 @@ describe("discoverInstancePort", () => {
     expect(portToPid).toHaveBeenCalledWith({ port: 9222, host: "*" });
   });
 
-  it("should return null when pidToPorts throws (fallback path, no cmdline)", async () => {
+  it("should return null when listening-port enumeration throws (fallback path, no cmdline)", async () => {
     vi.mocked(portToPid).mockResolvedValue(12345 as never);
     mockedGatherRawProcesses.mockResolvedValue([
       proc(12346, 12345, null),
     ]);
-    vi.mocked(pidToPorts).mockRejectedValue(new Error("failed"));
+    vi.mocked(listListeningTcpPorts).mockRejectedValue(new Error("failed"));
 
     const port = await discoverInstancePort(9222);
     expect(port).toBeNull();
@@ -162,9 +166,7 @@ describe("discoverInstancePort", () => {
     mockedGatherRawProcesses.mockResolvedValue([
       proc(12346, 12345, null),
     ]);
-    vi.mocked(pidToPorts).mockResolvedValue(
-      new Set([50000, 50001]) as never,
-    );
+    vi.mocked(listListeningTcpPorts).mockResolvedValue([50000, 50001]);
 
     // Port 50000 rejects (not CDP), port 50001 responds
     vi.mocked(globalThis.fetch).mockImplementation(async (input) => {
@@ -184,7 +186,7 @@ describe("discoverInstancePort", () => {
     mockedGatherRawProcesses.mockResolvedValue([
       proc(12346, 12345, null),
     ]);
-    vi.mocked(pidToPorts).mockResolvedValue(new Set([50000]) as never);
+    vi.mocked(listListeningTcpPorts).mockResolvedValue([50000]);
 
     vi.mocked(globalThis.fetch).mockRejectedValue(
       new Error("ECONNREFUSED"),

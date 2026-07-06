@@ -96,10 +96,12 @@ The `lhremote` command provides the same functionality as the MCP server. Every 
 ### App Management
 
 ```sh
-lhremote find-app [--json] [--verbose]
+lhremote find-app [--json] [--verbose] [--ports [pid]]
 lhremote launch-app [--force] [--verbose] [--no-visible]
 lhremote quit-app [--cdp-port <port>] [--verbose]
 ```
+
+`find-app --ports` lists every listening TCP port of each discovered LinkedHelper process and probes each one for a CDP endpoint — use it to diagnose a launcher or instance reported as "no CDP port". Pass a PID (`--ports 19780`) to probe just that process, LinkedHelper or not.
 
 On Windows, `launch-app` also restores and focuses the LinkedHelper launcher window so the user can interact with it on the desktop. This is done with native window management because the launcher CDP endpoint can be reachable before it exposes any page target.
 
@@ -249,6 +251,7 @@ Detect running LinkedHelper processes and classify each as `launcher`, `instance
 |-----------|------|----------|---------|-------------|
 | `json` | boolean | No | false | Output machine-readable JSON |
 | `verbose` | boolean | No | false | Include `helper-child` processes in output |
+| `ports` | boolean \| number | No | — | CLI only: list listening TCP ports and probe each for CDP (bare flag = every LinkedHelper process; with a PID = only that process) |
 
 #### `launch-app`
 

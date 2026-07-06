@@ -148,14 +148,21 @@ export function createProgram(options: CreateProgramOptions = {}): Command {
     .description("Detect running LinkedHelper instances")
     .option("--json", "Output as JSON")
     .option("--verbose", "Print diagnostic messages during discovery")
+    .option(
+      "--ports [pid]",
+      "List listening TCP ports and probe each for CDP — for every LinkedHelper process, or only the given PID",
+      parsePositiveInt,
+    )
     .action(handleFindApp);
 
   findAppCmd.addHelpText(
     "after",
     `
 Examples:
-  lhremote find-app --verbose    Print diagnostics while discovering instances
-  lhremote find-app --json       Machine-readable JSON output
+  lhremote find-app --verbose      Print diagnostics while discovering instances
+  lhremote find-app --json         Machine-readable JSON output
+  lhremote find-app --ports        Probe every LinkedHelper process's listening ports for CDP
+  lhremote find-app --ports 19780  Probe listening ports of PID 19780 (any process)
 `,
   );
 

@@ -9,13 +9,16 @@ export {
 } from "./instance-discovery.js";
 export {
   findApp,
+  probePidPorts,
   resolveAppPort,
   resolveInstancePort,
   resolveLauncherPort,
   type AppRole,
   type DiscoveredApp,
   type FindAppOptions,
+  type PortProbe,
 } from "./app-discovery.js";
+export { listListeningTcpPorts } from "./list-listening-ports.js";
 export {
   scanRunningInstances,
   scanOrphans,
