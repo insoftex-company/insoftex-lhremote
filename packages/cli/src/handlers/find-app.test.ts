@@ -8,10 +8,11 @@ vi.mock("@insoftex/lhremote-core", async (importOriginal) => {
   return {
     ...actual,
     findApp: vi.fn(),
+    probePidPorts: vi.fn(),
   };
 });
 
-import { type DiscoveredApp, findApp } from "@insoftex/lhremote-core";
+import { type DiscoveredApp, findApp, probePidPorts } from "@insoftex/lhremote-core";
 
 import { handleFindApp } from "./find-app.js";
 import { getStdout } from "./testing/mock-helpers.js";
@@ -95,5 +96,112 @@ describe("handleFindApp", () => {
 
     expect(process.exitCode).toBe(1);
     expect(stderrSpy).toHaveBeenCalledWith("scan failed\n");
+  });
+
+  describe("--ports", () => {
+    it("probes every discovered process with bare --ports", async () => {
+      vi.mocked(findApp).mockResolvedValue([
+        { pid: 19780, cdpPort: null, connectable: false, role: "launcher" as const },
+        { pid: 12476, cdpPort: 51822, connectable: true, role: "instance" as const },
+      ]);
+      vi.mocked(probePidPorts).mockImplementation(async (pid: number) => {
+        if (pid === 19780) return [{ port: 3928, cdp: false }, { port: 9222, cdp: true }];
+        return [{ port: 51822, cdp: true }];
+      });
+
+      await handleFindApp({ ports: true });
+
+      expect(probePidPorts).toHaveBeenCalledWith(19780);
+      expect(probePidPorts).toHaveBeenCalledWith(12476);
+      const out = getStdout(stdoutSpy);
+      expect(out).toContain("port 9222 — CDP");
+      expect(out).toContain("port 3928 — not CDP");
+      expect(out).toContain("port 51822 — CDP");
+    });
+
+    it("probes only the given PID with --ports <pid>", async () => {
+      vi.mocked(findApp).mockResolvedValue([
+        { pid: 19780, cdpPort: null, connectable: false, role: "launcher" as const },
+        { pid: 12476, cdpPort: 51822, connectable: true, role: "instance" as const },
+      ]);
+      vi.mocked(probePidPorts).mockResolvedValue([{ port: 9222, cdp: true }]);
+
+      await handleFindApp({ ports: 19780 });
+
+      expect(probePidPorts).toHaveBeenCalledTimes(1);
+      expect(probePidPorts).toHaveBeenCalledWith(19780);
+      expect(getStdout(stdoutSpy)).toContain("port 9222 — CDP");
+    });
+
+    it("probes a PID that is not a LinkedHelper process", async () => {
+      vi.mocked(findApp).mockResolvedValue([
+        { pid: 12476, cdpPort: 51822, connectable: true, role: "instance" as const },
+      ]);
+      vi.mocked(probePidPorts).mockResolvedValue([{ port: 8080, cdp: false }]);
+
+      await handleFindApp({ ports: 4242 });
+
+      const out = getStdout(stdoutSpy);
+      expect(out).toContain("PID 4242 — not a LinkedHelper process");
+      expect(out).toContain("port 8080 — not CDP");
+    });
+
+    it("reports enumeration failure without failing the command", async () => {
+      vi.mocked(findApp).mockResolvedValue([
+        { pid: 19780, cdpPort: null, connectable: false, role: "launcher" as const },
+      ]);
+      vi.mocked(probePidPorts).mockRejectedValue(new Error("netstat failed"));
+
+      await handleFindApp({ ports: true });
+
+      expect(process.exitCode).toBeUndefined();
+      expect(getStdout(stdoutSpy)).toContain("failed to enumerate listening ports");
+    });
+
+    it("reports a PID with no listening ports", async () => {
+      vi.mocked(findApp).mockResolvedValue([
+        { pid: 19780, cdpPort: null, connectable: false, role: "launcher" as const },
+      ]);
+      vi.mocked(probePidPorts).mockResolvedValue([]);
+
+      await handleFindApp({ ports: true });
+
+      expect(getStdout(stdoutSpy)).toContain("no listening TCP ports");
+    });
+
+    it("includes port probes in JSON output", async () => {
+      vi.mocked(findApp).mockResolvedValue([
+        { pid: 19780, cdpPort: null, connectable: false, role: "launcher" as const },
+      ]);
+      vi.mocked(probePidPorts).mockResolvedValue([{ port: 9222, cdp: true }]);
+
+      await handleFindApp({ json: true, ports: true });
+
+      const parsed = JSON.parse(getStdout(stdoutSpy)) as Array<Record<string, unknown>>;
+      expect(parsed[0]?.["ports"]).toEqual([{ port: 9222, cdp: true }]);
+    });
+
+    it("appends a foreign PID entry in JSON output", async () => {
+      vi.mocked(findApp).mockResolvedValue([]);
+      vi.mocked(probePidPorts).mockResolvedValue([{ port: 8080, cdp: false }]);
+
+      await handleFindApp({ json: true, ports: 4242 });
+
+      const parsed = JSON.parse(getStdout(stdoutSpy)) as Array<Record<string, unknown>>;
+      expect(parsed).toEqual([{ pid: 4242, ports: [{ port: 8080, cdp: false }] }]);
+    });
+
+    it("does not probe helper children with bare --ports", async () => {
+      vi.mocked(findApp).mockResolvedValue([
+        { pid: 12476, cdpPort: 51822, connectable: true, role: "instance" as const },
+        { pid: 300, cdpPort: null, connectable: false, role: "helper-child" as const, parentPid: 12476 },
+      ]);
+      vi.mocked(probePidPorts).mockResolvedValue([]);
+
+      await handleFindApp({ verbose: true, ports: true });
+
+      expect(probePidPorts).toHaveBeenCalledTimes(1);
+      expect(probePidPorts).toHaveBeenCalledWith(12476);
+    });
   });
 });
