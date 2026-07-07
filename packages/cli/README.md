@@ -69,6 +69,7 @@ The table below is generated from [`packages/cli/src/program.ts`](src/program.ts
 | `reap-orphans` |
 | `campaign-list` |
 | `campaign-list-people` |
+| `campaign-list-organizations` |
 | `campaign-create` |
 | `campaign-get` |
 | `campaign-delete` |
@@ -89,6 +90,7 @@ The table below is generated from [`packages/cli/src/program.ts`](src/program.ts
 | `campaign-update-action` |
 | `campaign-reorder-actions` |
 | `import-people-from-urls` |
+| `import-organizations-from-urls` |
 | `collect-people` |
 | `campaign-remove-people` |
 | `list-collections` |

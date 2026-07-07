@@ -24,6 +24,7 @@ const MOCK_RESULT: CampaignGetOutput = {
   id: 1,
   name: "Outreach Q1",
   state: "active",
+  targetKind: "people",
   isPaused: false,
   isArchived: false,
   isValid: true,

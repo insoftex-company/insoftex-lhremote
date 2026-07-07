@@ -1,0 +1,9 @@
+# Build artifacts — esbuild-bundled copies of packages/*, not source.
+# dist-bundle/ and dist-mcpb-staging/ each contain the entire monorepo's
+# compiled output concatenated into one ~2.4MB .mjs/.cjs file; graphing them
+# duplicated ~46% of all nodes (2833/6155) as re-extracted copies of symbols
+# already graphed correctly from packages/. dist-mcpb/ holds packaged .mcpb
+# release binaries (not text). None of these three are source of truth.
+dist-bundle/
+dist-mcpb/
+dist-mcpb-staging/

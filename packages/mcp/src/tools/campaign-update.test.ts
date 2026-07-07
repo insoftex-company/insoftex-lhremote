@@ -27,6 +27,7 @@ const MOCK_CAMPAIGN: Campaign = {
   name: "Updated Campaign",
   description: "Updated description",
   state: "active",
+  targetKind: "people",
   liAccountId: 1,
   isPaused: false,
   isArchived: false,

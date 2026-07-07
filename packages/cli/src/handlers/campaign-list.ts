@@ -49,6 +49,9 @@ export async function handleCampaignList(options: {
     for (const campaign of campaigns) {
       const parts: string[] = [`#${campaign.id}  ${campaign.name}`];
       parts.push(`[${campaign.state}]`);
+      if (campaign.targetKind !== "people") {
+        parts.push(`[${campaign.targetKind}]`);
+      }
       parts.push(`${String(campaign.actionCount)} actions`);
       if (campaign.description) {
         parts.push(campaign.description);

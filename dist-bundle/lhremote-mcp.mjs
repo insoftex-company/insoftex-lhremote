@@ -13467,7 +13467,7 @@ var import_index = __toESM(require_commander(), 1), {
 import { readFileSync as readFileSync3 } from "node:fs";
 
 // packages/core/dist/services/app.js
-import { execFile as execFile3, spawn as spawn2 } from "node:child_process";
+import { execFile as execFile4, spawn as spawn2 } from "node:child_process";
 import { accessSync, constants as constants4 } from "node:fs";
 import { join } from "node:path";
 
@@ -19104,6 +19104,120 @@ var __dirname = path6.dirname(fileURLToPath3(import.meta.url)), DEFAULT_MAX_BUFF
   }
 }, psList = process11.platform === "win32" ? windows2 : nonWindows, ps_list_default = psList;
 
+// packages/core/dist/cdp/gather-raw-processes.js
+import { execFile as execFile2 } from "node:child_process";
+import { promisify as promisify4 } from "node:util";
+var execFileAsync = promisify4(execFile2), DEFAULT_CACHE_TTL_MS = 1500;
+function getCacheTtlMs() {
+  let v = process.env.LHREMOTE_INSPECTION_CACHE_TTL_MS;
+  return v ? Number(v) : DEFAULT_CACHE_TTL_MS;
+}
+var _cachedResult = null, _cachedAt = 0;
+function invalidateProcessCache() {
+  _cachedResult = null, _cachedAt = 0;
+}
+async function gatherRawProcesses() {
+  let now = Date.now();
+  if (_cachedResult !== null && now - _cachedAt < getCacheTtlMs())
+    return _cachedResult;
+  let fresh = await gatherRawProcessesFresh();
+  return _cachedResult = fresh, _cachedAt = now, fresh;
+}
+async function gatherRawProcessesFresh() {
+  let psProcs = await ps_list_default().catch(() => []);
+  if (process.platform === "win32") {
+    let cmdlineMap = await queryWin32CommandLines();
+    return psProcs.map((p) => ({
+      pid: p.pid,
+      ppid: p.ppid ?? 0,
+      name: p.name,
+      cmdline: cmdlineMap.get(p.pid) ?? null
+    }));
+  }
+  return psProcs.map((p) => ({
+    pid: p.pid,
+    ppid: p.ppid ?? 0,
+    name: p.name,
+    cmdline: p.cmd ?? null
+  }));
+}
+async function queryWin32CommandLines() {
+  let map2 = /* @__PURE__ */ new Map();
+  try {
+    let { stdout } = await execFileAsync("powershell.exe", [
+      "-NoProfile",
+      "-NonInteractive",
+      "-Command",
+      // Force UTF-8 output so multi-byte / emoji names (e.g. 🇺🇦) survive
+      // the stdout pipe.  Windows PowerShell 5.x defaults to OEM encoding;
+      // without this, non-ASCII characters are replaced with '?'.
+      // ConvertTo-Json may return a single object (not array) when there is
+      // exactly one result, so we wrap in @() to force an array.
+      "[Console]::OutputEncoding = $OutputEncoding = [System.Text.Encoding]::UTF8; Get-WmiObject -Query 'SELECT ProcessId,CommandLine FROM Win32_Process' | Select-Object ProcessId,CommandLine | ConvertTo-Json -Compress"
+    ], { timeout: 15e3 }), raw = JSON.parse(stdout.trim()), rows = Array.isArray(raw) ? raw : [raw];
+    for (let row of rows)
+      if (row !== null && typeof row == "object" && "ProcessId" in row && "CommandLine" in row) {
+        let pid = row.ProcessId, cmd = row.CommandLine;
+        typeof pid == "number" && typeof cmd == "string" && cmd && map2.set(pid, cmd);
+      }
+  } catch {
+  }
+  return map2;
+}
+
+// packages/core/dist/cdp/list-listening-ports.js
+import { execFile as execFile3 } from "node:child_process";
+import { promisify as promisify5 } from "node:util";
+var execFileAsync2 = promisify5(execFile3), COMMAND_TIMEOUT = 15e3, COMMAND_MAX_BUFFER = 16 * 1024 * 1024, WINDOWS_LISTENER_FOREIGN_ADDRESSES = /* @__PURE__ */ new Set(["0.0.0.0:0", "[::]:0"]);
+function extractPort(address) {
+  let m = /[:.](\d+)$/.exec(address);
+  if (!m?.[1])
+    return null;
+  let port = parseInt(m[1], 10);
+  return Number.isFinite(port) && port > 0 && port <= 65535 ? port : null;
+}
+function parseWindowsNetstatListeners(stdout, pid) {
+  let ports = /* @__PURE__ */ new Set();
+  for (let line of stdout.split(`
+`)) {
+    let columns = line.trim().split(/\s+/);
+    if (columns.length < 5 || columns[0]?.toUpperCase() !== "TCP" || !WINDOWS_LISTENER_FOREIGN_ADDRESSES.has(columns[2] ?? "") || Number(columns[columns.length - 1]) !== pid)
+      continue;
+    let port = extractPort(columns[1] ?? "");
+    port !== null && ports.add(port);
+  }
+  return [...ports].sort((a2, b) => a2 - b);
+}
+function parseLsofListenPorts(stdout) {
+  let ports = /* @__PURE__ */ new Set();
+  for (let line of stdout.split(`
+`)) {
+    if (!line.startsWith("n"))
+      continue;
+    let port = extractPort(line.trim());
+    port !== null && ports.add(port);
+  }
+  return [...ports].sort((a2, b) => a2 - b);
+}
+async function listListeningTcpPorts(pid) {
+  if (!Number.isInteger(pid) || pid <= 0)
+    throw new TypeError(`Expected a positive integer PID, got ${String(pid)}`);
+  if (process.platform === "win32") {
+    let { stdout } = await execFileAsync2("netstat", ["-ano"], {
+      timeout: COMMAND_TIMEOUT,
+      maxBuffer: COMMAND_MAX_BUFFER,
+      windowsHide: !0
+    });
+    return parseWindowsNetstatListeners(stdout, pid);
+  }
+  try {
+    let { stdout } = await execFileAsync2("lsof", ["-nP", "-iTCP", "-sTCP:LISTEN", "-a", "-p", String(pid), "-F", "n"], { timeout: COMMAND_TIMEOUT, maxBuffer: COMMAND_MAX_BUFFER });
+    return parseLsofListenPorts(stdout);
+  } catch (error51) {
+    return typeof error51 == "object" && error51 !== null && error51.code !== "ENOENT" && typeof error51.stdout == "string" ? parseLsofListenPorts(error51.stdout) : [...await pidToPorts(pid)].sort((a2, b) => a2 - b);
+  }
+}
+
 // packages/core/dist/utils/cdp-port.js
 async function isCdpPort(port) {
   try {
@@ -19112,14 +19226,24 @@ async function isCdpPort(port) {
     return !1;
   }
 }
+function parseCmdlineDebugPort(cmdline) {
+  let m = /(?:^|[\s"])--remote-debugging-port="?(\d+)"?/.exec(cmdline);
+  if (!m?.[1])
+    return null;
+  let port = parseInt(m[1], 10);
+  return Number.isFinite(port) && port > 0 && port <= 65535 ? port : null;
+}
 
 // packages/core/dist/cdp/instance-discovery.js
 async function discoverInstancePort(launcherPort = 9222) {
   let launcherPid = await findPidListeningOn(launcherPort);
   if (launcherPid === null)
     return null;
-  let descendantPids = await findDescendantPids(launcherPid);
-  return descendantPids.length === 0 ? null : (await Promise.all(descendantPids.map((pid) => findCdpPort(pid, launcherPort)))).find((port) => port !== null) ?? null;
+  let allProcs = await gatherRawProcesses().catch(() => []), descendantPids = findDescendantPidsFromList(allProcs, launcherPid);
+  if (descendantPids.length === 0)
+    return null;
+  let procByPid = new Map(allProcs.map((p) => [p.pid, p]));
+  return (await Promise.all(descendantPids.map((pid) => findCdpPort(pid, launcherPort, procByPid.get(pid)?.cmdline ?? null)))).find((port) => port !== null) ?? null;
 }
 async function findPidListeningOn(port) {
   try {
@@ -19128,25 +19252,26 @@ async function findPidListeningOn(port) {
     return null;
   }
 }
-async function findDescendantPids(ancestorPid) {
-  try {
-    let processes = await ps_list_default(), descendants = [], queue = [ancestorPid], visited = /* @__PURE__ */ new Set([ancestorPid]), currentPid;
-    for (; (currentPid = queue.shift()) !== void 0; )
-      for (let p of processes)
-        p.ppid === currentPid && !visited.has(p.pid) && (visited.add(p.pid), descendants.push(p.pid), queue.push(p.pid));
-    return descendants;
-  } catch {
-    return [];
-  }
+function findDescendantPidsFromList(processes, ancestorPid) {
+  let descendants = [], queue = [ancestorPid], visited = /* @__PURE__ */ new Set([ancestorPid]), currentPid;
+  for (; (currentPid = queue.shift()) !== void 0; )
+    for (let p of processes)
+      p.ppid === currentPid && !visited.has(p.pid) && (visited.add(p.pid), descendants.push(p.pid), queue.push(p.pid));
+  return descendants;
 }
-async function findCdpPort(pid, excludePort) {
+async function findCdpPort(pid, excludePort, cmdline) {
+  if (cmdline !== null) {
+    let cmdlinePort = parseCmdlineDebugPort(cmdline);
+    if (cmdlinePort !== null)
+      return cmdlinePort === excludePort ? null : await isCdpPort(cmdlinePort) ? cmdlinePort : null;
+  }
   let ports;
   try {
-    ports = await pidToPorts(pid);
+    ports = await listListeningTcpPorts(pid);
   } catch {
     return null;
   }
-  let candidates = [...ports].filter((p) => p !== excludePort);
+  let candidates = ports.filter((p) => p !== excludePort);
   if (candidates.length === 0)
     return null;
   try {
@@ -19285,76 +19410,32 @@ function errorMessage(error51) {
   return error51 instanceof Error ? error51.message : String(error51);
 }
 
-// packages/core/dist/cdp/gather-raw-processes.js
-import { execFile as execFile2 } from "node:child_process";
-import { promisify as promisify4 } from "node:util";
-var execFileAsync = promisify4(execFile2), DEFAULT_CACHE_TTL_MS = 1500;
-function getCacheTtlMs() {
-  let v = process.env.LHREMOTE_INSPECTION_CACHE_TTL_MS;
-  return v ? Number(v) : DEFAULT_CACHE_TTL_MS;
-}
-var _cachedResult = null, _cachedAt = 0;
-function invalidateProcessCache() {
-  _cachedResult = null, _cachedAt = 0;
-}
-async function gatherRawProcesses() {
-  let now = Date.now();
-  if (_cachedResult !== null && now - _cachedAt < getCacheTtlMs())
-    return _cachedResult;
-  let fresh = await gatherRawProcessesFresh();
-  return _cachedResult = fresh, _cachedAt = now, fresh;
-}
-async function gatherRawProcessesFresh() {
-  let psProcs = await ps_list_default().catch(() => []);
-  if (process.platform === "win32") {
-    let cmdlineMap = await queryWin32CommandLines();
-    return psProcs.map((p) => ({
-      pid: p.pid,
-      ppid: p.ppid ?? 0,
-      name: p.name,
-      cmdline: cmdlineMap.get(p.pid) ?? null
-    }));
-  }
-  return psProcs.map((p) => ({
-    pid: p.pid,
-    ppid: p.ppid ?? 0,
-    name: p.name,
-    cmdline: p.cmd ?? null
-  }));
-}
-async function queryWin32CommandLines() {
-  let map2 = /* @__PURE__ */ new Map();
-  try {
-    let { stdout } = await execFileAsync("powershell.exe", [
-      "-NoProfile",
-      "-NonInteractive",
-      "-Command",
-      // Force UTF-8 output so multi-byte / emoji names (e.g. 🇺🇦) survive
-      // the stdout pipe.  Windows PowerShell 5.x defaults to OEM encoding;
-      // without this, non-ASCII characters are replaced with '?'.
-      // ConvertTo-Json may return a single object (not array) when there is
-      // exactly one result, so we wrap in @() to force an array.
-      "[Console]::OutputEncoding = $OutputEncoding = [System.Text.Encoding]::UTF8; Get-WmiObject -Query 'SELECT ProcessId,CommandLine FROM Win32_Process' | Select-Object ProcessId,CommandLine | ConvertTo-Json -Compress"
-    ], { timeout: 15e3 }), raw = JSON.parse(stdout.trim()), rows = Array.isArray(raw) ? raw : [raw];
-    for (let row of rows)
-      if (row !== null && typeof row == "object" && "ProcessId" in row && "CommandLine" in row) {
-        let pid = row.ProcessId, cmd = row.CommandLine;
-        typeof pid == "number" && typeof cmd == "string" && cmd && map2.set(pid, cmd);
-      }
-  } catch {
-  }
-  return map2;
-}
-
-// packages/core/dist/cdp/process-inspector.js
-var BINARY_NAMES_LOWERCASE = /* @__PURE__ */ new Set([
+// packages/core/dist/cdp/gather-lh-processes.js
+var LH_BINARY_NAMES_LOWERCASE = /* @__PURE__ */ new Set([
   "linked-helper",
   "linked-helper.exe",
   "linkedhelper",
   "linkedhelper.exe"
 ]);
+function getCmdlineRetryDelayMs() {
+  let v = process.env.LHREMOTE_CMDLINE_RETRY_DELAY_MS;
+  return v ? Number(v) : 500;
+}
+async function gatherOnce() {
+  return (await gatherRawProcesses().catch(() => [])).filter((p) => LH_BINARY_NAMES_LOWERCASE.has(p.name.toLowerCase()));
+}
+async function gatherLhProcesses() {
+  let first = await gatherOnce();
+  if (first.length === 0 || !first.some((p) => p.cmdline === null))
+    return first;
+  await delay(getCmdlineRetryDelayMs()), invalidateProcessCache();
+  let retried = await gatherOnce();
+  return retried.length > 0 ? retried : first;
+}
+
+// packages/core/dist/cdp/process-inspector.js
 function classifyDetailedRole(cmdline, ppid, lhPids) {
-  return cmdline ? /--type=/.test(cmdline) ? "helper-child" : /resources[/\\]out[/\\]/i.test(cmdline) ? "instance" : "launcher" : lhPids.has(ppid) ? "instance" : "launcher";
+  return cmdline ? /--type=/.test(cmdline) ? "helper-child" : /--app-id=/.test(cmdline) ? "instance" : "launcher" : lhPids.has(ppid) ? "instance" : "launcher";
 }
 function findFlagStart(cmdline, flag) {
   let idx = 0;
@@ -19422,20 +19503,25 @@ function parseIdentityFromCmdline(cmdline) {
   }
   return { accountId: null, source: "cmdline", confidence: "unknown" };
 }
-async function probeCdp(pid) {
+async function probeCdp(pid, cmdline) {
+  let cmdlinePort = cmdline ? parseCmdlineDebugPort(cmdline) : null;
+  if (cmdlinePort !== null) {
+    let connectable = await isCdpPort(cmdlinePort);
+    return { cdpPort: cmdlinePort, connectable };
+  }
   let ports;
   try {
-    ports = await pidToPorts(pid);
+    ports = await listListeningTcpPorts(pid);
   } catch {
     return { cdpPort: null, connectable: !1 };
   }
   for (let port of ports)
     if (await isCdpPort(port))
       return { cdpPort: port, connectable: !0 };
-  return { cdpPort: [...ports][0] ?? null, connectable: !1 };
+  return { cdpPort: null, connectable: !1 };
 }
 async function scanRunningInstances() {
-  let lhProcs = (await gatherRawProcesses()).filter((p) => BINARY_NAMES_LOWERCASE.has(p.name.toLowerCase()));
+  let lhProcs = await gatherLhProcesses();
   if (lhProcs.length === 0)
     return [];
   let lhPids = new Set(lhProcs.map((p) => p.pid)), classified = lhProcs.map((p) => ({
@@ -19446,7 +19532,7 @@ async function scanRunningInstances() {
     p.role === "helper-child" && helperCounts.set(p.ppid, (helperCounts.get(p.ppid) ?? 0) + 1);
   let instanceProcs = classified.filter((p) => p.role === "instance");
   return (await Promise.all(instanceProcs.map(async (p) => {
-    let identity3 = parseIdentityFromCmdline(p.cmdline ?? ""), { cdpPort, connectable } = await probeCdp(p.pid), instance = {
+    let identity3 = parseIdentityFromCmdline(p.cmdline ?? ""), { cdpPort, connectable } = await probeCdp(p.pid, p.cmdline), instance = {
       pid: p.pid,
       cdpPort,
       connectable,
@@ -19459,7 +19545,7 @@ async function scanRunningInstances() {
   }))).sort((a2, b) => a2.connectable === b.connectable ? 0 : a2.connectable ? -1 : 1);
 }
 async function scanOrphans(liveInstances) {
-  let lhProcs = (await gatherRawProcesses()).filter((p) => BINARY_NAMES_LOWERCASE.has(p.name.toLowerCase()));
+  let lhProcs = await gatherLhProcesses();
   if (lhProcs.length === 0)
     return [];
   let lhPids = new Set(lhProcs.map((p) => p.pid)), livePids = new Set(liveInstances.map((i2) => i2.pid)), liveAccountIds = new Set(liveInstances.filter((i2) => i2.connectable && i2.accountId !== null).map((i2) => i2.accountId)), orphans = [];
@@ -19467,7 +19553,7 @@ async function scanOrphans(liveInstances) {
     let role = classifyDetailedRole(proc.cmdline, proc.ppid, lhPids);
     if (role === "helper-child" || role === "launcher" || livePids.has(proc.pid))
       continue;
-    let { cdpPort, connectable } = await probeCdp(proc.pid);
+    let { cdpPort, connectable } = await probeCdp(proc.pid, proc.cmdline);
     if (connectable)
       continue;
     let identity3 = parseIdentityFromCmdline(proc.cmdline ?? ""), reason = identity3.accountId !== null && liveAccountIds.has(identity3.accountId) ? `non-connectable duplicate for account ${String(identity3.accountId)} (live instance exists)` : "non-connectable account-instance process with no live counterpart";
@@ -19494,14 +19580,8 @@ async function reapOrphans(orphans, confirm) {
 }
 
 // packages/core/dist/cdp/app-discovery.js
-var BINARY_NAMES_LOWERCASE2 = /* @__PURE__ */ new Set([
-  "linked-helper",
-  "linked-helper.exe",
-  "linkedhelper",
-  "linkedhelper.exe"
-]);
 async function findApp(options = {}) {
-  let lhProcs = (await gatherRawProcesses().catch(() => [])).filter((p) => BINARY_NAMES_LOWERCASE2.has(p.name.toLowerCase()));
+  let lhProcs = await gatherLhProcesses();
   if (lhProcs.length === 0)
     return [];
   let lhPids = new Set(lhProcs.map((p) => p.pid)), helperCounts = /* @__PURE__ */ new Map(), helperProcs = [];
@@ -19512,7 +19592,7 @@ async function findApp(options = {}) {
     let role = classifyRole(proc, lhPids);
     if (role === "helper-child")
       continue;
-    let app = await probeProcess(proc.pid, role);
+    let app = await probeProcess(proc.pid, role, proc.cmdline);
     app.helperChildCount = helperCounts.get(proc.pid) ?? 0, role === "instance" && proc.cmdline && (app.identity = parseIdentityFromCmdline(proc.cmdline)), discovered.push(app);
   }
   let roleOrder = ["launcher", "instance", "unknown", "helper-child"];
@@ -19561,20 +19641,30 @@ async function resolveLauncherPort(cdpPort, cdpHost, retryTimeout = REACHABILITY
   return resolveAppPort("launcher", retryTimeout, signal);
 }
 function classifyRole(proc, lhPids) {
-  return proc.cmdline ? /--type=/.test(proc.cmdline) ? "helper-child" : /resources[/\\]out[/\\]/i.test(proc.cmdline) ? "instance" : "launcher" : lhPids.has(proc.ppid) ? "instance" : "launcher";
+  return proc.cmdline ? /--type=/.test(proc.cmdline) ? "helper-child" : /--app-id=/.test(proc.cmdline) ? "instance" : "launcher" : lhPids.has(proc.ppid) ? "instance" : "launcher";
 }
-async function probeProcess(pid, role) {
+async function probeProcess(pid, role, cmdline) {
+  let cmdlinePort = cmdline ? parseCmdlineDebugPort(cmdline) : null;
+  if (cmdlinePort !== null) {
+    let connectable = await isCdpPort(cmdlinePort);
+    return { pid, cdpPort: cmdlinePort, connectable, role };
+  }
   let ports;
   try {
-    ports = await pidToPorts(pid);
+    ports = await listListeningTcpPorts(pid);
   } catch {
     return { pid, cdpPort: null, connectable: !1, role };
   }
   for (let port of ports)
     if (await isCdpPort(port))
       return { pid, cdpPort: port, connectable: !0, role };
-  let firstPort = [...ports][0] ?? null;
-  return { pid, cdpPort: firstPort, connectable: !1, role };
+  return { pid, cdpPort: null, connectable: !1, role };
+}
+async function probePidPorts(pid) {
+  let ports = await listListeningTcpPorts(pid), probes = [];
+  for (let port of ports)
+    probes.push({ port, cdp: await isCdpPort(port) });
+  return probes;
 }
 
 // packages/core/dist/cdp/instance-readiness.js
@@ -19943,7 +20033,7 @@ foreach ($candidate in $candidates) {
 $shown -join ', '
 `;
   return new Promise((resolve, reject) => {
-    execFile3("powershell.exe", ["-NoProfile", "-ExecutionPolicy", "Bypass", "-Command", script], { windowsHide: !0 }, (error51, stdout, stderr) => {
+    execFile4("powershell.exe", ["-NoProfile", "-ExecutionPolicy", "Bypass", "-Command", script], { windowsHide: !0 }, (error51, stdout, stderr) => {
       if (error51) {
         let message = stderr.trim() || error51.message;
         reject(new Error(message));
@@ -20624,7 +20714,7 @@ async function waitForInstanceForAccount(accountId, options) {
 async function waitForInstanceShutdown(launcherPort) {
   let deadline = Date.now() + PORT_SHUTDOWN_TIMEOUT;
   for (; Date.now() < deadline; ) {
-    if (await discoverInstancePort(launcherPort) === null)
+    if (invalidateProcessCache(), await discoverInstancePort(launcherPort) === null)
       return;
     await delay(PORT_DISCOVERY_INTERVAL);
   }
@@ -21812,6 +21902,9 @@ var PERSON_STATE_MAP = {
 function deriveCampaignState(isPaused, isArchived, isValid2) {
   return isArchived === 1 ? "archived" : isValid2 === 0 ? "invalid" : isPaused === 1 ? "paused" : "active";
 }
+function deriveTargetKind(type) {
+  return type === 1 ? "people" : type === 2 ? "organizations" : "unknown";
+}
 var CampaignRepository = class {
   client;
   stmtListCampaigns;
@@ -21824,27 +21917,47 @@ var CampaignRepository = class {
   constructor(client) {
     this.client = client;
     let { db } = client;
-    this.stmtListCampaigns = db.prepare(`SELECT c.id, c.name, c.description, c.is_paused, c.is_archived,
+    this.stmtListCampaigns = db.prepare(`SELECT c.id, c.name, c.description, c.type, c.is_paused, c.is_archived,
               c.is_valid, c.li_account_id, c.created_at,
               (SELECT COUNT(*) FROM actions a WHERE a.campaign_id = c.id) AS action_count
        FROM campaigns c
        WHERE c.is_archived IS NULL OR c.is_archived = 0
-       ORDER BY c.created_at DESC`), this.stmtListAllCampaigns = db.prepare(`SELECT c.id, c.name, c.description, c.is_paused, c.is_archived,
+       ORDER BY c.created_at DESC`), this.stmtListAllCampaigns = db.prepare(`SELECT c.id, c.name, c.description, c.type, c.is_paused, c.is_archived,
               c.is_valid, c.li_account_id, c.created_at,
               (SELECT COUNT(*) FROM actions a WHERE a.campaign_id = c.id) AS action_count
        FROM campaigns c
-       ORDER BY c.created_at DESC`), this.stmtGetCampaign = db.prepare(`SELECT id, name, description, is_paused, is_archived, is_valid,
+       ORDER BY c.created_at DESC`), this.stmtGetCampaign = db.prepare(`SELECT id, name, description, type, is_paused, is_archived, is_valid,
               li_account_id, created_at
-       FROM campaigns WHERE id = ?`), this.stmtGetCampaignActions = db.prepare(`SELECT a.id, a.campaign_id, a.name, a.description,
-              ac.id AS config_id, ac.actionType AS action_type,
-              ac.actionSettings AS action_settings, ac.coolDown AS cool_down,
-              ac.maxActionResultsPerIteration AS max_action_results_per_iteration,
-              ac.isDraft AS is_draft, av.id AS version_id
-       FROM actions a
-       JOIN action_versions av ON av.action_id = a.id
-       JOIN action_configs ac ON av.config_id = ac.id
-       WHERE a.campaign_id = ?
-       ORDER BY a.id`), this.stmtGetResults = db.prepare(`SELECT ar.id, ar.action_version_id, ar.person_id, ar.result,
+       FROM campaigns WHERE id = ?`);
+    try {
+      this.stmtGetCampaignActions = db.prepare(`SELECT a.id, a.campaign_id, a.name, a.description,
+                ac.id AS config_id, ac.actionType AS action_type,
+                ac.actionSettings AS action_settings, ac.coolDown AS cool_down,
+                ac.maxActionResultsPerIteration AS max_action_results_per_iteration,
+                ac.isDraft AS is_draft,
+                (SELECT MAX(av2.id) FROM action_versions av2 WHERE av2.action_id = a.id) AS version_id
+         FROM actions a
+         JOIN action_versions av ON av.id = (SELECT MAX(av2.id) FROM action_versions av2 WHERE av2.action_id = a.id)
+         JOIN action_configs ac ON av.config_id = ac.id
+         LEFT JOIN campaign_version_actions cva
+           ON cva.action_id = a.id
+           AND cva.version_id = (SELECT MAX(id) FROM campaign_versions WHERE campaign_id = a.campaign_id)
+         WHERE a.campaign_id = ?
+         ORDER BY CASE WHEN cva.id IS NOT NULL THEN cva.id ELSE 9999999999 + a.id END, a.id`);
+    } catch {
+      this.stmtGetCampaignActions = db.prepare(`SELECT a.id, a.campaign_id, a.name, a.description,
+                ac.id AS config_id, ac.actionType AS action_type,
+                ac.actionSettings AS action_settings, ac.coolDown AS cool_down,
+                ac.maxActionResultsPerIteration AS max_action_results_per_iteration,
+                ac.isDraft AS is_draft,
+                (SELECT MAX(av2.id) FROM action_versions av2 WHERE av2.action_id = a.id) AS version_id
+         FROM actions a
+         JOIN action_versions av ON av.id = (SELECT MAX(av2.id) FROM action_versions av2 WHERE av2.action_id = a.id)
+         JOIN action_configs ac ON av.config_id = ac.id
+         WHERE a.campaign_id = ?
+         ORDER BY a.id`);
+    }
+    this.stmtGetResults = db.prepare(`SELECT ar.id, ar.action_version_id, ar.person_id, ar.result,
               ar.platform, ar.created_at,
               mp.first_name, mp.last_name, mp.headline,
               cp.company, cp.position AS title
@@ -21867,6 +21980,7 @@ var CampaignRepository = class {
       name: r.name,
       description: r.description,
       state: deriveCampaignState(r.is_paused, r.is_archived, r.is_valid),
+      targetKind: deriveTargetKind(r.type),
       liAccountId: r.li_account_id,
       actionCount: r.action_count,
       createdAt: r.created_at
@@ -21886,6 +22000,7 @@ var CampaignRepository = class {
       name: row.name,
       description: row.description,
       state: deriveCampaignState(row.is_paused, row.is_archived, row.is_valid),
+      targetKind: deriveTargetKind(row.type),
       liAccountId: row.li_account_id,
       isPaused: row.is_paused === 1,
       isArchived: row.is_archived === 1,
@@ -21955,7 +22070,7 @@ var CampaignRepository = class {
    */
   listPeople(campaignId, options = {}) {
     this.getCampaign(campaignId);
-    let { actionId, status, limit = 20, offset = 0 } = options;
+    let { actionId, status, publicIds, limit = 20, offset = 0 } = options;
     if (actionId !== void 0 && !this.getCampaignActions(campaignId).some((a2) => a2.id === actionId))
       throw new ActionNotFoundError(actionId, campaignId);
     let conditions = ["a.campaign_id = ?"], params = [campaignId];
@@ -21963,6 +22078,7 @@ var CampaignRepository = class {
       let stateNum = PERSON_STATE_REVERSE[status];
       stateNum !== void 0 && (conditions.push("atp.state = ?"), params.push(stateNum));
     }
+    publicIds !== void 0 && publicIds.length > 0 && (conditions.push(`pei.external_id IN (${publicIds.map(() => "?").join(", ")})`), params.push(...publicIds));
     let sql = `
       SELECT
         atp.person_id,
@@ -21985,6 +22101,62 @@ var CampaignRepository = class {
       firstName: r.first_name,
       lastName: r.last_name,
       publicId: r.public_id,
+      status: PERSON_STATE_MAP[r.state] ?? "queued",
+      currentActionId: r.action_id
+    })), total };
+  }
+  /**
+   * List organizations assigned to a campaign, with optional filtering and
+   * pagination. The organization analogue of {@link listPeople}, reading
+   * `action_target_organizations` instead of `action_target_people`.
+   *
+   * `companyIds` filtering matches case-insensitively against both the
+   * public slug and the numeric company ID (`organization_external_ids`
+   * rows with `type_group` of `'public'` or `'company'`), since LinkedIn
+   * company URLs come in both shapes.
+   *
+   * @throws {CampaignNotFoundError} if no campaign exists with the given ID.
+   * @throws {ActionNotFoundError} if actionId is specified but doesn't belong to the campaign.
+   */
+  listOrganizations(campaignId, options = {}) {
+    this.getCampaign(campaignId);
+    let { actionId, status, companyIds, limit = 20, offset = 0 } = options;
+    if (actionId !== void 0 && !this.getCampaignActions(campaignId).some((a2) => a2.id === actionId))
+      throw new ActionNotFoundError(actionId, campaignId);
+    let conditions = ["a.campaign_id = ?"], params = [campaignId];
+    if (actionId !== void 0 && (conditions.push("ato.action_id = ?"), params.push(actionId)), status !== void 0) {
+      let stateNum = PERSON_STATE_REVERSE[status];
+      stateNum !== void 0 && (conditions.push("ato.state = ?"), params.push(stateNum));
+    }
+    if (companyIds !== void 0 && companyIds.length > 0) {
+      let upper = companyIds.map((id) => id.toUpperCase()), placeholders = upper.map(() => "?").join(", ");
+      conditions.push(`(oei_pub.external_id_uppercase IN (${placeholders})
+          OR oei_co.external_id_uppercase IN (${placeholders}))`), params.push(...upper, ...upper);
+    }
+    let sql = `
+      SELECT
+        ato.organization_id,
+        omp.name,
+        oei_pub.external_id AS public_id,
+        oei_co.external_id AS company_id,
+        ato.state,
+        ato.action_id,
+        COUNT(*) OVER() AS total
+      FROM action_target_organizations ato
+      JOIN actions a ON ato.action_id = a.id
+      LEFT JOIN organization_mini_profile omp ON ato.organization_id = omp.organization_id
+      LEFT JOIN organization_external_ids oei_pub
+        ON ato.organization_id = oei_pub.organization_id AND oei_pub.type_group = 'public'
+      LEFT JOIN organization_external_ids oei_co
+        ON ato.organization_id = oei_co.organization_id AND oei_co.type_group = 'company'
+      WHERE ${conditions.join(" AND ")}
+      ORDER BY ato.organization_id
+      LIMIT ? OFFSET ?`, rows = this.client.db.prepare(sql).all(...params, limit, offset), total = rows.length > 0 ? rows[0].total : 0;
+    return { organizations: rows.map((r) => ({
+      organizationId: r.organization_id,
+      name: r.name,
+      publicId: r.public_id,
+      companyId: r.company_id,
       status: PERSON_STATE_MAP[r.state] ?? "queued",
       currentActionId: r.action_id
     })), total };
@@ -22075,6 +22247,26 @@ var CampaignRepository = class {
          VALUES (?, ?)`),
       insertCollection: db.prepare(`INSERT INTO collections (li_account_id, name, created_at, updated_at)
          VALUES (?, NULL, datetime('now'), datetime('now'))`),
+      getLastCampaignVersion: db.prepare("SELECT id, exclude_list_id FROM campaign_versions WHERE campaign_id = ? ORDER BY id DESC LIMIT 1"),
+      insertCampaignVersion: db.prepare("INSERT INTO campaign_versions (campaign_id, exclude_list_id) VALUES (?, ?)"),
+      insertCampaignVersionAction: (() => {
+        try {
+          return db.prepare("INSERT INTO campaign_version_actions (version_id, action_id) VALUES (?, ?)");
+        } catch {
+          return null;
+        }
+      })(),
+      copyCampaignVersionActions: (() => {
+        try {
+          return db.prepare(`INSERT INTO campaign_version_actions (version_id, action_id)
+             SELECT CAST(? AS INTEGER), action_id
+             FROM campaign_version_actions
+             WHERE version_id = ?
+             ORDER BY id`);
+        } catch {
+          return null;
+        }
+      })(),
       insertCollectionPeopleVersion: db.prepare(`INSERT INTO collection_people_versions
            (collection_id, version_operation_status, additional_data, created_at, updated_at)
          VALUES (?, 'addToTarget', NULL, datetime('now'), datetime('now'))`),
@@ -22215,13 +22407,19 @@ var CampaignRepository = class {
       let configId = getLastId.get().id;
       stmts.insertAction.run(campaignId, actionConfig.name, actionConfig.description ?? "");
       let actionId = getLastId.get().id;
-      stmts.insertActionVersion.run(actionId, configId);
-      let versionId1 = getLastId.get().id;
-      stmts.insertActionVersion.run(actionId, configId), stmts.insertCollection.run(liAccountId);
+      stmts.insertActionVersion.run(actionId, configId), stmts.insertActionVersion.run(actionId, configId);
+      let versionId = getLastId.get().id;
+      stmts.insertCollection.run(liAccountId);
       let collectionId = getLastId.get().id;
       stmts.insertCollectionPeopleVersion.run(collectionId);
       let cpvId = getLastId.get().id;
-      stmts.setActionVersionExcludeList.run(cpvId, actionId), db.exec("COMMIT");
+      if (stmts.setActionVersionExcludeList.run(cpvId, actionId), stmts.insertCampaignVersionAction !== null) {
+        let lastVersion = stmts.getLastCampaignVersion.get(campaignId);
+        stmts.insertCampaignVersion.run(campaignId, lastVersion?.exclude_list_id ?? null);
+        let newVersionId = getLastId.get().id;
+        lastVersion && stmts.copyCampaignVersionActions !== null && stmts.copyCampaignVersionActions.run(newVersionId, lastVersion.id), stmts.insertCampaignVersionAction.run(newVersionId, actionId);
+      }
+      db.exec("COMMIT");
       let config2 = {
         id: configId,
         actionType: actionConfig.actionType,
@@ -22236,7 +22434,7 @@ var CampaignRepository = class {
         name: actionConfig.name,
         description: actionConfig.description ?? null,
         config: config2,
-        versionId: versionId1
+        versionId
       };
     } catch (e) {
       throw db.exec("ROLLBACK"), e;
@@ -22331,16 +22529,36 @@ var CampaignStatisticsRepository = class {
     let { db } = client;
     this.stmtGetCampaign = db.prepare(`SELECT id, name, description, is_paused, is_archived, is_valid,
               li_account_id, created_at
-       FROM campaigns WHERE id = ?`), this.stmtGetCampaignActions = db.prepare(`SELECT a.id, a.campaign_id, a.name, a.description,
-              ac.id AS config_id, ac.actionType AS action_type,
-              ac.actionSettings AS action_settings, ac.coolDown AS cool_down,
-              ac.maxActionResultsPerIteration AS max_action_results_per_iteration,
-              ac.isDraft AS is_draft, av.id AS version_id
-       FROM actions a
-       JOIN action_versions av ON av.action_id = a.id
-       JOIN action_configs ac ON av.config_id = ac.id
-       WHERE a.campaign_id = ?
-       ORDER BY a.id`), this.stmtGetActionVersions = db.prepare(`SELECT av.id, av.action_id
+       FROM campaigns WHERE id = ?`);
+    try {
+      this.stmtGetCampaignActions = db.prepare(`SELECT a.id, a.campaign_id, a.name, a.description,
+                ac.id AS config_id, ac.actionType AS action_type,
+                ac.actionSettings AS action_settings, ac.coolDown AS cool_down,
+                ac.maxActionResultsPerIteration AS max_action_results_per_iteration,
+                ac.isDraft AS is_draft,
+                (SELECT MAX(av2.id) FROM action_versions av2 WHERE av2.action_id = a.id) AS version_id
+         FROM actions a
+         JOIN action_versions av ON av.id = (SELECT MAX(av2.id) FROM action_versions av2 WHERE av2.action_id = a.id)
+         JOIN action_configs ac ON av.config_id = ac.id
+         LEFT JOIN campaign_version_actions cva
+           ON cva.action_id = a.id
+           AND cva.version_id = (SELECT MAX(id) FROM campaign_versions WHERE campaign_id = a.campaign_id)
+         WHERE a.campaign_id = ?
+         ORDER BY CASE WHEN cva.id IS NOT NULL THEN cva.id ELSE 9999999999 + a.id END, a.id`);
+    } catch {
+      this.stmtGetCampaignActions = db.prepare(`SELECT a.id, a.campaign_id, a.name, a.description,
+                ac.id AS config_id, ac.actionType AS action_type,
+                ac.actionSettings AS action_settings, ac.coolDown AS cool_down,
+                ac.maxActionResultsPerIteration AS max_action_results_per_iteration,
+                ac.isDraft AS is_draft,
+                (SELECT MAX(av2.id) FROM action_versions av2 WHERE av2.action_id = a.id) AS version_id
+         FROM actions a
+         JOIN action_versions av ON av.id = (SELECT MAX(av2.id) FROM action_versions av2 WHERE av2.action_id = a.id)
+         JOIN action_configs ac ON av.config_id = ac.id
+         WHERE a.campaign_id = ?
+         ORDER BY a.id`);
+    }
+    this.stmtGetActionVersions = db.prepare(`SELECT av.id, av.action_id
        FROM action_versions av
        JOIN actions a ON av.action_id = a.id
        WHERE a.campaign_id = ?`);
@@ -23159,12 +23377,8 @@ var ProfileRepository = class {
 
 // packages/core/dist/services/status.js
 async function checkStatus(cdpPort, options) {
-  let resolvedPort;
-  try {
-    resolvedPort = await resolveLauncherPort(cdpPort, options?.host, 0);
-  } catch {
-    resolvedPort = null;
-  }
+  let resolvedPort, discoveredApps = null;
+  cdpPort !== void 0 ? resolvedPort = cdpPort : options?.host !== void 0 && !isLoopbackAddress(options.host) ? resolvedPort = null : (discoveredApps = await findApp().catch(() => []), resolvedPort = discoveredApps.find((a2) => a2.role === "launcher" && a2.connectable && a2.cdpPort !== null)?.cdpPort ?? null);
   let launcher = { reachable: !1, port: resolvedPort }, databases = [], warnings = [], runningInstances = [];
   try {
     let raw = await scanRunningInstances(), readinessMap = readinessTracker.update(raw);
@@ -23181,11 +23395,11 @@ async function checkStatus(cdpPort, options) {
       await launcherService.connect(), launcher.reachable = !0, launcherService.disconnect();
     } catch (error51) {
       launcherService.disconnect(), warnings.push(`Launcher not reachable on port ${resolvedPort.toString()}: ${errorMessage(error51)}`);
-      let apps = await findApp();
+      let apps = discoveredApps ?? await findApp();
       apps.length > 0 && (launcher.processes = apps, warnings.push(`LinkedHelper process(es) detected (PID ${apps.map((a2) => String(a2.pid)).join(", ")}) but CDP not reachable. Restart may be needed.`));
     }
   } else {
-    let apps = await findApp();
+    let apps = discoveredApps ?? await findApp();
     apps.length > 0 ? (launcher.processes = apps, apps.filter((a2) => a2.role === "instance" && a2.connectable && a2.cdpPort !== null).length > 0 ? warnings.push("Launcher CDP not available. Instance(s) detected \u2014 instance-level operations work, but launcher operations (list-accounts, start/stop-instance) are unavailable. Relaunch LinkedHelper with --remote-debugging-port or use launch-app.") : runningInstances.length === 0 && warnings.push(`LinkedHelper process(es) detected (PID ${apps.map((a2) => String(a2.pid)).join(", ")}) but no CDP endpoints are reachable.`)) : runningInstances.length === 0 && warnings.push("LinkedHelper is not running.");
   }
   try {
@@ -23341,6 +23555,8 @@ var IDLE_WAIT_TIMEOUT = 6e4, IDLE_POLL_INTERVAL = 1e3, STOPPING_RECOVERY_TIMEOUT
    * @throws {CampaignExecutionError} if the campaign has no actions or the CDP call fails.
    */
   async importPeopleFromUrls(campaignId, linkedInUrls) {
+    if (this.campaignRepo.getCampaign(campaignId).targetKind === "organizations")
+      throw new CampaignExecutionError(`Campaign ${String(campaignId)} is an organizations campaign \u2014 it accepts company URLs, not profile URLs. Use importOrganizationsFromUrls instead.`, campaignId);
     let actions = this.campaignRepo.getCampaignActions(campaignId);
     if (actions.length === 0)
       throw new CampaignExecutionError(`Campaign ${String(campaignId)} has no actions`, campaignId);
@@ -23369,6 +23585,58 @@ var IDLE_WAIT_TIMEOUT = 6e4, IDLE_POLL_INTERVAL = 1e3, STOPPING_RECOVERY_TIMEOUT
         throw error51;
       let message = errorMessage(error51);
       throw new CampaignExecutionError(`Failed to import people into campaign ${String(campaignId)}: ${message}`, campaignId, { cause: error51 });
+    }
+  }
+  /**
+   * Import LinkedIn company URLs into an organizations campaign action's
+   * target list.
+   *
+   * Resolves the campaign's first action, then calls
+   * `source.organizations.actions.importOrganizationsFromUrls()` via CDP —
+   * the organizations mirror of `importPeopleFromUrls()`, with the same
+   * `(actionId, platform, urlsText, addToTarget)` signature and stats shape,
+   * except its stats report `inExcludeList` and may omit `failed` when zero
+   * (verified against LinkedHelper 2.x in production).
+   * The import is idempotent — re-importing an already-targeted organization
+   * is a no-op counted as `alreadyInQueue`.
+   *
+   * @throws {CampaignNotFoundError} if the campaign does not exist.
+   * @throws {CampaignExecutionError} if the campaign is not an organizations
+   *   campaign, has no actions, or the CDP call fails.
+   */
+  async importOrganizationsFromUrls(campaignId, companyUrls) {
+    let campaign = this.campaignRepo.getCampaign(campaignId);
+    if (campaign.targetKind !== "organizations")
+      throw new CampaignExecutionError(`Campaign ${String(campaignId)} is a ${campaign.targetKind} campaign \u2014 importOrganizationsFromUrls requires an organizations campaign (campaigns.type = 2).`, campaignId);
+    let actions = this.campaignRepo.getCampaignActions(campaignId);
+    if (actions.length === 0)
+      throw new CampaignExecutionError(`Campaign ${String(campaignId)} has no actions`, campaignId);
+    let actionId = actions[0].id, urlsPayload = companyUrls.join(`
+`);
+    try {
+      let counts = (await this.instance.evaluateUI(`(async function() {
+          const actions = window.mainWindowService.mainWindow.source.organizations.actions;
+          const [, stats] = await actions.importOrganizationsFromUrls(
+            ${String(actionId)},
+            0,
+            ${JSON.stringify(urlsPayload)},
+            true
+          );
+          return stats;
+        })()`)).total.addToTarget;
+      return {
+        actionId,
+        successful: counts.successful,
+        alreadyInQueue: counts.alreadyInQueue,
+        alreadyProcessed: counts.alreadyProcessed,
+        inExcludeList: counts.inExcludeList ?? 0,
+        failed: counts.failed ?? 0
+      };
+    } catch (error51) {
+      if (error51 instanceof CampaignExecutionError)
+        throw error51;
+      let message = errorMessage(error51);
+      throw new CampaignExecutionError(`Failed to import organizations into campaign ${String(campaignId)}: ${message}`, campaignId, { cause: error51 });
     }
   }
   /**
@@ -23935,7 +24203,8 @@ var DEFAULT_TIMEOUT2 = 3e5, DEFAULT_POLL_INTERVAL = 2e3, CAMPAIGN_NAME_PREFIX = 
    * Stop and remove/archive an ephemeral campaign (best-effort).
    */
   async cleanup(campaignId, keepCampaign) {
-    await this.safeStop(campaignId), keepCampaign ? await this.safeArchive(campaignId) : this.safeHardDelete(campaignId);
+    await this.safeStop(campaignId), await this.instance.dismissInstancePopups().catch(() => {
+    }), keepCampaign ? await this.safeArchive(campaignId) : this.safeHardDelete(campaignId);
   }
   /**
    * Stop campaign without throwing on failure.
@@ -24026,7 +24295,7 @@ async function withDatabase(accountId, callback, options) {
   }
 }
 async function withInstanceDatabase(cdpPort, accountId, callback, options) {
-  let { instancePort, launcherPort } = await resolveInstancePort2(cdpPort), instance = new InstanceService(instancePort, options?.instanceTimeout != null ? { timeout: options.instanceTimeout } : void 0), launcher = null, db = null;
+  let { instancePort, launcherPort } = await resolveInstancePort2(cdpPort, accountId), instance = new InstanceService(instancePort, options?.instanceTimeout != null ? { timeout: options.instanceTimeout } : void 0), launcher = null, db = null;
   try {
     if (await instance.connect(), launcherPort !== null)
       try {
@@ -24053,8 +24322,21 @@ async function withInstanceDatabase(cdpPort, accountId, callback, options) {
     instance.setHealthChecker(null), instance.disconnect(), launcher?.disconnect(), db?.close();
   }
 }
-async function resolveInstancePort2(cdpPort) {
+async function resolveInstancePort2(cdpPort, accountId) {
   if (cdpPort === void 0) {
+    if (accountId !== void 0) {
+      let instances = await scanRunningInstances(), match = instances.find((i2) => i2.accountId === accountId && i2.connectable && i2.cdpPort !== null);
+      if (match?.cdpPort !== null && match?.cdpPort !== void 0) {
+        let launcherPort3 = null;
+        try {
+          launcherPort3 = await resolveAppPort("launcher", 0);
+        } catch {
+        }
+        return { instancePort: match.cdpPort, launcherPort: launcherPort3 };
+      }
+      if (instances.length > 0)
+        throw new InstanceNotRunningError(`Account ${String(accountId)} instance is not running. Use start-instance first.`);
+    }
     let instancePort2 = await resolveAppPort("instance"), launcherPort2 = null;
     try {
       launcherPort2 = await resolveAppPort("launcher", 0);
@@ -24062,19 +24344,19 @@ async function resolveInstancePort2(cdpPort) {
     }
     return { instancePort: instancePort2, launcherPort: launcherPort2 };
   }
-  let instancePort = await discoverInstancePort(cdpPort);
-  if (instancePort !== null)
-    return { instancePort, launcherPort: cdpPort };
   let launcherPort = null;
   try {
     let apps = await findApp();
     if (apps.find((a2) => a2.cdpPort === cdpPort && a2.role === "instance" && a2.connectable)) {
-      let launcherMatch = apps.find((a2) => a2.role === "launcher" && a2.connectable && a2.cdpPort !== null);
-      return { instancePort: cdpPort, launcherPort: launcherMatch?.cdpPort ?? null };
+      let launcherApp2 = apps.find((a2) => a2.role === "launcher" && a2.connectable && a2.cdpPort !== null);
+      return { instancePort: cdpPort, launcherPort: launcherApp2?.cdpPort ?? null };
     }
     launcherPort = apps.find((a2) => a2.role === "launcher" && a2.connectable && a2.cdpPort !== null)?.cdpPort ?? null;
   } catch {
   }
+  let instancePort = await discoverInstancePort(cdpPort);
+  if (instancePort !== null)
+    return { instancePort, launcherPort: cdpPort };
   if (cdpPort !== launcherPort && await isCdpPort(cdpPort))
     return { instancePort: cdpPort, launcherPort };
   throw new InstanceNotRunningError("No LinkedHelper instance is running. Use start-instance first.");
@@ -25460,22 +25742,792 @@ async function campaignErase(input) {
   return withInstanceDatabase(cdpPort, accountId, ({ instance, db }) => (new CampaignService(instance, db).hardDelete(input.campaignId), { success: !0, campaignId: input.campaignId }), { db: { readOnly: !1 } });
 }
 
+// packages/core/dist/operations/navigate-to-profile.js
+import { mkdtemp as mkdtemp2, writeFile as writeFile2 } from "node:fs/promises";
+import { tmpdir as tmpdir2 } from "node:os";
+import { join as join4 } from "node:path";
+
+// packages/core/dist/cdp/wait-for-post-load.js
+import { chmod, lstat, mkdtemp, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join as join3 } from "node:path";
+var POST_READY_AUTHOR_LINK_SELECTOR = 'main a[href*="/in/"], main a[href*="/company/"]', POST_AUTHOR_LINK_DOCUMENT_WIDE_SELECTOR = 'a[href*="/in/"], a[href*="/company/"]', POST_REACT_LIKE_SELECTOR = 'main button[aria-label^="React Like to "]', POST_COMMENT_ON_SELECTOR = 'main button[aria-label^="Comment on"]', POST_EDITOR_SELECTOR = 'main [role="textbox"][aria-label^="Text editor for creating"]', POST_REACTIONS_MENU_SELECTOR = 'main button[aria-label="Open reactions menu"]', POST_DETAIL_CONTAINER_SELECTOR = '[componentkey^="expanded"][componentkey$="FeedType_FEED_DETAIL"]', POST_INTERACTION_SELECTOR = [
+  POST_REACT_LIKE_SELECTOR,
+  POST_COMMENT_ON_SELECTOR,
+  POST_EDITOR_SELECTOR,
+  POST_REACTIONS_MENU_SELECTOR,
+  POST_DETAIL_CONTAINER_SELECTOR
+].join(", "), POST_LTR_SPAN_FALLBACK_SELECTOR = 'span[dir="ltr"]';
+async function waitForPostLoad(client, timeoutMs = 15e3) {
+  let deadline = Date.now() + timeoutMs;
+  for (; Date.now() < deadline; ) {
+    if (await client.evaluate(`(() => {
+      if (!document.querySelector('${POST_READY_AUTHOR_LINK_SELECTOR}')) return false;
+      if (document.querySelector('${POST_INTERACTION_SELECTOR}')) return true;
+      return document.querySelectorAll('${POST_LTR_SPAN_FALLBACK_SELECTOR}').length > 0;
+    })()`))
+      return;
+    await delay(500);
+  }
+  throw await capturePostLoadFailure(client), new Error("Timed out waiting for post detail to appear in the DOM");
+}
+var DIAGNOSTIC_CAPTURE_TIMEOUT_MS = 1e4;
+async function capturePostLoadFailure(client) {
+  if (process.env.LHREMOTE_CAPTURE_DIAGNOSTICS !== "1")
+    return;
+  let state = { timedOut: !1 }, bound;
+  try {
+    await Promise.race([
+      // Attach a no-op catch to the inner promise so a late rejection
+      // (after the timer wins the race) does not escape as an
+      // UnhandledPromiseRejection — capture-side errors must always be
+      // swallowed to keep the caller's timeout propagating unchanged.
+      capturePostLoadFailureInner(client, state).catch(() => {
+      }),
+      new Promise((resolve) => {
+        bound = setTimeout(() => {
+          state.timedOut = !0, resolve();
+        }, DIAGNOSTIC_CAPTURE_TIMEOUT_MS);
+      })
+    ]);
+  } catch {
+  } finally {
+    bound !== void 0 && clearTimeout(bound);
+  }
+}
+async function capturePostLoadFailureInner(client, state) {
+  let timestamp = (/* @__PURE__ */ new Date()).toISOString().replace(/[:.]/g, "-"), baseDir = await mkdtemp(join3(tmpdir(), "lhremote-diagnostics-"));
+  if (state.timedOut || !await ensureSecureDiagnosticDir(baseDir) || state.timedOut)
+    return;
+  let prefix = join3(baseDir, `wait-for-post-load-${timestamp}`), info = await client.evaluate(`(() => {
+    const mainFeed = document.querySelector('[data-testid="mainFeed"]');
+    const listItems = mainFeed
+      ? Array.prototype.slice.call(mainFeed.querySelectorAll('div[role="listitem"]'))
+      : [];
+    const itemsWithMenu = listItems.filter(function (item) {
+      return item.querySelector('button[aria-label^="Open control menu for post"]') !== null;
+    });
+    // SCRAPE_POST_DETAIL_SCRIPT in get-post.ts also requires the item
+    // to render with offsetHeight >= 100 (skips skeletons/hidden items
+    // with zero or near-zero layout box).  Probe both the unfiltered
+    // count (catch "menu-button selector still works but item is
+    // hidden") and the scraper-equivalent count (catch "scraper would
+    // skip every visible candidate") so Phase 2 can distinguish those.
+    const viableItems = itemsWithMenu.filter(function (item) {
+      return item.offsetHeight >= 100;
+    });
+    return {
+      href: location.href,
+      title: document.title,
+      hasMain: document.querySelector('main') !== null,
+      hasMainFeed: mainFeed !== null,
+      mainFeedListItemCount: listItems.length,
+      mainFeedListItemsWithMenuButton: itemsWithMenu.length,
+      mainFeedListItemsViableForPostScrape: viableItems.length,
+      hasAuthorLink: document.querySelector('${POST_AUTHOR_LINK_DOCUMENT_WIDE_SELECTOR}') !== null,
+      hasAuthorLinkInMain: document.querySelector('${POST_READY_AUTHOR_LINK_SELECTOR}') !== null,
+      hasLtrSpans: document.querySelectorAll('${POST_LTR_SPAN_FALLBACK_SELECTOR}').length > 0,
+      hasArticles: document.querySelectorAll('article').length > 0,
+      hasReactLikeButton: document.querySelector('${POST_REACT_LIKE_SELECTOR}') !== null,
+      hasCommentOnButton: document.querySelector('${POST_COMMENT_ON_SELECTOR}') !== null,
+      hasTopLevelEditor: document.querySelector('${POST_EDITOR_SELECTOR}') !== null,
+      hasReactionsMenu: document.querySelector('${POST_REACTIONS_MENU_SELECTOR}') !== null,
+      hasPostDetailContainer: document.querySelector('${POST_DETAIL_CONTAINER_SELECTOR}') !== null,
+      bodyTextSnippet: (document.body ? document.body.innerText : "").slice(0, 800),
+    };
+  })()`);
+  if (state.timedOut)
+    return;
+  if (await writeFile(`${prefix}.json`, JSON.stringify(info, null, 2), {
+    encoding: "utf8",
+    mode: 384
+  }), state.timedOut) {
+    console.warn(`[waitForPostLoad] timeout diagnostics partial: ${prefix}.json (screenshot skipped \u2014 capture cap reached)`);
+    return;
+  }
+  let wroteScreenshot = !1;
+  try {
+    let screenshot = await client.send("Page.captureScreenshot", {
+      format: "png",
+      captureBeyondViewport: !0
+    });
+    !state.timedOut && screenshot.data && (await writeFile(`${prefix}.png`, Buffer.from(screenshot.data, "base64"), {
+      mode: 384
+    }), wroteScreenshot = !0);
+  } catch {
+  }
+  console.warn(`[waitForPostLoad] timeout diagnostics written: ${prefix}.${wroteScreenshot ? "{json,png}" : "json"}`);
+}
+async function ensureSecureDiagnosticDir(baseDir) {
+  let stats;
+  try {
+    stats = await lstat(baseDir);
+  } catch {
+    return !1;
+  }
+  if (stats.isSymbolicLink() || !stats.isDirectory())
+    return !1;
+  if ((stats.mode & 511) !== 448)
+    try {
+      await chmod(baseDir, 448);
+    } catch {
+      return !1;
+    }
+  return !0;
+}
+
+// packages/core/dist/linkedin/selectors.js
+var COMMENT_INPUT = '[role="textbox"][aria-label^="Text editor for creating"]', REACTION_TRIGGER = 'button[aria-label^="Reaction button state"], button.react-button__trigger', REACTION_LIKE = 'button[aria-label="Like"], button[aria-label="React Like"]', REACTION_CELEBRATE = 'button[aria-label="Celebrate"], button[aria-label="React Celebrate"]', REACTION_SUPPORT = 'button[aria-label="Support"], button[aria-label="React Support"]', REACTION_LOVE = 'button[aria-label="Love"], button[aria-label="React Love"]', REACTION_INSIGHTFUL = 'button[aria-label="Insightful"], button[aria-label="React Insightful"]', REACTION_FUNNY = 'button[aria-label="Funny"], button[aria-label="React Funny"]', COMMENT_REPLY_BUTTON = 'button[aria-label^="Reply to "]';
+var COMMENT_REACTIONS_MENU = 'button[aria-label="Open reactions menu"]';
+var COMMENT_ARTICLE_ANY = '[componentkey^="replaceableComment_"]';
+function commentArticleSelectorByUrn(urn) {
+  return `[componentkey="replaceableComment_${urn}"]`;
+}
+function normalizeCommentUrnForReactStack(urn) {
+  let legacy = /^urn:li:comment:\((\w+):(\d+),(\d+)\)$/.exec(urn);
+  if (legacy) {
+    let type = legacy[1], postId = legacy[2], commentId = legacy[3];
+    return `urn:li:comment:(urn:li:${type}:${postId},${commentId})`;
+  }
+  return urn;
+}
+function denormalizeCommentUrnToLegacy(urn) {
+  let sdui = /^urn:li:comment:\(urn:li:(\w+):(\d+),(\d+)\)$/.exec(urn);
+  if (sdui) {
+    let type = sdui[1], postId = sdui[2], commentId = sdui[3];
+    return `urn:li:comment:(${type}:${postId},${commentId})`;
+  }
+  return urn;
+}
+var MENTION_TYPEAHEAD = '.editor-typeahead-fetch .basic-typeahead__triggered-content[role="listbox"]', MENTION_OPTION = '.basic-typeahead__selectable.editor-typeahead__typeahead-item[role="option"]', COMMENT_SUBMIT_BUTTON = 'button[type="submit"], button[class*="comments-comment-box__submit-button"]';
+
+// packages/core/dist/linkedin/dom-automation.js
+var DEFAULT_TIMEOUT3 = 3e4, DEFAULT_POLL_INTERVAL2 = 100, MICRO_HESITATION_PROBABILITY = 0.05;
+function getKeyCodeInfo(char) {
+  let lower = char.toLowerCase();
+  if (lower >= "a" && lower <= "z") {
+    let vk = 65 + lower.charCodeAt(0) - 97;
+    return { code: `Key${lower.toUpperCase()}`, windowsVirtualKeyCode: vk };
+  }
+  if (char >= "0" && char <= "9") {
+    let vk = 48 + char.charCodeAt(0) - 48;
+    return { code: `Digit${char}`, windowsVirtualKeyCode: vk };
+  }
+  return {
+    " ": { code: "Space", windowsVirtualKeyCode: 32 },
+    "\n": { code: "Enter", windowsVirtualKeyCode: 13 },
+    "\r": { code: "Enter", windowsVirtualKeyCode: 13 },
+    "	": { code: "Tab", windowsVirtualKeyCode: 9 },
+    "-": { code: "Minus", windowsVirtualKeyCode: 189 },
+    "=": { code: "Equal", windowsVirtualKeyCode: 187 },
+    "[": { code: "BracketLeft", windowsVirtualKeyCode: 219 },
+    "]": { code: "BracketRight", windowsVirtualKeyCode: 221 },
+    "\\": { code: "Backslash", windowsVirtualKeyCode: 220 },
+    ";": { code: "Semicolon", windowsVirtualKeyCode: 186 },
+    "'": { code: "Quote", windowsVirtualKeyCode: 222 },
+    ",": { code: "Comma", windowsVirtualKeyCode: 188 },
+    ".": { code: "Period", windowsVirtualKeyCode: 190 },
+    "/": { code: "Slash", windowsVirtualKeyCode: 191 },
+    "`": { code: "Backquote", windowsVirtualKeyCode: 192 }
+  }[char];
+}
+async function waitForElement(client, selector, options, mouse) {
+  let timeout2 = options?.timeout ?? DEFAULT_TIMEOUT3, pollInterval = options?.pollInterval ?? DEFAULT_POLL_INTERVAL2, deadline = Date.now() + timeout2, startTime = Date.now(), driftX = -1, driftY = -1, viewportW = 0, viewportH = 0;
+  for (; Date.now() < deadline; ) {
+    if (await client.evaluate(`document.querySelector(${JSON.stringify(selector)}) !== null`))
+      return;
+    if (mouse?.isAvailable && Date.now() - startTime > 500 && Math.random() < 0.2) {
+      if (driftX < 0) {
+        try {
+          let pos = await mouse.position();
+          driftX = pos.x, driftY = pos.y;
+        } catch {
+        }
+        let size = await client.evaluate("({ w: window.innerWidth, h: window.innerHeight })");
+        viewportW = size.w, viewportH = size.h, driftX < 0 && (driftX = Math.round(viewportW / 2), driftY = Math.round(viewportH / 2));
+      }
+      let magX = Math.round(randomBetween(1, 5)), magY = Math.round(randomBetween(1, 5)), offsetX = (Math.random() < 0.5 ? -1 : 1) * magX, offsetY = (Math.random() < 0.5 ? -1 : 1) * magY;
+      driftX = Math.max(0, Math.min(viewportW - 1, driftX + offsetX)), driftY = Math.max(0, Math.min(viewportH - 1, driftY + offsetY)), await mouse.move(driftX, driftY);
+    }
+    await delay(pollInterval);
+  }
+  throw new CDPTimeoutError(`Timed out waiting for element "${selector}" after ${timeout2.toString()}ms`);
+}
+async function waitForDOMStable(client, quietMs = 500) {
+  await client.evaluate(`(() => {
+      window.__lhLastMutation = Date.now();
+      const observer = new MutationObserver(() => {
+        window.__lhLastMutation = Date.now();
+      });
+      observer.observe(document.body, {
+        childList: true,
+        subtree: true,
+        attributes: true,
+        characterData: true,
+      });
+      window.__lhDOMObserver = observer;
+    })()`);
+  let pollInterval = 100, deadline = Date.now() + 3e4;
+  for (; Date.now() < deadline && !(await client.evaluate("Date.now() - (window.__lhLastMutation || 0)") >= quietMs); )
+    await delay(pollInterval);
+  await client.evaluate(`(() => {
+      if (window.__lhDOMObserver) {
+        window.__lhDOMObserver.disconnect();
+        delete window.__lhDOMObserver;
+        delete window.__lhLastMutation;
+      }
+    })()`), await gaussianDelay(1200, 400, 600, 2500);
+}
+async function scrollTo(client, selector) {
+  if (!await client.evaluate(`(() => {
+      const el = document.querySelector(${JSON.stringify(selector)});
+      if (!el) return false;
+      el.scrollIntoView({ behavior: "instant", block: "center" });
+      return true;
+    })()`))
+    throw new CDPEvaluationError(`Element "${selector}" not found for scrollTo`);
+}
+async function hover(client, selector) {
+  let center = await client.evaluate(`(() => {
+      const el = document.querySelector(${JSON.stringify(selector)});
+      if (!el) return null;
+      el.scrollIntoView({ block: "center", behavior: "instant" });
+      const r = el.getBoundingClientRect();
+      return { x: Math.round(r.x + r.width / 2), y: Math.round(r.y + r.height / 2) };
+    })()`);
+  if (!center)
+    throw new CDPEvaluationError(`Element "${selector}" not found for hover`);
+  await client.send("Input.dispatchMouseEvent", {
+    type: "mouseMoved",
+    x: center.x,
+    y: center.y
+  });
+}
+async function click(client, selector) {
+  if (!await client.evaluate(`(() => {
+      const el = document.querySelector(${JSON.stringify(selector)});
+      if (!el) return false;
+      el.click();
+      return true;
+    })()`))
+    throw new CDPEvaluationError(`Element "${selector}" not found for click`);
+}
+async function typeText(client, selector, text, method = "type") {
+  if (!await client.evaluate(`(() => {
+      const el = document.querySelector(${JSON.stringify(selector)});
+      if (!el) return false;
+      el.focus();
+      return true;
+    })()`))
+    throw new CDPEvaluationError(`Element "${selector}" not found for typeText`);
+  switch (method) {
+    case "type": {
+      let previousChar = "";
+      for (let char of text) {
+        let kc = getKeyCodeInfo(char);
+        await client.send("Input.dispatchKeyEvent", {
+          type: "keyDown",
+          key: char,
+          text: char,
+          ...kc && { code: kc.code, windowsVirtualKeyCode: kc.windowsVirtualKeyCode }
+        }), await client.send("Input.dispatchKeyEvent", {
+          type: "keyUp",
+          key: char,
+          ...kc && { code: kc.code, windowsVirtualKeyCode: kc.windowsVirtualKeyCode }
+        }), char === `
+` ? await gaussianDelay(700, 300, 300, 1500) : char === " " && /[.!?]/.test(previousChar) ? await gaussianDelay(350, 120, 150, 800) : char === " " ? await gaussianDelay(180, 50, 100, 350) : await gaussianDelay(65, 20, 30, 120), Math.random() < MICRO_HESITATION_PROBABILITY && await gaussianDelay(300, 100, 150, 600), previousChar = char;
+      }
+      break;
+    }
+  }
+}
+async function getElementBounds(client, selector) {
+  return client.evaluate(`(() => {
+      const el = document.querySelector(${JSON.stringify(selector)});
+      if (!el) return null;
+      const r = el.getBoundingClientRect();
+      return { top: r.top, bottom: r.bottom, height: r.height };
+    })()`);
+}
+async function getElementBoundsByIndex(client, baseSelector, index) {
+  return client.evaluate(`(() => {
+      const els = document.querySelectorAll(${JSON.stringify(baseSelector)});
+      const el = els[${String(index)}];
+      if (!el) return null;
+      const r = el.getBoundingClientRect();
+      return { top: r.top, bottom: r.bottom, height: r.height };
+    })()`);
+}
+async function getViewportHeight(client) {
+  return client.evaluate("window.innerHeight");
+}
+async function scrollToElementLoop(client, getBounds, mouse) {
+  let viewportHeight = await getViewportHeight(client), maxIterations = 10, tolerance = viewportHeight / 4;
+  for (let i2 = 0; i2 < maxIterations; i2++) {
+    let bounds = await getBounds();
+    if (!bounds)
+      return !1;
+    let elementCenter = bounds.top + bounds.height / 2, viewportCenter = viewportHeight / 2;
+    if (Math.abs(elementCenter - viewportCenter) <= tolerance)
+      return !0;
+    let deltaY = elementCenter - viewportCenter;
+    await humanizedScrollY(client, deltaY, 300, 400, mouse), await gaussianDelay(300, 50, 200, 400);
+  }
+  return !1;
+}
+async function humanizedScrollTo(client, selector, mouse) {
+  mouse?.isAvailable && await scrollToElementLoop(client, () => getElementBounds(client, selector), mouse) || await scrollTo(client, selector);
+}
+async function humanizedScrollToByIndex(client, baseSelector, index, mouse) {
+  mouse?.isAvailable && await scrollToElementLoop(client, () => getElementBoundsByIndex(client, baseSelector, index), mouse) || await client.evaluate(`(() => {
+      const els = document.querySelectorAll(${JSON.stringify(baseSelector)});
+      const el = els[${String(index)}];
+      if (el) el.scrollIntoView({ behavior: "instant", block: "center" });
+    })()`);
+}
+async function getElementCenter(client, selector) {
+  let rect = await client.evaluate(`(() => {
+      const el = document.querySelector(${JSON.stringify(selector)});
+      if (!el) return null;
+      const r = el.getBoundingClientRect();
+      return { x: r.x, y: r.y, width: r.width, height: r.height };
+    })()`);
+  if (!rect)
+    return null;
+  let cx = rect.x + rect.width / 2, cy = rect.y + rect.height / 2, jx = cx + gaussianBetween(0, rect.width * 0.15, -rect.width * 0.4, rect.width * 0.4), jy = cy + gaussianBetween(0, rect.height * 0.15, -rect.height * 0.4, rect.height * 0.4), roundedJx = Math.round(jx), roundedJy = Math.round(jy), maxX = rect.width >= 1 ? rect.x + rect.width - 1 : rect.x, maxY = rect.height >= 1 ? rect.y + rect.height - 1 : rect.y;
+  return {
+    x: Math.max(rect.x, Math.min(maxX, roundedJx)),
+    y: Math.max(rect.y, Math.min(maxY, roundedJy))
+  };
+}
+async function viewportComfortZone(client, selector, mouse) {
+  let viewportHeight = await getViewportHeight(client), rect = await client.evaluate(`(() => {
+      const el = document.querySelector(${JSON.stringify(selector)});
+      if (!el) return null;
+      const r = el.getBoundingClientRect();
+      return { x: r.x, y: r.y, width: r.width, height: r.height };
+    })()`);
+  if (!rect)
+    return;
+  let centerX = rect.x + rect.width / 2, centerY = rect.y + rect.height / 2;
+  if (centerY < viewportHeight * 0.2 || centerY > viewportHeight * 0.8) {
+    let deltaY = centerY - viewportHeight / 2;
+    await humanizedScrollY(client, deltaY * 0.5, centerX, centerY, mouse), await gaussianDelay(300, 100, 150, 600);
+  }
+}
+async function humanizedClick(client, selector, mouse) {
+  if (await viewportComfortZone(client, selector, mouse), await gaussianDelay(25, 12, 0, 50), mouse?.isAvailable) {
+    let center2 = await getElementCenter(client, selector);
+    if (center2) {
+      if (Math.random() < 0.6) {
+        let angle = Math.random() * 2 * Math.PI, radius = randomBetween(20, 50), nearX = Math.round(center2.x + Math.cos(angle) * radius), nearY = Math.round(center2.y + Math.sin(angle) * radius);
+        await mouse.move(nearX, nearY), await gaussianDelay(180, 60, 80, 400);
+      }
+      await mouse.click(center2.x, center2.y), await gaussianDelay(100, 25, 50, 150);
+      return;
+    }
+  }
+  let center = await getElementCenter(client, selector);
+  if (center) {
+    let viewportSize = await client.evaluate("({ w: window.innerWidth, h: window.innerHeight })"), startX = Math.round(Math.random() * viewportSize.w), startY = Math.round(Math.random() * viewportSize.h), steps = Math.round(gaussianBetween(4, 0.7, 3, 5));
+    for (let i2 = 1; i2 <= steps; i2++) {
+      let t = i2 / steps, baseX = startX + (center.x - startX) * t, baseY = startY + (center.y - startY) * t, offsetX = i2 < steps ? Math.round(gaussianBetween(0, 10, -20, 20)) : 0, offsetY = i2 < steps ? Math.round(gaussianBetween(0, 10, -20, 20)) : 0;
+      await client.send("Input.dispatchMouseEvent", {
+        type: "mouseMoved",
+        x: Math.round(baseX) + offsetX,
+        y: Math.round(baseY) + offsetY
+      }), await gaussianDelay(25, 10, 10, 50);
+    }
+  }
+  await click(client, selector), await gaussianDelay(100, 25, 50, 150);
+}
+async function humanizedHover(client, selector, mouse) {
+  if (await gaussianDelay(25, 12, 0, 50), mouse?.isAvailable) {
+    let center = await getElementCenter(client, selector);
+    if (center) {
+      await mouse.move(center.x, center.y);
+      return;
+    }
+  }
+  await hover(client, selector);
+}
+async function humanizedScrollY(client, deltaY, x, y, mouse) {
+  if (mouse?.isAvailable) {
+    await mouse.scrollY(deltaY, x, y);
+    return;
+  }
+  await client.send("Input.dispatchMouseEvent", {
+    type: "mouseWheel",
+    x,
+    y,
+    deltaX: 0,
+    deltaY
+  });
+}
+async function retryInteraction(fn, maxAttempts = 2) {
+  for (let i2 = 0; i2 < maxAttempts; i2++)
+    try {
+      return await fn();
+    } catch (e) {
+      if (i2 === maxAttempts - 1)
+        throw e;
+      await gaussianDelay(800 * (i2 + 1), 300, 400, 2e3);
+    }
+  throw new Error("unreachable");
+}
+async function dispatchKey(client, key, code, windowsVirtualKeyCode) {
+  await client.send("Input.dispatchKeyEvent", {
+    type: "keyDown",
+    key,
+    code,
+    windowsVirtualKeyCode
+  }), await client.send("Input.dispatchKeyEvent", {
+    type: "keyUp",
+    key,
+    code,
+    windowsVirtualKeyCode
+  });
+}
+async function typeTextWithMentions(client, selector, text, mentions) {
+  if (mentions.length === 0) {
+    await typeText(client, selector, text);
+    return;
+  }
+  let mentionPositions = [], mentionCandidates = Array.from(new Map(mentions.map((mention) => [mention.name, { name: mention.name, token: `@${mention.name}` }])).values()).sort((a2, b) => b.token.length - a2.token.length), MENTION_BOUNDARY_RE = /[\p{L}\p{N}_-]/u, isMentionBoundary = (char) => char === void 0 || !MENTION_BOUNDARY_RE.test(char);
+  for (let index = 0; index < text.length; ) {
+    if (text[index] !== "@" || !isMentionBoundary(text[index - 1])) {
+      index += 1;
+      continue;
+    }
+    let matched = !1;
+    for (let candidate of mentionCandidates) {
+      if (!text.startsWith(candidate.token, index))
+        continue;
+      let end = index + candidate.token.length;
+      if (isMentionBoundary(text[end])) {
+        mentionPositions.push({ start: index, end, name: candidate.name }), index = end, matched = !0;
+        break;
+      }
+    }
+    matched || (index += 1);
+  }
+  if (mentionPositions.length === 0) {
+    await typeText(client, selector, text);
+    return;
+  }
+  let cursor = 0;
+  for (let mention of mentionPositions) {
+    if (mention.start > cursor)
+      await typeText(client, selector, text.slice(cursor, mention.start));
+    else if (cursor === 0 && !await client.evaluate(`(() => {
+          const el = document.querySelector(${JSON.stringify(selector)});
+          if (!el) return false;
+          el.focus();
+          return true;
+        })()`))
+      throw new CDPEvaluationError(`Element "${selector}" not found for typeTextWithMentions`);
+    await typeText(client, selector, "@"), await gaussianDelay(300, 50, 200, 500), await waitForElement(client, MENTION_TYPEAHEAD, { timeout: 1e4 }), await typeText(client, selector, mention.name), await gaussianDelay(500, 100, 300, 800), await waitForElement(client, MENTION_OPTION, { timeout: 1e4 });
+    let matchIndex = await client.evaluate(`(() => {
+        const options = document.querySelectorAll(${JSON.stringify(MENTION_OPTION)});
+        const target = ${JSON.stringify(mention.name)}.toLowerCase();
+        for (let i = 0; i < options.length; i++) {
+          const text = (options[i].textContent || '').trim().toLowerCase();
+          if (text.includes(target)) return i;
+        }
+        return -1;
+      })()`);
+    if (matchIndex === -1)
+      throw await dispatchKey(client, "Escape", "Escape", 27), new CDPEvaluationError(`Mention "${mention.name}" not found in typeahead results. The person may not be in your LinkedIn network.`);
+    for (let i2 = 0; i2 <= matchIndex; i2++)
+      await dispatchKey(client, "ArrowDown", "ArrowDown", 40), await gaussianDelay(80, 20, 40, 150);
+    await gaussianDelay(200, 50, 100, 350), await dispatchKey(client, "Enter", "Enter", 13), await gaussianDelay(500, 100, 300, 800), cursor = mention.end;
+  }
+  if (cursor < text.length) {
+    let remaining = text.slice(cursor);
+    await typeText(client, selector, remaining);
+  }
+}
+
+// packages/core/dist/operations/navigate-away.js
+var AWAY_URL = "https://www.linkedin.com/mynetwork/";
+async function navigateAwayIf(client, pathPrefix) {
+  (await client.evaluate("location.pathname")).includes(pathPrefix) && (await client.navigate(AWAY_URL), await gaussianDelay(1500, 500, 800, 3e3));
+}
+
+// packages/core/dist/operations/navigate-to-profile.js
+var LINKEDIN_PROFILE_RE = /^\/in\/([^/?#]+)/, LINKEDIN_COMPANY_RE = /^\/company\/([^/?#]+)/, PROFILE_READY_SELECTOR = [
+  'main button[aria-label^="Message"]',
+  'main button[aria-label^="Follow "]',
+  'main button[aria-label^="Following "]',
+  'main button[aria-label^="Connect"]',
+  'main button[aria-label^="Pending"]',
+  'main button[aria-label="More actions"]',
+  'main button[aria-label="More"]'
+].join(", ");
+function extractPublicId(url2) {
+  let parsed;
+  try {
+    parsed = new URL(url2);
+  } catch {
+    throw new Error(`Invalid LinkedIn profile URL: ${url2}. Expected format: https://www.linkedin.com/in/<public-id>`);
+  }
+  let host = parsed.hostname.toLowerCase();
+  if (!(host === "linkedin.com" || host.endsWith(".linkedin.com")))
+    throw new Error(`Invalid LinkedIn profile URL: ${url2}. Expected format: https://www.linkedin.com/in/<public-id>`);
+  let match = LINKEDIN_PROFILE_RE.exec(parsed.pathname);
+  if (!match?.[1])
+    throw new Error(`Invalid LinkedIn profile URL: ${url2}. Expected format: https://www.linkedin.com/in/<public-id>`);
+  try {
+    return decodeURIComponent(match[1]);
+  } catch {
+    throw new Error(`Invalid LinkedIn profile URL: ${url2}. Expected format: https://www.linkedin.com/in/<public-id>`);
+  }
+}
+function extractCompanyId(url2) {
+  let invalid = () => new Error(`Invalid LinkedIn company URL: ${url2}. Expected format: https://www.linkedin.com/company/<slug-or-id>`), parsed;
+  try {
+    parsed = new URL(url2);
+  } catch {
+    throw invalid();
+  }
+  let host = parsed.hostname.toLowerCase();
+  if (!(host === "linkedin.com" || host.endsWith(".linkedin.com")))
+    throw invalid();
+  let match = LINKEDIN_COMPANY_RE.exec(parsed.pathname);
+  if (!match?.[1])
+    throw invalid();
+  try {
+    return decodeURIComponent(match[1]);
+  } catch {
+    throw invalid();
+  }
+}
+function buildProfileUrl(publicId) {
+  return `https://www.linkedin.com/in/${encodeURIComponent(publicId)}/`;
+}
+function buildCompanyUrl(slug) {
+  return `https://www.linkedin.com/company/${encodeURIComponent(slug)}/`;
+}
+function extractFollowableTarget(url2) {
+  let expectedFormat = "Expected format: https://www.linkedin.com/in/<public-id> or https://www.linkedin.com/company/<slug>", parsed;
+  try {
+    parsed = new URL(url2);
+  } catch {
+    throw new Error(`Invalid LinkedIn profile or company URL: ${url2}. ${expectedFormat}`);
+  }
+  let host = parsed.hostname.toLowerCase();
+  if (!(host === "linkedin.com" || host.endsWith(".linkedin.com")))
+    throw new Error(`Invalid LinkedIn profile or company URL: ${url2}. ${expectedFormat}`);
+  let safeDecode3 = (segment) => {
+    try {
+      return decodeURIComponent(segment);
+    } catch {
+      throw new Error(`Invalid LinkedIn profile or company URL: ${url2}. ${expectedFormat}`);
+    }
+  }, profileMatch = LINKEDIN_PROFILE_RE.exec(parsed.pathname);
+  if (profileMatch?.[1])
+    return {
+      kind: "profile",
+      publicId: safeDecode3(profileMatch[1])
+    };
+  let companyMatch = LINKEDIN_COMPANY_RE.exec(parsed.pathname);
+  if (companyMatch?.[1])
+    return {
+      kind: "company",
+      slug: safeDecode3(companyMatch[1])
+    };
+  throw new Error(`Invalid LinkedIn profile or company URL: ${url2}. ${expectedFormat}`);
+}
+async function navigateToProfile(client, publicId, mouse) {
+  await navigateAwayIf(client, "/in/"), await client.navigate(buildProfileUrl(publicId));
+  try {
+    await waitForElement(client, PROFILE_READY_SELECTOR, { timeout: 3e4 }, mouse);
+  } catch (error51) {
+    throw error51 instanceof CDPTimeoutError && await captureProfileLoadFailure(client, publicId), error51;
+  }
+  await gaussianDelay(800, 200, 500, 1500), await maybeHesitate();
+}
+async function navigateToCompany(client, slug, mouse) {
+  await navigateAwayIf(client, "/company/"), await client.navigate(buildCompanyUrl(slug));
+  try {
+    await waitForElement(client, PROFILE_READY_SELECTOR, { timeout: 3e4 }, mouse);
+  } catch (error51) {
+    throw error51 instanceof CDPTimeoutError && await captureCompanyLoadFailure(client, slug), error51;
+  }
+  await gaussianDelay(800, 200, 500, 1500), await maybeHesitate();
+}
+function sanitizeForFilename(value) {
+  let safe = value.replace(/[^a-zA-Z0-9._-]/g, "_").slice(0, 120);
+  return safe.length > 0 ? safe : "unknown";
+}
+var DIAGNOSTIC_CAPTURE_TIMEOUT_MS2 = 1e4;
+async function captureProfileLoadFailure(client, publicId) {
+  await captureNavigationLoadFailure(client, publicId, "profile");
+}
+async function captureCompanyLoadFailure(client, slug) {
+  await captureNavigationLoadFailure(client, slug, "company");
+}
+async function captureNavigationLoadFailure(client, slug, kind) {
+  if (process.env.LHREMOTE_CAPTURE_DIAGNOSTICS !== "1")
+    return;
+  let state = { timedOut: !1 }, bound;
+  try {
+    await Promise.race([
+      // Attach a no-op catch to the inner promise so a late rejection
+      // (after the timer wins the race) does not escape as an
+      // UnhandledPromiseRejection — capture-side errors must always be
+      // swallowed to keep the caller's timeout propagating unchanged.
+      // Mirrors the same mitigation in wait-for-post-load.ts.
+      captureNavigationLoadFailureInner(client, slug, kind, state).catch(() => {
+      }),
+      new Promise((resolve) => {
+        bound = setTimeout(() => {
+          state.timedOut = !0, resolve();
+        }, DIAGNOSTIC_CAPTURE_TIMEOUT_MS2);
+      })
+    ]);
+  } catch {
+  } finally {
+    bound !== void 0 && clearTimeout(bound);
+  }
+}
+async function captureNavigationLoadFailureInner(client, slug, kind, state) {
+  let timestamp = (/* @__PURE__ */ new Date()).toISOString().replace(/[:.]/g, "-"), baseDir = await mkdtemp2(join4(tmpdir2(), "lhremote-diagnostics-"));
+  if (state.timedOut || !await ensureSecureDiagnosticDir(baseDir) || state.timedOut)
+    return;
+  let prefix = join4(baseDir, `navigate-to-${kind}-${timestamp}-${sanitizeForFilename(slug)}`), info = await client.evaluate(`(() => ({
+    href: location.href,
+    title: document.title,
+    hasMain: document.querySelector("main") !== null,
+    hasH1: document.querySelector("h1") !== null,
+    hasMainH1: document.querySelector("main h1") !== null,
+    bodyTextSnippet: (document.body ? document.body.innerText : "").slice(0, 800),
+  }))()`);
+  if (state.timedOut)
+    return;
+  let callerLabel = kind === "profile" ? "navigateToProfile" : "navigateToCompany";
+  if (await writeFile2(`${prefix}.json`, JSON.stringify(info, null, 2), {
+    encoding: "utf8",
+    mode: 384
+  }), state.timedOut) {
+    console.warn(`[${callerLabel}] timeout diagnostics partial: ${prefix}.json (screenshot skipped \u2014 capture cap reached)`);
+    return;
+  }
+  let wroteScreenshot = !1;
+  try {
+    let screenshot = await client.send("Page.captureScreenshot", {
+      format: "png",
+      captureBeyondViewport: !0
+    });
+    !state.timedOut && screenshot.data && (await writeFile2(`${prefix}.png`, Buffer.from(screenshot.data, "base64"), {
+      mode: 384
+    }), wroteScreenshot = !0);
+  } catch {
+  }
+  console.warn(`[${callerLabel}] timeout diagnostics written: ${prefix}.${wroteScreenshot ? "{json,png}" : "json"}`);
+}
+
+// packages/core/dist/operations/import-people-from-urls.js
+var IMPORT_CHUNK_SIZE = 200;
+async function importPeopleFromUrls(input) {
+  let cdpPort = input.cdpPort, accountId = await resolveAccount(cdpPort, buildCdpOptions(input));
+  return withInstanceDatabase(cdpPort, accountId, async ({ instance, db }) => {
+    let campaignService = new CampaignService(instance, db), actionId = 0, imported = 0, alreadyInQueue = 0, alreadyProcessed = 0, failed = 0;
+    for (let i2 = 0; i2 < input.linkedInUrls.length; i2 += IMPORT_CHUNK_SIZE) {
+      let chunk = input.linkedInUrls.slice(i2, i2 + IMPORT_CHUNK_SIZE), result = await campaignService.importPeopleFromUrls(input.campaignId, chunk);
+      actionId = result.actionId, imported += result.successful, alreadyInQueue += result.alreadyInQueue, alreadyProcessed += result.alreadyProcessed, failed += result.failed;
+    }
+    return {
+      success: !0,
+      campaignId: input.campaignId,
+      actionId,
+      totalUrls: input.linkedInUrls.length,
+      imported,
+      alreadyInQueue,
+      alreadyProcessed,
+      failed
+    };
+  });
+}
+
 // packages/core/dist/operations/campaign-list-people.js
 async function campaignListPeople(input) {
-  let cdpPort = input.cdpPort, limit = input.limit ?? 20, offset = input.offset ?? 0, accountId = await resolveAccount(cdpPort, buildCdpOptions(input));
+  let cdpPort = input.cdpPort, linkedInUrls = input.linkedInUrls, urlByPublicId = /* @__PURE__ */ new Map();
+  if (linkedInUrls !== void 0)
+    for (let url2 of linkedInUrls)
+      urlByPublicId.set(extractPublicId(url2), url2);
+  let publicIds = linkedInUrls !== void 0 ? [...urlByPublicId.keys()] : void 0, limit = input.limit ?? (publicIds !== void 0 ? Math.min(Math.max(publicIds.length, 1), IMPORT_CHUNK_SIZE) : 20), offset = input.offset ?? 0, accountId = await resolveAccount(cdpPort, buildCdpOptions(input));
   return withDatabase(accountId, ({ db }) => {
     let result = new CampaignRepository(db).listPeople(input.campaignId, {
       ...input.actionId !== void 0 && { actionId: input.actionId },
       ...input.status !== void 0 && { status: input.status },
+      ...publicIds !== void 0 && { publicIds },
       limit,
       offset
-    });
-    return {
+    }), output = {
       campaignId: input.campaignId,
       people: result.people,
       total: result.total,
       limit,
       offset
+    };
+    if (linkedInUrls === void 0)
+      return output;
+    let foundPublicIds = new Set(result.people.map((p) => p.publicId).filter((id) => id !== null)), notFoundLinkedInUrls = [...urlByPublicId.entries()].filter(([publicId]) => !foundPublicIds.has(publicId)).map(([, url2]) => url2);
+    return { ...output, notFoundLinkedInUrls };
+  });
+}
+
+// packages/core/dist/operations/campaign-list-organizations.js
+async function campaignListOrganizations(input) {
+  let cdpPort = input.cdpPort, companyUrls = input.companyUrls, urlByCompanyId = /* @__PURE__ */ new Map();
+  if (companyUrls !== void 0)
+    for (let url2 of companyUrls)
+      urlByCompanyId.set(extractCompanyId(url2).toUpperCase(), url2);
+  let companyIds = companyUrls !== void 0 ? [...urlByCompanyId.keys()] : void 0, limit = input.limit ?? (companyIds !== void 0 ? Math.min(Math.max(companyIds.length, 1), IMPORT_CHUNK_SIZE) : 20), offset = input.offset ?? 0, accountId = await resolveAccount(cdpPort, buildCdpOptions(input));
+  return withDatabase(accountId, ({ db }) => {
+    let result = new CampaignRepository(db).listOrganizations(input.campaignId, {
+      ...input.actionId !== void 0 && { actionId: input.actionId },
+      ...input.status !== void 0 && { status: input.status },
+      ...companyIds !== void 0 && { companyIds },
+      limit,
+      offset
+    }), output = {
+      campaignId: input.campaignId,
+      organizations: result.organizations,
+      total: result.total,
+      limit,
+      offset
+    };
+    if (companyUrls === void 0)
+      return output;
+    let foundIds = /* @__PURE__ */ new Set();
+    for (let org of result.organizations)
+      org.publicId !== null && foundIds.add(org.publicId.toUpperCase()), org.companyId !== null && foundIds.add(org.companyId.toUpperCase());
+    let notFoundCompanyUrls = [...urlByCompanyId.entries()].filter(([companyId]) => !foundIds.has(companyId)).map(([, url2]) => url2);
+    return { ...output, notFoundCompanyUrls };
+  });
+}
+
+// packages/core/dist/operations/import-organizations-from-urls.js
+async function importOrganizationsFromUrls(input) {
+  let cdpPort = input.cdpPort, accountId = await resolveAccount(cdpPort, buildCdpOptions(input));
+  return withInstanceDatabase(cdpPort, accountId, async ({ instance, db }) => {
+    let campaignService = new CampaignService(instance, db), actionId = 0, imported = 0, alreadyInQueue = 0, alreadyProcessed = 0, inExcludeList = 0, failed = 0;
+    for (let i2 = 0; i2 < input.companyUrls.length; i2 += IMPORT_CHUNK_SIZE) {
+      let chunk = input.companyUrls.slice(i2, i2 + IMPORT_CHUNK_SIZE), result = await campaignService.importOrganizationsFromUrls(input.campaignId, chunk);
+      actionId = result.actionId, imported += result.successful, alreadyInQueue += result.alreadyInQueue, alreadyProcessed += result.alreadyProcessed, inExcludeList += result.inExcludeList, failed += result.failed;
+    }
+    return {
+      success: !0,
+      campaignId: input.campaignId,
+      actionId,
+      totalUrls: input.companyUrls.length,
+      imported,
+      alreadyInQueue,
+      alreadyProcessed,
+      inExcludeList,
+      failed
     };
   });
 }
@@ -25837,7 +26889,7 @@ async function checkReplies(input) {
 }
 
 // packages/core/dist/operations/wait-for-logged-in-state.js
-var DEFAULT_TIMEOUT3 = 6e4, DEFAULT_POLL_INTERVAL2 = 500, LOGGED_IN_PATH_PREFIXES = [
+var DEFAULT_TIMEOUT4 = 6e4, DEFAULT_POLL_INTERVAL3 = 500, LOGGED_IN_PATH_PREFIXES = [
   "/feed",
   "/in/",
   "/mynetwork",
@@ -25868,7 +26920,7 @@ var DEFAULT_TIMEOUT3 = 6e4, DEFAULT_POLL_INTERVAL2 = 500, LOGGED_IN_PATH_PREFIXE
   return { ok: true, hostname: location.hostname, pathname: location.pathname };
 })()`;
 async function waitForLoggedInState(instance, opts = {}) {
-  let timeout2 = opts.timeout ?? DEFAULT_TIMEOUT3, pollInterval = opts.pollInterval ?? DEFAULT_POLL_INTERVAL2, start = Date.now(), deadline = start + timeout2, lastReason = "no-probe-yet";
+  let timeout2 = opts.timeout ?? DEFAULT_TIMEOUT4, pollInterval = opts.pollInterval ?? DEFAULT_POLL_INTERVAL3, start = Date.now(), deadline = start + timeout2, lastReason = "no-probe-yet";
   for (; Date.now() < deadline; ) {
     let probe;
     try {
@@ -25977,29 +27029,6 @@ async function scrapeMessagingHistory(input) {
   }, { instanceTimeout: CAMPAIGN_TIMEOUT2, db: { readOnly: !1 } });
 }
 
-// packages/core/dist/operations/import-people-from-urls.js
-var IMPORT_CHUNK_SIZE = 200;
-async function importPeopleFromUrls(input) {
-  let cdpPort = input.cdpPort, accountId = await resolveAccount(cdpPort, buildCdpOptions(input));
-  return withInstanceDatabase(cdpPort, accountId, async ({ instance, db }) => {
-    let campaignService = new CampaignService(instance, db), actionId = 0, imported = 0, alreadyInQueue = 0, alreadyProcessed = 0, failed = 0;
-    for (let i2 = 0; i2 < input.linkedInUrls.length; i2 += IMPORT_CHUNK_SIZE) {
-      let chunk = input.linkedInUrls.slice(i2, i2 + IMPORT_CHUNK_SIZE), result = await campaignService.importPeopleFromUrls(input.campaignId, chunk);
-      actionId = result.actionId, imported += result.successful, alreadyInQueue += result.alreadyInQueue, alreadyProcessed += result.alreadyProcessed, failed += result.failed;
-    }
-    return {
-      success: !0,
-      campaignId: input.campaignId,
-      actionId,
-      totalUrls: input.linkedInUrls.length,
-      imported,
-      alreadyInQueue,
-      alreadyProcessed,
-      failed
-    };
-  });
-}
-
 // packages/core/dist/operations/campaign-remove-people.js
 async function campaignRemovePeople(input) {
   let cdpPort = input.cdpPort, accountId = await resolveAccount(cdpPort, buildCdpOptions(input));
@@ -26015,7 +27044,7 @@ async function campaignRemovePeople(input) {
 }
 
 // packages/core/dist/operations/monitor-collecting-saga.js
-var DEFAULT_TIMEOUT4 = 6e5, DEFAULT_POLL_INTERVAL3 = 5e3, RECOVERABLE_POPUP_PATTERNS = [
+var DEFAULT_TIMEOUT5 = 6e5, DEFAULT_POLL_INTERVAL4 = 5e3, RECOVERABLE_POPUP_PATTERNS = [
   /IncorrectContentStateError/i,
   /Incorrect web-page state/i,
   /li-logged-in-loading/i
@@ -26044,7 +27073,7 @@ var IS_COLLECTING_SCRIPT = `(async () => {
   }
 };
 async function monitorCollectingSaga(instance, opts = {}) {
-  let timeout2 = opts.timeout ?? DEFAULT_TIMEOUT4, pollInterval = opts.pollInterval ?? DEFAULT_POLL_INTERVAL3, allowImmediateIdle = opts.allowImmediateIdle ?? !0, start = Date.now(), deadline = start + timeout2, recoveryEvents = 0, popupsDismissed = 0, unrecoverablePopups = [], seenUnrecoverableTitles = /* @__PURE__ */ new Set(), everSawCollecting = !1;
+  let timeout2 = opts.timeout ?? DEFAULT_TIMEOUT5, pollInterval = opts.pollInterval ?? DEFAULT_POLL_INTERVAL4, allowImmediateIdle = opts.allowImmediateIdle ?? !0, start = Date.now(), deadline = start + timeout2, recoveryEvents = 0, popupsDismissed = 0, unrecoverablePopups = [], seenUnrecoverableTitles = /* @__PURE__ */ new Set(), everSawCollecting = !1;
   for (; Date.now() < deadline; ) {
     let probe = await instance.evaluateUI(IS_COLLECTING_SCRIPT);
     if (probe.error === void 0) {
@@ -26219,378 +27248,6 @@ async function importPeopleFromCollection(input) {
   });
 }
 
-// packages/core/dist/linkedin/selectors.js
-var COMMENT_INPUT = '[role="textbox"][aria-label^="Text editor for creating"]', REACTION_TRIGGER = 'button[aria-label^="Reaction button state"], button.react-button__trigger', REACTION_LIKE = 'button[aria-label="Like"], button[aria-label="React Like"]', REACTION_CELEBRATE = 'button[aria-label="Celebrate"], button[aria-label="React Celebrate"]', REACTION_SUPPORT = 'button[aria-label="Support"], button[aria-label="React Support"]', REACTION_LOVE = 'button[aria-label="Love"], button[aria-label="React Love"]', REACTION_INSIGHTFUL = 'button[aria-label="Insightful"], button[aria-label="React Insightful"]', REACTION_FUNNY = 'button[aria-label="Funny"], button[aria-label="React Funny"]', COMMENT_REPLY_BUTTON = 'button[aria-label^="Reply to "]';
-var COMMENT_REACTIONS_MENU = 'button[aria-label="Open reactions menu"]';
-var COMMENT_ARTICLE_ANY = '[componentkey^="replaceableComment_"]';
-function commentArticleSelectorByUrn(urn) {
-  return `[componentkey="replaceableComment_${urn}"]`;
-}
-function normalizeCommentUrnForReactStack(urn) {
-  let legacy = /^urn:li:comment:\((\w+):(\d+),(\d+)\)$/.exec(urn);
-  if (legacy) {
-    let type = legacy[1], postId = legacy[2], commentId = legacy[3];
-    return `urn:li:comment:(urn:li:${type}:${postId},${commentId})`;
-  }
-  return urn;
-}
-function denormalizeCommentUrnToLegacy(urn) {
-  let sdui = /^urn:li:comment:\(urn:li:(\w+):(\d+),(\d+)\)$/.exec(urn);
-  if (sdui) {
-    let type = sdui[1], postId = sdui[2], commentId = sdui[3];
-    return `urn:li:comment:(${type}:${postId},${commentId})`;
-  }
-  return urn;
-}
-var MENTION_TYPEAHEAD = '.editor-typeahead-fetch .basic-typeahead__triggered-content[role="listbox"]', MENTION_OPTION = '.basic-typeahead__selectable.editor-typeahead__typeahead-item[role="option"]', COMMENT_SUBMIT_BUTTON = 'button[type="submit"], button[class*="comments-comment-box__submit-button"]';
-
-// packages/core/dist/linkedin/dom-automation.js
-var DEFAULT_TIMEOUT5 = 3e4, DEFAULT_POLL_INTERVAL4 = 100, MICRO_HESITATION_PROBABILITY = 0.05;
-function getKeyCodeInfo(char) {
-  let lower = char.toLowerCase();
-  if (lower >= "a" && lower <= "z") {
-    let vk = 65 + lower.charCodeAt(0) - 97;
-    return { code: `Key${lower.toUpperCase()}`, windowsVirtualKeyCode: vk };
-  }
-  if (char >= "0" && char <= "9") {
-    let vk = 48 + char.charCodeAt(0) - 48;
-    return { code: `Digit${char}`, windowsVirtualKeyCode: vk };
-  }
-  return {
-    " ": { code: "Space", windowsVirtualKeyCode: 32 },
-    "\n": { code: "Enter", windowsVirtualKeyCode: 13 },
-    "\r": { code: "Enter", windowsVirtualKeyCode: 13 },
-    "	": { code: "Tab", windowsVirtualKeyCode: 9 },
-    "-": { code: "Minus", windowsVirtualKeyCode: 189 },
-    "=": { code: "Equal", windowsVirtualKeyCode: 187 },
-    "[": { code: "BracketLeft", windowsVirtualKeyCode: 219 },
-    "]": { code: "BracketRight", windowsVirtualKeyCode: 221 },
-    "\\": { code: "Backslash", windowsVirtualKeyCode: 220 },
-    ";": { code: "Semicolon", windowsVirtualKeyCode: 186 },
-    "'": { code: "Quote", windowsVirtualKeyCode: 222 },
-    ",": { code: "Comma", windowsVirtualKeyCode: 188 },
-    ".": { code: "Period", windowsVirtualKeyCode: 190 },
-    "/": { code: "Slash", windowsVirtualKeyCode: 191 },
-    "`": { code: "Backquote", windowsVirtualKeyCode: 192 }
-  }[char];
-}
-async function waitForElement(client, selector, options, mouse) {
-  let timeout2 = options?.timeout ?? DEFAULT_TIMEOUT5, pollInterval = options?.pollInterval ?? DEFAULT_POLL_INTERVAL4, deadline = Date.now() + timeout2, startTime = Date.now(), driftX = -1, driftY = -1, viewportW = 0, viewportH = 0;
-  for (; Date.now() < deadline; ) {
-    if (await client.evaluate(`document.querySelector(${JSON.stringify(selector)}) !== null`))
-      return;
-    if (mouse?.isAvailable && Date.now() - startTime > 500 && Math.random() < 0.2) {
-      if (driftX < 0) {
-        try {
-          let pos = await mouse.position();
-          driftX = pos.x, driftY = pos.y;
-        } catch {
-        }
-        let size = await client.evaluate("({ w: window.innerWidth, h: window.innerHeight })");
-        viewportW = size.w, viewportH = size.h, driftX < 0 && (driftX = Math.round(viewportW / 2), driftY = Math.round(viewportH / 2));
-      }
-      let magX = Math.round(randomBetween(1, 5)), magY = Math.round(randomBetween(1, 5)), offsetX = (Math.random() < 0.5 ? -1 : 1) * magX, offsetY = (Math.random() < 0.5 ? -1 : 1) * magY;
-      driftX = Math.max(0, Math.min(viewportW - 1, driftX + offsetX)), driftY = Math.max(0, Math.min(viewportH - 1, driftY + offsetY)), await mouse.move(driftX, driftY);
-    }
-    await delay(pollInterval);
-  }
-  throw new CDPTimeoutError(`Timed out waiting for element "${selector}" after ${timeout2.toString()}ms`);
-}
-async function waitForDOMStable(client, quietMs = 500) {
-  await client.evaluate(`(() => {
-      window.__lhLastMutation = Date.now();
-      const observer = new MutationObserver(() => {
-        window.__lhLastMutation = Date.now();
-      });
-      observer.observe(document.body, {
-        childList: true,
-        subtree: true,
-        attributes: true,
-        characterData: true,
-      });
-      window.__lhDOMObserver = observer;
-    })()`);
-  let pollInterval = 100, deadline = Date.now() + 3e4;
-  for (; Date.now() < deadline && !(await client.evaluate("Date.now() - (window.__lhLastMutation || 0)") >= quietMs); )
-    await delay(pollInterval);
-  await client.evaluate(`(() => {
-      if (window.__lhDOMObserver) {
-        window.__lhDOMObserver.disconnect();
-        delete window.__lhDOMObserver;
-        delete window.__lhLastMutation;
-      }
-    })()`), await gaussianDelay(1200, 400, 600, 2500);
-}
-async function scrollTo(client, selector) {
-  if (!await client.evaluate(`(() => {
-      const el = document.querySelector(${JSON.stringify(selector)});
-      if (!el) return false;
-      el.scrollIntoView({ behavior: "instant", block: "center" });
-      return true;
-    })()`))
-    throw new CDPEvaluationError(`Element "${selector}" not found for scrollTo`);
-}
-async function hover(client, selector) {
-  let center = await client.evaluate(`(() => {
-      const el = document.querySelector(${JSON.stringify(selector)});
-      if (!el) return null;
-      el.scrollIntoView({ block: "center", behavior: "instant" });
-      const r = el.getBoundingClientRect();
-      return { x: Math.round(r.x + r.width / 2), y: Math.round(r.y + r.height / 2) };
-    })()`);
-  if (!center)
-    throw new CDPEvaluationError(`Element "${selector}" not found for hover`);
-  await client.send("Input.dispatchMouseEvent", {
-    type: "mouseMoved",
-    x: center.x,
-    y: center.y
-  });
-}
-async function click(client, selector) {
-  if (!await client.evaluate(`(() => {
-      const el = document.querySelector(${JSON.stringify(selector)});
-      if (!el) return false;
-      el.click();
-      return true;
-    })()`))
-    throw new CDPEvaluationError(`Element "${selector}" not found for click`);
-}
-async function typeText(client, selector, text, method = "type") {
-  if (!await client.evaluate(`(() => {
-      const el = document.querySelector(${JSON.stringify(selector)});
-      if (!el) return false;
-      el.focus();
-      return true;
-    })()`))
-    throw new CDPEvaluationError(`Element "${selector}" not found for typeText`);
-  switch (method) {
-    case "type": {
-      let previousChar = "";
-      for (let char of text) {
-        let kc = getKeyCodeInfo(char);
-        await client.send("Input.dispatchKeyEvent", {
-          type: "keyDown",
-          key: char,
-          text: char,
-          ...kc && { code: kc.code, windowsVirtualKeyCode: kc.windowsVirtualKeyCode }
-        }), await client.send("Input.dispatchKeyEvent", {
-          type: "keyUp",
-          key: char,
-          ...kc && { code: kc.code, windowsVirtualKeyCode: kc.windowsVirtualKeyCode }
-        }), char === `
-` ? await gaussianDelay(700, 300, 300, 1500) : char === " " && /[.!?]/.test(previousChar) ? await gaussianDelay(350, 120, 150, 800) : char === " " ? await gaussianDelay(180, 50, 100, 350) : await gaussianDelay(65, 20, 30, 120), Math.random() < MICRO_HESITATION_PROBABILITY && await gaussianDelay(300, 100, 150, 600), previousChar = char;
-      }
-      break;
-    }
-  }
-}
-async function getElementBounds(client, selector) {
-  return client.evaluate(`(() => {
-      const el = document.querySelector(${JSON.stringify(selector)});
-      if (!el) return null;
-      const r = el.getBoundingClientRect();
-      return { top: r.top, bottom: r.bottom, height: r.height };
-    })()`);
-}
-async function getElementBoundsByIndex(client, baseSelector, index) {
-  return client.evaluate(`(() => {
-      const els = document.querySelectorAll(${JSON.stringify(baseSelector)});
-      const el = els[${String(index)}];
-      if (!el) return null;
-      const r = el.getBoundingClientRect();
-      return { top: r.top, bottom: r.bottom, height: r.height };
-    })()`);
-}
-async function getViewportHeight(client) {
-  return client.evaluate("window.innerHeight");
-}
-async function scrollToElementLoop(client, getBounds, mouse) {
-  let viewportHeight = await getViewportHeight(client), maxIterations = 10, tolerance = viewportHeight / 4;
-  for (let i2 = 0; i2 < maxIterations; i2++) {
-    let bounds = await getBounds();
-    if (!bounds)
-      return !1;
-    let elementCenter = bounds.top + bounds.height / 2, viewportCenter = viewportHeight / 2;
-    if (Math.abs(elementCenter - viewportCenter) <= tolerance)
-      return !0;
-    let deltaY = elementCenter - viewportCenter;
-    await humanizedScrollY(client, deltaY, 300, 400, mouse), await gaussianDelay(300, 50, 200, 400);
-  }
-  return !1;
-}
-async function humanizedScrollTo(client, selector, mouse) {
-  mouse?.isAvailable && await scrollToElementLoop(client, () => getElementBounds(client, selector), mouse) || await scrollTo(client, selector);
-}
-async function humanizedScrollToByIndex(client, baseSelector, index, mouse) {
-  mouse?.isAvailable && await scrollToElementLoop(client, () => getElementBoundsByIndex(client, baseSelector, index), mouse) || await client.evaluate(`(() => {
-      const els = document.querySelectorAll(${JSON.stringify(baseSelector)});
-      const el = els[${String(index)}];
-      if (el) el.scrollIntoView({ behavior: "instant", block: "center" });
-    })()`);
-}
-async function getElementCenter(client, selector) {
-  let rect = await client.evaluate(`(() => {
-      const el = document.querySelector(${JSON.stringify(selector)});
-      if (!el) return null;
-      const r = el.getBoundingClientRect();
-      return { x: r.x, y: r.y, width: r.width, height: r.height };
-    })()`);
-  if (!rect)
-    return null;
-  let cx = rect.x + rect.width / 2, cy = rect.y + rect.height / 2, jx = cx + gaussianBetween(0, rect.width * 0.15, -rect.width * 0.4, rect.width * 0.4), jy = cy + gaussianBetween(0, rect.height * 0.15, -rect.height * 0.4, rect.height * 0.4), roundedJx = Math.round(jx), roundedJy = Math.round(jy), maxX = rect.width >= 1 ? rect.x + rect.width - 1 : rect.x, maxY = rect.height >= 1 ? rect.y + rect.height - 1 : rect.y;
-  return {
-    x: Math.max(rect.x, Math.min(maxX, roundedJx)),
-    y: Math.max(rect.y, Math.min(maxY, roundedJy))
-  };
-}
-async function viewportComfortZone(client, selector, mouse) {
-  let viewportHeight = await getViewportHeight(client), rect = await client.evaluate(`(() => {
-      const el = document.querySelector(${JSON.stringify(selector)});
-      if (!el) return null;
-      const r = el.getBoundingClientRect();
-      return { x: r.x, y: r.y, width: r.width, height: r.height };
-    })()`);
-  if (!rect)
-    return;
-  let centerX = rect.x + rect.width / 2, centerY = rect.y + rect.height / 2;
-  if (centerY < viewportHeight * 0.2 || centerY > viewportHeight * 0.8) {
-    let deltaY = centerY - viewportHeight / 2;
-    await humanizedScrollY(client, deltaY * 0.5, centerX, centerY, mouse), await gaussianDelay(300, 100, 150, 600);
-  }
-}
-async function humanizedClick(client, selector, mouse) {
-  if (await viewportComfortZone(client, selector, mouse), await gaussianDelay(25, 12, 0, 50), mouse?.isAvailable) {
-    let center2 = await getElementCenter(client, selector);
-    if (center2) {
-      if (Math.random() < 0.6) {
-        let angle = Math.random() * 2 * Math.PI, radius = randomBetween(20, 50), nearX = Math.round(center2.x + Math.cos(angle) * radius), nearY = Math.round(center2.y + Math.sin(angle) * radius);
-        await mouse.move(nearX, nearY), await gaussianDelay(180, 60, 80, 400);
-      }
-      await mouse.click(center2.x, center2.y), await gaussianDelay(100, 25, 50, 150);
-      return;
-    }
-  }
-  let center = await getElementCenter(client, selector);
-  if (center) {
-    let viewportSize = await client.evaluate("({ w: window.innerWidth, h: window.innerHeight })"), startX = Math.round(Math.random() * viewportSize.w), startY = Math.round(Math.random() * viewportSize.h), steps = Math.round(gaussianBetween(4, 0.7, 3, 5));
-    for (let i2 = 1; i2 <= steps; i2++) {
-      let t = i2 / steps, baseX = startX + (center.x - startX) * t, baseY = startY + (center.y - startY) * t, offsetX = i2 < steps ? Math.round(gaussianBetween(0, 10, -20, 20)) : 0, offsetY = i2 < steps ? Math.round(gaussianBetween(0, 10, -20, 20)) : 0;
-      await client.send("Input.dispatchMouseEvent", {
-        type: "mouseMoved",
-        x: Math.round(baseX) + offsetX,
-        y: Math.round(baseY) + offsetY
-      }), await gaussianDelay(25, 10, 10, 50);
-    }
-  }
-  await click(client, selector), await gaussianDelay(100, 25, 50, 150);
-}
-async function humanizedHover(client, selector, mouse) {
-  if (await gaussianDelay(25, 12, 0, 50), mouse?.isAvailable) {
-    let center = await getElementCenter(client, selector);
-    if (center) {
-      await mouse.move(center.x, center.y);
-      return;
-    }
-  }
-  await hover(client, selector);
-}
-async function humanizedScrollY(client, deltaY, x, y, mouse) {
-  if (mouse?.isAvailable) {
-    await mouse.scrollY(deltaY, x, y);
-    return;
-  }
-  await client.send("Input.dispatchMouseEvent", {
-    type: "mouseWheel",
-    x,
-    y,
-    deltaX: 0,
-    deltaY
-  });
-}
-async function retryInteraction(fn, maxAttempts = 2) {
-  for (let i2 = 0; i2 < maxAttempts; i2++)
-    try {
-      return await fn();
-    } catch (e) {
-      if (i2 === maxAttempts - 1)
-        throw e;
-      await gaussianDelay(800 * (i2 + 1), 300, 400, 2e3);
-    }
-  throw new Error("unreachable");
-}
-async function dispatchKey(client, key, code, windowsVirtualKeyCode) {
-  await client.send("Input.dispatchKeyEvent", {
-    type: "keyDown",
-    key,
-    code,
-    windowsVirtualKeyCode
-  }), await client.send("Input.dispatchKeyEvent", {
-    type: "keyUp",
-    key,
-    code,
-    windowsVirtualKeyCode
-  });
-}
-async function typeTextWithMentions(client, selector, text, mentions) {
-  if (mentions.length === 0) {
-    await typeText(client, selector, text);
-    return;
-  }
-  let mentionPositions = [], mentionCandidates = Array.from(new Map(mentions.map((mention) => [mention.name, { name: mention.name, token: `@${mention.name}` }])).values()).sort((a2, b) => b.token.length - a2.token.length), MENTION_BOUNDARY_RE = /[\p{L}\p{N}_-]/u, isMentionBoundary = (char) => char === void 0 || !MENTION_BOUNDARY_RE.test(char);
-  for (let index = 0; index < text.length; ) {
-    if (text[index] !== "@" || !isMentionBoundary(text[index - 1])) {
-      index += 1;
-      continue;
-    }
-    let matched = !1;
-    for (let candidate of mentionCandidates) {
-      if (!text.startsWith(candidate.token, index))
-        continue;
-      let end = index + candidate.token.length;
-      if (isMentionBoundary(text[end])) {
-        mentionPositions.push({ start: index, end, name: candidate.name }), index = end, matched = !0;
-        break;
-      }
-    }
-    matched || (index += 1);
-  }
-  if (mentionPositions.length === 0) {
-    await typeText(client, selector, text);
-    return;
-  }
-  let cursor = 0;
-  for (let mention of mentionPositions) {
-    if (mention.start > cursor)
-      await typeText(client, selector, text.slice(cursor, mention.start));
-    else if (cursor === 0 && !await client.evaluate(`(() => {
-          const el = document.querySelector(${JSON.stringify(selector)});
-          if (!el) return false;
-          el.focus();
-          return true;
-        })()`))
-      throw new CDPEvaluationError(`Element "${selector}" not found for typeTextWithMentions`);
-    await typeText(client, selector, "@"), await gaussianDelay(300, 50, 200, 500), await waitForElement(client, MENTION_TYPEAHEAD, { timeout: 1e4 }), await typeText(client, selector, mention.name), await gaussianDelay(500, 100, 300, 800), await waitForElement(client, MENTION_OPTION, { timeout: 1e4 });
-    let matchIndex = await client.evaluate(`(() => {
-        const options = document.querySelectorAll(${JSON.stringify(MENTION_OPTION)});
-        const target = ${JSON.stringify(mention.name)}.toLowerCase();
-        for (let i = 0; i < options.length; i++) {
-          const text = (options[i].textContent || '').trim().toLowerCase();
-          if (text.includes(target)) return i;
-        }
-        return -1;
-      })()`);
-    if (matchIndex === -1)
-      throw await dispatchKey(client, "Escape", "Escape", 27), new CDPEvaluationError(`Mention "${mention.name}" not found in typeahead results. The person may not be in your LinkedIn network.`);
-    for (let i2 = 0; i2 <= matchIndex; i2++)
-      await dispatchKey(client, "ArrowDown", "ArrowDown", 40), await gaussianDelay(80, 20, 40, 150);
-    await gaussianDelay(200, 50, 100, 350), await dispatchKey(client, "Enter", "Enter", 13), await gaussianDelay(500, 100, 300, 800), cursor = mention.end;
-  }
-  if (cursor < text.length) {
-    let remaining = text.slice(cursor);
-    await typeText(client, selector, remaining);
-  }
-}
-
 // packages/core/dist/operations/comment-on-post.js
 var LINKEDIN_POST_URL_RE = /linkedin\.com\/(?:feed\/update\/urn:li:\w+:\d+|posts\/[^/]+)/, COMMENT_URN_RE = /^urn:li:comment:\((?:urn:li:)?\w+:\d+,\d+\)$/, POST_COMMENT_LIMIT_TYPE_ID = 19;
 async function commentOnPost(input) {
@@ -26649,12 +27306,6 @@ async function commentOnPost(input) {
   } finally {
     client.disconnect();
   }
-}
-
-// packages/core/dist/operations/navigate-away.js
-var AWAY_URL = "https://www.linkedin.com/mynetwork/";
-async function navigateAwayIf(client, pathPrefix) {
-  (await client.evaluate("location.pathname")).includes(pathPrefix) && (await client.navigate(AWAY_URL), await gaussianDelay(1500, 500, 800, 3e3));
 }
 
 // packages/core/dist/operations/get-feed.js
@@ -27017,135 +27668,6 @@ async function dismissFeedPost(input) {
   } finally {
     client.disconnect();
   }
-}
-
-// packages/core/dist/cdp/wait-for-post-load.js
-import { chmod, lstat, mkdtemp, writeFile } from "node:fs/promises";
-import { tmpdir } from "node:os";
-import { join as join3 } from "node:path";
-var POST_READY_AUTHOR_LINK_SELECTOR = 'main a[href*="/in/"], main a[href*="/company/"]', POST_AUTHOR_LINK_DOCUMENT_WIDE_SELECTOR = 'a[href*="/in/"], a[href*="/company/"]', POST_REACT_LIKE_SELECTOR = 'main button[aria-label^="React Like to "]', POST_COMMENT_ON_SELECTOR = 'main button[aria-label^="Comment on"]', POST_EDITOR_SELECTOR = 'main [role="textbox"][aria-label^="Text editor for creating"]', POST_REACTIONS_MENU_SELECTOR = 'main button[aria-label="Open reactions menu"]', POST_DETAIL_CONTAINER_SELECTOR = '[componentkey^="expanded"][componentkey$="FeedType_FEED_DETAIL"]', POST_INTERACTION_SELECTOR = [
-  POST_REACT_LIKE_SELECTOR,
-  POST_COMMENT_ON_SELECTOR,
-  POST_EDITOR_SELECTOR,
-  POST_REACTIONS_MENU_SELECTOR,
-  POST_DETAIL_CONTAINER_SELECTOR
-].join(", "), POST_LTR_SPAN_FALLBACK_SELECTOR = 'span[dir="ltr"]';
-async function waitForPostLoad(client, timeoutMs = 15e3) {
-  let deadline = Date.now() + timeoutMs;
-  for (; Date.now() < deadline; ) {
-    if (await client.evaluate(`(() => {
-      if (!document.querySelector('${POST_READY_AUTHOR_LINK_SELECTOR}')) return false;
-      if (document.querySelector('${POST_INTERACTION_SELECTOR}')) return true;
-      return document.querySelectorAll('${POST_LTR_SPAN_FALLBACK_SELECTOR}').length > 0;
-    })()`))
-      return;
-    await delay(500);
-  }
-  throw await capturePostLoadFailure(client), new Error("Timed out waiting for post detail to appear in the DOM");
-}
-var DIAGNOSTIC_CAPTURE_TIMEOUT_MS = 1e4;
-async function capturePostLoadFailure(client) {
-  if (process.env.LHREMOTE_CAPTURE_DIAGNOSTICS !== "1")
-    return;
-  let state = { timedOut: !1 }, bound;
-  try {
-    await Promise.race([
-      // Attach a no-op catch to the inner promise so a late rejection
-      // (after the timer wins the race) does not escape as an
-      // UnhandledPromiseRejection — capture-side errors must always be
-      // swallowed to keep the caller's timeout propagating unchanged.
-      capturePostLoadFailureInner(client, state).catch(() => {
-      }),
-      new Promise((resolve) => {
-        bound = setTimeout(() => {
-          state.timedOut = !0, resolve();
-        }, DIAGNOSTIC_CAPTURE_TIMEOUT_MS);
-      })
-    ]);
-  } catch {
-  } finally {
-    bound !== void 0 && clearTimeout(bound);
-  }
-}
-async function capturePostLoadFailureInner(client, state) {
-  let timestamp = (/* @__PURE__ */ new Date()).toISOString().replace(/[:.]/g, "-"), baseDir = await mkdtemp(join3(tmpdir(), "lhremote-diagnostics-"));
-  if (state.timedOut || !await ensureSecureDiagnosticDir(baseDir) || state.timedOut)
-    return;
-  let prefix = join3(baseDir, `wait-for-post-load-${timestamp}`), info = await client.evaluate(`(() => {
-    const mainFeed = document.querySelector('[data-testid="mainFeed"]');
-    const listItems = mainFeed
-      ? Array.prototype.slice.call(mainFeed.querySelectorAll('div[role="listitem"]'))
-      : [];
-    const itemsWithMenu = listItems.filter(function (item) {
-      return item.querySelector('button[aria-label^="Open control menu for post"]') !== null;
-    });
-    // SCRAPE_POST_DETAIL_SCRIPT in get-post.ts also requires the item
-    // to render with offsetHeight >= 100 (skips skeletons/hidden items
-    // with zero or near-zero layout box).  Probe both the unfiltered
-    // count (catch "menu-button selector still works but item is
-    // hidden") and the scraper-equivalent count (catch "scraper would
-    // skip every visible candidate") so Phase 2 can distinguish those.
-    const viableItems = itemsWithMenu.filter(function (item) {
-      return item.offsetHeight >= 100;
-    });
-    return {
-      href: location.href,
-      title: document.title,
-      hasMain: document.querySelector('main') !== null,
-      hasMainFeed: mainFeed !== null,
-      mainFeedListItemCount: listItems.length,
-      mainFeedListItemsWithMenuButton: itemsWithMenu.length,
-      mainFeedListItemsViableForPostScrape: viableItems.length,
-      hasAuthorLink: document.querySelector('${POST_AUTHOR_LINK_DOCUMENT_WIDE_SELECTOR}') !== null,
-      hasAuthorLinkInMain: document.querySelector('${POST_READY_AUTHOR_LINK_SELECTOR}') !== null,
-      hasLtrSpans: document.querySelectorAll('${POST_LTR_SPAN_FALLBACK_SELECTOR}').length > 0,
-      hasArticles: document.querySelectorAll('article').length > 0,
-      hasReactLikeButton: document.querySelector('${POST_REACT_LIKE_SELECTOR}') !== null,
-      hasCommentOnButton: document.querySelector('${POST_COMMENT_ON_SELECTOR}') !== null,
-      hasTopLevelEditor: document.querySelector('${POST_EDITOR_SELECTOR}') !== null,
-      hasReactionsMenu: document.querySelector('${POST_REACTIONS_MENU_SELECTOR}') !== null,
-      hasPostDetailContainer: document.querySelector('${POST_DETAIL_CONTAINER_SELECTOR}') !== null,
-      bodyTextSnippet: (document.body ? document.body.innerText : "").slice(0, 800),
-    };
-  })()`);
-  if (state.timedOut)
-    return;
-  if (await writeFile(`${prefix}.json`, JSON.stringify(info, null, 2), {
-    encoding: "utf8",
-    mode: 384
-  }), state.timedOut) {
-    console.warn(`[waitForPostLoad] timeout diagnostics partial: ${prefix}.json (screenshot skipped \u2014 capture cap reached)`);
-    return;
-  }
-  let wroteScreenshot = !1;
-  try {
-    let screenshot = await client.send("Page.captureScreenshot", {
-      format: "png",
-      captureBeyondViewport: !0
-    });
-    !state.timedOut && screenshot.data && (await writeFile(`${prefix}.png`, Buffer.from(screenshot.data, "base64"), {
-      mode: 384
-    }), wroteScreenshot = !0);
-  } catch {
-  }
-  console.warn(`[waitForPostLoad] timeout diagnostics written: ${prefix}.${wroteScreenshot ? "{json,png}" : "json"}`);
-}
-async function ensureSecureDiagnosticDir(baseDir) {
-  let stats;
-  try {
-    stats = await lstat(baseDir);
-  } catch {
-    return !1;
-  }
-  if (stats.isSymbolicLink() || !stats.isDirectory())
-    return !1;
-  if ((stats.mode & 511) !== 448)
-    try {
-      await chmod(baseDir, 448);
-    } catch {
-      return !1;
-    }
-  return !0;
 }
 
 // packages/core/dist/operations/get-post-stats.js
@@ -27528,7 +28050,7 @@ var SCRAPE_POST_DETAIL_SCRIPT = `(() => {
   }
   return false;
 })()`;
-function extractPublicId(url2) {
+function extractPublicId2(url2) {
   return url2 ? /\/in\/([^/?]+)/.exec(url2)?.[1] ?? null : null;
 }
 async function getPost(input) {
@@ -27554,7 +28076,7 @@ async function getPost(input) {
       postUrn,
       authorName: rawPost.authorName ?? "",
       authorHeadline: rawPost.authorHeadline ?? null,
-      authorPublicId: extractPublicId(rawPost.authorProfileUrl),
+      authorPublicId: extractPublicId2(rawPost.authorProfileUrl),
       text: rawPost.text ?? "",
       publishedAt: parseTimestamp(rawPost.timestamp),
       reactionCount: rawPost.reactionCount,
@@ -27593,9 +28115,9 @@ async function getPost(input) {
 }
 
 // packages/core/dist/cdp/wait-for-reactions-modal.js
-import { mkdtemp as mkdtemp2, writeFile as writeFile2 } from "node:fs/promises";
-import { tmpdir as tmpdir2 } from "node:os";
-import { join as join4 } from "node:path";
+import { mkdtemp as mkdtemp3, writeFile as writeFile3 } from "node:fs/promises";
+import { tmpdir as tmpdir3 } from "node:os";
+import { join as join5 } from "node:path";
 var REACTIONS_MODAL_WRAPPER_SELECTORS = [
   "dialog",
   '[aria-modal="true"]',
@@ -27663,7 +28185,7 @@ async function waitForReactionsModal(client, timeoutMs = 1e4) {
   }
   throw await captureReactionsModalFailure(client), new Error("Timed out waiting for reactions modal to appear");
 }
-var DIAGNOSTIC_CAPTURE_TIMEOUT_MS2 = 1e4;
+var DIAGNOSTIC_CAPTURE_TIMEOUT_MS3 = 1e4;
 async function captureReactionsModalFailure(client) {
   if (process.env.LHREMOTE_CAPTURE_DIAGNOSTICS !== "1")
     return;
@@ -27679,7 +28201,7 @@ async function captureReactionsModalFailure(client) {
       new Promise((resolve) => {
         bound = setTimeout(() => {
           state.timedOut = !0, resolve();
-        }, DIAGNOSTIC_CAPTURE_TIMEOUT_MS2);
+        }, DIAGNOSTIC_CAPTURE_TIMEOUT_MS3);
       })
     ]);
   } catch {
@@ -27688,10 +28210,10 @@ async function captureReactionsModalFailure(client) {
   }
 }
 async function captureReactionsModalFailureInner(client, state) {
-  let timestamp = (/* @__PURE__ */ new Date()).toISOString().replace(/[:.]/g, "-"), baseDir = await mkdtemp2(join4(tmpdir2(), "lhremote-diagnostics-"));
+  let timestamp = (/* @__PURE__ */ new Date()).toISOString().replace(/[:.]/g, "-"), baseDir = await mkdtemp3(join5(tmpdir3(), "lhremote-diagnostics-"));
   if (state.timedOut || !await ensureSecureDiagnosticDir(baseDir) || state.timedOut)
     return;
-  let prefix = join4(baseDir, `wait-for-reactions-modal-${timestamp}`), info = await client.evaluate(`(() => {
+  let prefix = join5(baseDir, `wait-for-reactions-modal-${timestamp}`), info = await client.evaluate(`(() => {
     ${RESOLVE_REACTIONS_MODAL_SCRIPT}
     // Legacy dialog probe \u2014 preserved for continuity with the original
     // diagnostic shape; \`dialogCount === 0\` is the signal that pinned
@@ -27798,7 +28320,7 @@ async function captureReactionsModalFailureInner(client, state) {
   })()`);
   if (state.timedOut)
     return;
-  if (await writeFile2(`${prefix}.json`, JSON.stringify(info, null, 2), {
+  if (await writeFile3(`${prefix}.json`, JSON.stringify(info, null, 2), {
     encoding: "utf8",
     mode: 384
   }), state.timedOut) {
@@ -27811,7 +28333,7 @@ async function captureReactionsModalFailureInner(client, state) {
       format: "png",
       captureBeyondViewport: !0
     });
-    !state.timedOut && screenshot.data && (await writeFile2(`${prefix}.png`, Buffer.from(screenshot.data, "base64"), {
+    !state.timedOut && screenshot.data && (await writeFile3(`${prefix}.png`, Buffer.from(screenshot.data, "base64"), {
       mode: 384
     }), wroteScreenshot = !0);
   } catch {
@@ -28363,167 +28885,10 @@ async function hideFeedAuthor(input) {
   }
 }
 
-// packages/core/dist/operations/navigate-to-profile.js
-import { mkdtemp as mkdtemp3, writeFile as writeFile3 } from "node:fs/promises";
-import { tmpdir as tmpdir3 } from "node:os";
-import { join as join5 } from "node:path";
-var LINKEDIN_PROFILE_RE = /^\/in\/([^/?#]+)/, LINKEDIN_COMPANY_RE = /^\/company\/([^/?#]+)/, PROFILE_READY_SELECTOR = [
-  'main button[aria-label^="Message"]',
-  'main button[aria-label^="Follow "]',
-  'main button[aria-label^="Following "]',
-  'main button[aria-label^="Connect"]',
-  'main button[aria-label^="Pending"]',
-  'main button[aria-label="More actions"]',
-  'main button[aria-label="More"]'
-].join(", ");
-function extractPublicId2(url2) {
-  let parsed;
-  try {
-    parsed = new URL(url2);
-  } catch {
-    throw new Error(`Invalid LinkedIn profile URL: ${url2}. Expected format: https://www.linkedin.com/in/<public-id>`);
-  }
-  let host = parsed.hostname.toLowerCase();
-  if (!(host === "linkedin.com" || host.endsWith(".linkedin.com")))
-    throw new Error(`Invalid LinkedIn profile URL: ${url2}. Expected format: https://www.linkedin.com/in/<public-id>`);
-  let match = LINKEDIN_PROFILE_RE.exec(parsed.pathname);
-  if (!match?.[1])
-    throw new Error(`Invalid LinkedIn profile URL: ${url2}. Expected format: https://www.linkedin.com/in/<public-id>`);
-  try {
-    return decodeURIComponent(match[1]);
-  } catch {
-    throw new Error(`Invalid LinkedIn profile URL: ${url2}. Expected format: https://www.linkedin.com/in/<public-id>`);
-  }
-}
-function buildProfileUrl(publicId) {
-  return `https://www.linkedin.com/in/${encodeURIComponent(publicId)}/`;
-}
-function buildCompanyUrl(slug) {
-  return `https://www.linkedin.com/company/${encodeURIComponent(slug)}/`;
-}
-function extractFollowableTarget(url2) {
-  let expectedFormat = "Expected format: https://www.linkedin.com/in/<public-id> or https://www.linkedin.com/company/<slug>", parsed;
-  try {
-    parsed = new URL(url2);
-  } catch {
-    throw new Error(`Invalid LinkedIn profile or company URL: ${url2}. ${expectedFormat}`);
-  }
-  let host = parsed.hostname.toLowerCase();
-  if (!(host === "linkedin.com" || host.endsWith(".linkedin.com")))
-    throw new Error(`Invalid LinkedIn profile or company URL: ${url2}. ${expectedFormat}`);
-  let safeDecode3 = (segment) => {
-    try {
-      return decodeURIComponent(segment);
-    } catch {
-      throw new Error(`Invalid LinkedIn profile or company URL: ${url2}. ${expectedFormat}`);
-    }
-  }, profileMatch = LINKEDIN_PROFILE_RE.exec(parsed.pathname);
-  if (profileMatch?.[1])
-    return {
-      kind: "profile",
-      publicId: safeDecode3(profileMatch[1])
-    };
-  let companyMatch = LINKEDIN_COMPANY_RE.exec(parsed.pathname);
-  if (companyMatch?.[1])
-    return {
-      kind: "company",
-      slug: safeDecode3(companyMatch[1])
-    };
-  throw new Error(`Invalid LinkedIn profile or company URL: ${url2}. ${expectedFormat}`);
-}
-async function navigateToProfile(client, publicId, mouse) {
-  await navigateAwayIf(client, "/in/"), await client.navigate(buildProfileUrl(publicId));
-  try {
-    await waitForElement(client, PROFILE_READY_SELECTOR, { timeout: 3e4 }, mouse);
-  } catch (error51) {
-    throw error51 instanceof CDPTimeoutError && await captureProfileLoadFailure(client, publicId), error51;
-  }
-  await gaussianDelay(800, 200, 500, 1500), await maybeHesitate();
-}
-async function navigateToCompany(client, slug, mouse) {
-  await navigateAwayIf(client, "/company/"), await client.navigate(buildCompanyUrl(slug));
-  try {
-    await waitForElement(client, PROFILE_READY_SELECTOR, { timeout: 3e4 }, mouse);
-  } catch (error51) {
-    throw error51 instanceof CDPTimeoutError && await captureCompanyLoadFailure(client, slug), error51;
-  }
-  await gaussianDelay(800, 200, 500, 1500), await maybeHesitate();
-}
-function sanitizeForFilename(value) {
-  let safe = value.replace(/[^a-zA-Z0-9._-]/g, "_").slice(0, 120);
-  return safe.length > 0 ? safe : "unknown";
-}
-var DIAGNOSTIC_CAPTURE_TIMEOUT_MS3 = 1e4;
-async function captureProfileLoadFailure(client, publicId) {
-  await captureNavigationLoadFailure(client, publicId, "profile");
-}
-async function captureCompanyLoadFailure(client, slug) {
-  await captureNavigationLoadFailure(client, slug, "company");
-}
-async function captureNavigationLoadFailure(client, slug, kind) {
-  if (process.env.LHREMOTE_CAPTURE_DIAGNOSTICS !== "1")
-    return;
-  let state = { timedOut: !1 }, bound;
-  try {
-    await Promise.race([
-      // Attach a no-op catch to the inner promise so a late rejection
-      // (after the timer wins the race) does not escape as an
-      // UnhandledPromiseRejection — capture-side errors must always be
-      // swallowed to keep the caller's timeout propagating unchanged.
-      // Mirrors the same mitigation in wait-for-post-load.ts.
-      captureNavigationLoadFailureInner(client, slug, kind, state).catch(() => {
-      }),
-      new Promise((resolve) => {
-        bound = setTimeout(() => {
-          state.timedOut = !0, resolve();
-        }, DIAGNOSTIC_CAPTURE_TIMEOUT_MS3);
-      })
-    ]);
-  } catch {
-  } finally {
-    bound !== void 0 && clearTimeout(bound);
-  }
-}
-async function captureNavigationLoadFailureInner(client, slug, kind, state) {
-  let timestamp = (/* @__PURE__ */ new Date()).toISOString().replace(/[:.]/g, "-"), baseDir = await mkdtemp3(join5(tmpdir3(), "lhremote-diagnostics-"));
-  if (state.timedOut || !await ensureSecureDiagnosticDir(baseDir) || state.timedOut)
-    return;
-  let prefix = join5(baseDir, `navigate-to-${kind}-${timestamp}-${sanitizeForFilename(slug)}`), info = await client.evaluate(`(() => ({
-    href: location.href,
-    title: document.title,
-    hasMain: document.querySelector("main") !== null,
-    hasH1: document.querySelector("h1") !== null,
-    hasMainH1: document.querySelector("main h1") !== null,
-    bodyTextSnippet: (document.body ? document.body.innerText : "").slice(0, 800),
-  }))()`);
-  if (state.timedOut)
-    return;
-  let callerLabel = kind === "profile" ? "navigateToProfile" : "navigateToCompany";
-  if (await writeFile3(`${prefix}.json`, JSON.stringify(info, null, 2), {
-    encoding: "utf8",
-    mode: 384
-  }), state.timedOut) {
-    console.warn(`[${callerLabel}] timeout diagnostics partial: ${prefix}.json (screenshot skipped \u2014 capture cap reached)`);
-    return;
-  }
-  let wroteScreenshot = !1;
-  try {
-    let screenshot = await client.send("Page.captureScreenshot", {
-      format: "png",
-      captureBeyondViewport: !0
-    });
-    !state.timedOut && screenshot.data && (await writeFile3(`${prefix}.png`, Buffer.from(screenshot.data, "base64"), {
-      mode: 384
-    }), wroteScreenshot = !0);
-  } catch {
-  }
-  console.warn(`[${callerLabel}] timeout diagnostics written: ${prefix}.${wroteScreenshot ? "{json,png}" : "json"}`);
-}
-
 // packages/core/dist/operations/hide-feed-author-profile.js
 var PROFILE_MORE_BUTTON_SELECTOR = 'main button[aria-label="More actions"], main button[aria-label="More"]', MUTE_MENUITEM_PREFIX = "Mute ", UNMUTE_MENUITEM_PREFIX = "Unmute ", MUTE_CONFIRM_LABEL_PATTERNS = ["Mute", "Confirm"];
 async function hideFeedAuthorProfile(input) {
-  let publicId = extractPublicId2(input.profileUrl), cdpPort = await resolveInstancePort(input.cdpPort, input.cdpHost), cdpHost = input.cdpHost ?? "127.0.0.1", allowRemote = input.allowRemote ?? !1;
+  let publicId = extractPublicId(input.profileUrl), cdpPort = await resolveInstancePort(input.cdpPort, input.cdpHost), cdpHost = input.cdpHost ?? "127.0.0.1", allowRemote = input.allowRemote ?? !1;
   if (!allowRemote && cdpHost !== "127.0.0.1" && cdpHost !== "localhost")
     throw new Error(`Non-loopback CDP host "${cdpHost}" requires --allow-remote. This is a security measure to prevent remote code execution.`);
   await gateOnLoggedInState(cdpPort, cdpHost, allowRemote, { timeout: 6e4 });
@@ -28882,30 +29247,37 @@ async function getThrottleStatus(input) {
   });
 }
 
+// packages/core/dist/operations/ephemeral-action.js
+async function executeEphemeralAction(actionType, input, actionSettings) {
+  if (input.personId == null == (input.url == null))
+    throw new Error("Exactly one of personId or url must be provided");
+  let target = input.personId ?? input.url, cdpPort = input.cdpPort, accountId = await resolveAccount(cdpPort, buildCdpOptions(input));
+  return withInstanceDatabase(cdpPort, accountId, async ({ instance, db }) => (await waitForLoggedInState(instance, { timeout: 6e4 }), new EphemeralCampaignService(instance, db).execute(actionType, target, actionSettings, {
+    ...input.keepCampaign !== void 0 && { keepCampaign: input.keepCampaign },
+    ...input.timeout !== void 0 && { timeout: input.timeout }
+  })), { db: { readOnly: !1 } });
+}
+
 // packages/core/dist/operations/visit-profile.js
 async function visitProfile(input) {
   if (input.personId == null == (input.url == null))
     throw new Error("Exactly one of personId or url must be provided");
   let cdpPort = input.cdpPort, accountId = await resolveAccount(cdpPort, buildCdpOptions(input));
   return withInstanceDatabase(cdpPort, accountId, async ({ instance, db }) => {
-    let repo = new ProfileRepository(db), personId;
-    if (input.personId != null)
-      personId = input.personId;
-    else {
-      let publicId = extractPublicId2(input.url);
-      personId = repo.findByPublicId(publicId).id;
-    }
-    return await waitForLoggedInState(instance, { timeout: 6e4 }), await instance.executeAction("VisitAndExtract", {
-      personIds: [personId],
-      ...input.extractCurrentOrganizations !== void 0 && {
-        extractCurrentOrganizations: input.extractCurrentOrganizations
-      }
-    }), {
+    let repo = new ProfileRepository(db);
+    await waitForLoggedInState(instance, { timeout: 6e4 });
+    let target = input.personId ?? input.url, actionSettings = input.extractCurrentOrganizations !== void 0 ? { extractCurrentOrganizations: input.extractCurrentOrganizations } : void 0, result = await new EphemeralCampaignService(instance, db).execute("VisitAndExtract", target, actionSettings, {
+      ...input.keepCampaign !== void 0 && { keepCampaign: input.keepCampaign },
+      ...input.timeout !== void 0 && { timeout: input.timeout }
+    });
+    if (!result.success)
+      throw new CampaignExecutionError(`VisitAndExtract action did not complete successfully for person ${String(result.personId)}`, result.campaignId);
+    return {
       success: !0,
       actionType: "VisitAndExtract",
-      profile: repo.findById(personId, { includePositions: !0 })
+      profile: repo.findById(result.personId, { includePositions: !0 })
     };
-  }, { instanceTimeout: 12e4 });
+  }, { instanceTimeout: 12e4, db: { readOnly: !1 } });
 }
 
 // packages/core/dist/operations/react-to-post.js
@@ -29283,17 +29655,6 @@ async function unfollowProfile(input) {
   } finally {
     client.disconnect();
   }
-}
-
-// packages/core/dist/operations/ephemeral-action.js
-async function executeEphemeralAction(actionType, input, actionSettings) {
-  if (input.personId == null == (input.url == null))
-    throw new Error("Exactly one of personId or url must be provided");
-  let target = input.personId ?? input.url, cdpPort = input.cdpPort, accountId = await resolveAccount(cdpPort, buildCdpOptions(input));
-  return withInstanceDatabase(cdpPort, accountId, async ({ instance, db }) => (await waitForLoggedInState(instance, { timeout: 6e4 }), new EphemeralCampaignService(instance, db).execute(actionType, target, actionSettings, {
-    ...input.keepCampaign !== void 0 && { keepCampaign: input.keepCampaign },
-    ...input.timeout !== void 0 && { timeout: input.timeout }
-  })), { db: { readOnly: !1 } });
 }
 
 // packages/core/dist/operations/message-person.js
@@ -29978,6 +30339,7 @@ async function handleCampaignGet(campaignId, options) {
 `);
   else if (process.stdout.write(`Campaign #${result.id}: ${result.name}
 `), process.stdout.write(`State: ${result.state}
+`), process.stdout.write(`Target kind: ${result.targetKind}
 `), process.stdout.write(`Paused: ${result.isPaused ? "yes" : "no"}
 `), process.stdout.write(`Archived: ${result.isArchived ? "yes" : "no"}
 `), result.description && process.stdout.write(`Description: ${result.description}
@@ -30030,20 +30392,47 @@ async function handleCampaignList(options) {
 `);
     for (let campaign of campaigns) {
       let parts = [`#${campaign.id}  ${campaign.name}`];
-      parts.push(`[${campaign.state}]`), parts.push(`${String(campaign.actionCount)} actions`), campaign.description && parts.push(campaign.description), process.stdout.write(`${parts.join(" \u2014 ")}
+      parts.push(`[${campaign.state}]`), campaign.targetKind !== "people" && parts.push(`[${campaign.targetKind}]`), parts.push(`${String(campaign.actionCount)} actions`), campaign.description && parts.push(campaign.description), process.stdout.write(`${parts.join(" \u2014 ")}
 `);
     }
   }
 }
 
-// packages/cli/dist/handlers/campaign-list-people.js
-async function handleCampaignListPeople(campaignId, options) {
+// packages/cli/dist/url-list.js
+import { readFileSync as readFileSync6 } from "node:fs";
+function parseUrls(raw) {
+  return raw.split(",").map((s) => s.trim()).filter((s) => s.length > 0);
+}
+function readUrlsFile(filePath) {
+  return readFileSync6(filePath, "utf-8").split(/[\n,]/).map((s) => s.trim()).filter((s) => s.length > 0);
+}
+
+// packages/cli/dist/handlers/campaign-list-organizations.js
+async function handleCampaignListOrganizations(campaignId, options) {
+  if (options.urls && options.urlsFile) {
+    process.stderr.write(`Use only one of --urls or --urls-file.
+`), process.exitCode = 1;
+    return;
+  }
+  let companyUrls;
+  if (options.urls)
+    companyUrls = parseUrls(options.urls);
+  else if (options.urlsFile)
+    try {
+      companyUrls = readUrlsFile(options.urlsFile);
+    } catch (error51) {
+      let message = errorMessage(error51);
+      process.stderr.write(`${message}
+`), process.exitCode = 1;
+      return;
+    }
   let result;
   try {
-    result = await campaignListPeople({
+    result = await campaignListOrganizations({
       campaignId,
       actionId: options.actionId,
       status: options.status,
+      companyUrls,
       limit: options.limit,
       offset: options.offset,
       cdpPort: options.cdpPort,
@@ -30069,19 +30458,106 @@ async function handleCampaignListPeople(campaignId, options) {
   if (options.json)
     process.stdout.write(JSON.stringify(result, null, 2) + `
 `);
-  else if (process.stdout.write(`Campaign #${String(campaignId)} People (${String(result.total)} total)
-`), result.people.length === 0)
-    process.stdout.write(`  No people found.
-`);
   else {
-    for (let person of result.people) {
-      let name2 = person.lastName ? `${person.firstName} ${person.lastName}` : person.firstName, publicId = person.publicId ? ` (${person.publicId})` : "";
-      process.stdout.write(`  #${String(person.personId)} ${name2}${publicId} \u2014 ${person.status} at action #${String(person.currentActionId)}
+    if (process.stdout.write(`Campaign #${String(campaignId)} Organizations (${String(result.total)} total)
+`), result.organizations.length === 0)
+      process.stdout.write(`  No organizations found.
+`);
+    else {
+      for (let org of result.organizations) {
+        let name2 = org.name ?? "(unnamed)", identifier = org.publicId ?? org.companyId, suffix = identifier ? ` (${identifier})` : "";
+        process.stdout.write(`  #${String(org.organizationId)} ${name2}${suffix} \u2014 ${org.status} at action #${String(org.currentActionId)}
+`);
+      }
+      result.total > result.offset + result.organizations.length && process.stdout.write(`
+Showing ${String(result.offset + 1)}-${String(result.offset + result.organizations.length)} of ${String(result.total)}. Use --offset and --limit for pagination.
 `);
     }
-    result.total > result.offset + result.people.length && process.stdout.write(`
+    if (result.notFoundCompanyUrls && result.notFoundCompanyUrls.length > 0) {
+      process.stdout.write(`
+${String(result.notFoundCompanyUrls.length)} of the given URLs are not on the target list:
+`);
+      for (let url2 of result.notFoundCompanyUrls)
+        process.stdout.write(`  ${url2}
+`);
+    }
+  }
+}
+
+// packages/cli/dist/handlers/campaign-list-people.js
+async function handleCampaignListPeople(campaignId, options) {
+  if (options.urls && options.urlsFile) {
+    process.stderr.write(`Use only one of --urls or --urls-file.
+`), process.exitCode = 1;
+    return;
+  }
+  let linkedInUrls;
+  if (options.urls)
+    linkedInUrls = parseUrls(options.urls);
+  else if (options.urlsFile)
+    try {
+      linkedInUrls = readUrlsFile(options.urlsFile);
+    } catch (error51) {
+      let message = errorMessage(error51);
+      process.stderr.write(`${message}
+`), process.exitCode = 1;
+      return;
+    }
+  let result;
+  try {
+    result = await campaignListPeople({
+      campaignId,
+      actionId: options.actionId,
+      status: options.status,
+      linkedInUrls,
+      limit: options.limit,
+      offset: options.offset,
+      cdpPort: options.cdpPort,
+      cdpHost: options.cdpHost,
+      allowRemote: options.allowRemote,
+      accountId: options.accountId
+    });
+  } catch (error51) {
+    if (error51 instanceof CampaignNotFoundError)
+      process.stderr.write(`Campaign ${String(campaignId)} not found.
+`);
+    else if (error51 instanceof ActionNotFoundError)
+      process.stderr.write(`Action ${String(options.actionId)} not found in campaign ${String(campaignId)}.
+`);
+    else {
+      let message = errorMessage(error51);
+      process.stderr.write(`${message}
+`);
+    }
+    process.exitCode = 1;
+    return;
+  }
+  if (options.json)
+    process.stdout.write(JSON.stringify(result, null, 2) + `
+`);
+  else {
+    if (process.stdout.write(`Campaign #${String(campaignId)} People (${String(result.total)} total)
+`), result.people.length === 0)
+      process.stdout.write(`  No people found.
+`);
+    else {
+      for (let person of result.people) {
+        let name2 = person.lastName ? `${person.firstName} ${person.lastName}` : person.firstName, publicId = person.publicId ? ` (${person.publicId})` : "";
+        process.stdout.write(`  #${String(person.personId)} ${name2}${publicId} \u2014 ${person.status} at action #${String(person.currentActionId)}
+`);
+      }
+      result.total > result.offset + result.people.length && process.stdout.write(`
 Showing ${String(result.offset + 1)}-${String(result.offset + result.people.length)} of ${String(result.total)}. Use --offset and --limit for pagination.
 `);
+    }
+    if (result.notFoundLinkedInUrls && result.notFoundLinkedInUrls.length > 0) {
+      process.stdout.write(`
+${String(result.notFoundLinkedInUrls.length)} of the given URLs are not on the target list:
+`);
+      for (let url2 of result.notFoundLinkedInUrls)
+        process.stdout.write(`  ${url2}
+`);
+    }
   }
 }
 
@@ -30481,14 +30957,69 @@ No results yet.
   }
 }
 
+// packages/cli/dist/handlers/import-organizations-from-urls.js
+async function handleImportOrganizationsFromUrls(campaignId, options) {
+  if (options.urls && options.urlsFile) {
+    process.stderr.write(`Use only one of --urls or --urls-file.
+`), process.exitCode = 1;
+    return;
+  }
+  let companyUrls;
+  if (options.urls)
+    companyUrls = parseUrls(options.urls);
+  else if (options.urlsFile)
+    try {
+      companyUrls = readUrlsFile(options.urlsFile);
+    } catch (error51) {
+      let message = errorMessage(error51);
+      process.stderr.write(`${message}
+`), process.exitCode = 1;
+      return;
+    }
+  else {
+    process.stderr.write(`Either --urls or --urls-file is required.
+`), process.exitCode = 1;
+    return;
+  }
+  if (companyUrls.length === 0) {
+    process.stderr.write(`No URLs provided.
+`), process.exitCode = 1;
+    return;
+  }
+  let result;
+  try {
+    result = await importOrganizationsFromUrls({
+      campaignId,
+      companyUrls,
+      cdpPort: options.cdpPort,
+      cdpHost: options.cdpHost,
+      allowRemote: options.allowRemote,
+      accountId: options.accountId
+    });
+  } catch (error51) {
+    if (error51 instanceof CampaignNotFoundError)
+      process.stderr.write(`Campaign ${String(campaignId)} not found.
+`);
+    else if (error51 instanceof CampaignExecutionError)
+      process.stderr.write(`Failed to import organizations: ${error51.message}
+`);
+    else if (error51 instanceof InstanceNotRunningError)
+      process.stderr.write(`${error51.message}
+`);
+    else {
+      let message = errorMessage(error51);
+      process.stderr.write(`${message}
+`);
+    }
+    process.exitCode = 1;
+    return;
+  }
+  options.json ? process.stdout.write(JSON.stringify(result, null, 2) + `
+`) : process.stdout.write(`Imported ${String(result.imported)} organizations into campaign ${String(campaignId)} action ${String(result.actionId)}.` + (result.alreadyInQueue > 0 ? ` ${String(result.alreadyInQueue)} already in queue.` : "") + (result.alreadyProcessed > 0 ? ` ${String(result.alreadyProcessed)} already processed.` : "") + (result.inExcludeList > 0 ? ` ${String(result.inExcludeList)} in exclude list.` : "") + (result.failed > 0 ? ` ${String(result.failed)} failed.` : "") + `
+`);
+}
+
 // packages/cli/dist/handlers/import-people-from-urls.js
-import { readFileSync as readFileSync6 } from "node:fs";
-function parseUrls(raw) {
-  return raw.split(",").map((s) => s.trim()).filter((s) => s.length > 0);
-}
-function readUrlsFile(filePath) {
-  return readFileSync6(filePath, "utf-8").split(/[\n,]/).map((s) => s.trim()).filter((s) => s.length > 0);
-}
 async function handleImportPeopleFromUrls(campaignId, options) {
   if (options.urls && options.urlsFile) {
     process.stderr.write(`Use only one of --urls or --urls-file.
@@ -31391,25 +31922,53 @@ async function handleEnsureInstances(accountIds, options) {
 }
 
 // packages/cli/dist/handlers/find-app.js
+function writePortProbes(probes) {
+  if (probes === null) {
+    process.stdout.write(`  failed to enumerate listening ports
+`);
+    return;
+  }
+  if (probes.length === 0) {
+    process.stdout.write(`  no listening TCP ports
+`);
+    return;
+  }
+  for (let { port, cdp } of probes)
+    process.stdout.write(`  port ${String(port)} \u2014 ${cdp ? "CDP" : "not CDP"}
+`);
+}
 async function handleFindApp(options) {
   try {
-    let apps = await findApp(options.verbose ? { includeHelpers: !0 } : {});
+    let apps = await findApp(options.verbose ? { includeHelpers: !0 } : {}), portProbes = /* @__PURE__ */ new Map();
+    if (options.ports !== void 0 && options.ports !== !1) {
+      let pids = typeof options.ports == "number" ? [options.ports] : apps.filter((a2) => a2.role !== "helper-child").map((a2) => a2.pid);
+      for (let pid of pids)
+        try {
+          portProbes.set(pid, await probePidPorts(pid));
+        } catch {
+          portProbes.set(pid, null);
+        }
+    }
+    let explicitPid = typeof options.ports == "number" ? options.ports : null, explicitPidIsForeign = explicitPid !== null && !apps.some((a2) => a2.pid === explicitPid);
     if (options.json) {
-      process.stdout.write(JSON.stringify(apps, null, 2) + `
+      let augmented = apps.map((app) => portProbes.has(app.pid) ? { ...app, ports: portProbes.get(app.pid) } : app);
+      explicitPidIsForeign && augmented.push({ pid: explicitPid, ports: portProbes.get(explicitPid) }), process.stdout.write(JSON.stringify(augmented, null, 2) + `
 `);
       return;
     }
-    if (apps.length === 0) {
-      process.stdout.write(`No running LinkedHelper instances found
-`);
+    if (apps.length === 0 && (process.stdout.write(`No running LinkedHelper instances found
+`), !explicitPidIsForeign))
       return;
-    }
     for (let app of apps) {
       let port = app.cdpPort !== null ? `CDP port ${String(app.cdpPort)}` : "no CDP port", status = app.connectable ? "connectable" : "not connectable";
       process.stdout.write(`PID ${String(app.pid)} \u2014 ${port} \u2014 ${status} \u2014 ${app.role}
 `), options.verbose && process.stdout.write(JSON.stringify(app, null, 2) + `
 `);
+      let probes = portProbes.get(app.pid);
+      probes !== void 0 && writePortProbes(probes);
     }
+    explicitPidIsForeign && (process.stdout.write(`PID ${String(explicitPid)} \u2014 not a LinkedHelper process
+`), writePortProbes(portProbes.get(explicitPid) ?? null));
   } catch (error51) {
     let message = errorMessage(error51);
     process.stderr.write(`${message}
@@ -33051,11 +33610,13 @@ function collectString(value, previous) {
 }
 function createProgram(options = {}) {
   let program3 = new Command().name("lhremote").description("CLI for LinkedHelper automation").version(options.version ?? version);
-  return program3.command("find-app").description("Detect running LinkedHelper instances").option("--json", "Output as JSON").option("--verbose", "Print diagnostic messages during discovery").action(handleFindApp).addHelpText("after", `
+  return program3.command("find-app").description("Detect running LinkedHelper instances").option("--json", "Output as JSON").option("--verbose", "Print diagnostic messages during discovery").option("--ports [pid]", "List listening TCP ports and probe each for CDP \u2014 for every LinkedHelper process, or only the given PID", parsePositiveInt).action(handleFindApp).addHelpText("after", `
 Examples:
-  lhremote find-app --verbose    Print diagnostics while discovering instances
-  lhremote find-app --json       Machine-readable JSON output
-`), program3.command("launch-app").description("Launch the LinkedHelper application").option("--force", "Kill existing LinkedHelper processes before launching").option("--verbose", "Print diagnostic messages during launch (binary path, CDP probe status)").option("--no-visible", "Do not restore/focus the LinkedHelper launcher window on Windows").action(handleLaunchApp), program3.command("quit-app").description("Quit the LinkedHelper application").option("--verbose", "Print diagnostic messages while quitting").option("--cdp-port <port>", "CDP debugging port to target", parsePositiveInt).action(handleQuitApp), program3.command("list-accounts").description("List LinkedHelper accounts (selected workspace by default)").option("--cdp-port <port>", "CDP debugging port (auto-discovered when omitted)", parsePositiveInt).option("--cdp-host <host>", "CDP host (default: 127.0.0.1)").option("--allow-remote", "SECURITY: allow non-loopback CDP connections (enables remote code execution on target)").option("--json", "Output as JSON").option("--all-workspaces", "List accounts across every workspace the LH user belongs to, not just the selected one (LinkedHelper 2.113.x+)").action(handleListAccounts), program3.command("list-workspaces").description("List LinkedHelper workspaces the current user belongs to (2.113.x+)").option("--cdp-port <port>", "CDP debugging port (auto-discovered when omitted)", parsePositiveInt).option("--cdp-host <host>", "CDP host (default: 127.0.0.1)").option("--allow-remote", "SECURITY: allow non-loopback CDP connections (enables remote code execution on target)").option("--json", "Output as JSON").action(handleListWorkspaces), program3.command("start-instance").description("Start a LinkedHelper instance").argument("[accountId]", "Account ID to start (auto-selects when exactly one account exists)", parsePositiveInt).option("--cdp-port <port>", "CDP debugging port (auto-discovered when omitted)", parsePositiveInt).option("--cdp-host <host>", "CDP host (default: 127.0.0.1)").option("--allow-remote", "SECURITY: allow non-loopback CDP connections (enables remote code execution on target)").action(handleStartInstance), program3.command("stop-instance").description("Stop a LinkedHelper instance").argument("[accountId]", "Account ID to stop (auto-selects when exactly one account exists)", parsePositiveInt).option("--cdp-port <port>", "CDP debugging port (auto-discovered when omitted)", parsePositiveInt).option("--cdp-host <host>", "CDP host (default: 127.0.0.1)").option("--allow-remote", "SECURITY: allow non-loopback CDP connections (enables remote code execution on target)").action(handleStopInstance), program3.command("restart-instance").description("Restart a single LinkedHelper account instance. Stops it, waits for exit, starts it, and waits until connectable. No-op when already healthy unless --force is used.").argument("<accountId>", "Account ID to restart", parsePositiveInt).option("--cdp-port <port>", "CDP debugging port (auto-discovered when omitted)", parsePositiveInt).option("--cdp-host <host>", "CDP host (default: 127.0.0.1)").option("--allow-remote", "SECURITY: allow non-loopback CDP connections (enables remote code execution on target)").option("--force", "Restart even when the instance is already healthy").option("--json", "Output as JSON").action(handleRestartInstance), program3.command("ensure-instances").description("Idempotently start the specified account instances (skips already-running ones)").argument("<accountId...>", "Account IDs to ensure are running", (v, prev) => collectPositiveInt(v, prev)).option("--cdp-port <port>", "CDP debugging port (auto-discovered when omitted)", parsePositiveInt).option("--cdp-host <host>", "CDP host (default: 127.0.0.1)").option("--allow-remote", "SECURITY: allow non-loopback CDP connections (enables remote code execution on target)").option("--json", "Output as JSON").action(handleEnsureInstances), program3.command("list-orphans").description("List orphaned LinkedHelper account-instance processes").option("--json", "Output as JSON").action(handleListOrphans), program3.command("reap-orphans").description("Terminate orphaned LinkedHelper account-instance processes (dry-run by default)").option("--confirm", "Actually terminate orphaned processes (without this flag, performs a dry-run)").option("--json", "Output kill results as JSON").action(handleReapOrphans), program3.command("campaign-list").description("List LinkedHelper campaigns").option("--include-archived", "Include archived campaigns").option("--cdp-port <port>", "CDP debugging port (auto-discovered when omitted)", parsePositiveInt).option("--cdp-host <host>", "CDP host (default: 127.0.0.1)").option("--allow-remote", "SECURITY: allow non-loopback CDP connections (enables remote code execution on target)").option("--account-id <id>", "Account ID to select when multiple accounts exist", parsePositiveInt).option("--json", "Output as JSON").action(handleCampaignList), program3.command("campaign-list-people").description("List people assigned to a campaign").argument("<campaignId>", "Campaign ID", parsePositiveInt).option("--action-id <id>", "Filter to a specific action", parsePositiveInt).option("--status <status>", "Filter by status (queued, processed, successful, failed)").option("--limit <n>", "Max results (default: 20)", parsePositiveInt).option("--offset <n>", "Pagination offset (default: 0)", parseNonNegativeInt).option("--cdp-port <port>", "CDP debugging port (auto-discovered when omitted)", parsePositiveInt).option("--cdp-host <host>", "CDP host (default: 127.0.0.1)").option("--allow-remote", "SECURITY: allow non-loopback CDP connections (enables remote code execution on target)").option("--account-id <id>", "Account ID to select when multiple accounts exist", parsePositiveInt).option("--json", "Output as JSON").action(handleCampaignListPeople), program3.command("campaign-create").description("Create a new campaign from YAML or JSON configuration").option("--file <path>", "Path to campaign configuration file").option("--yaml <config>", "Inline YAML campaign configuration").option("--json-input <config>", "Inline JSON campaign configuration").option("--cdp-port <port>", "CDP debugging port (auto-discovered when omitted)", parsePositiveInt).option("--cdp-host <host>", "CDP host (default: 127.0.0.1)").option("--allow-remote", "SECURITY: allow non-loopback CDP connections (enables remote code execution on target)").option("--account-id <id>", "Account ID to select when multiple accounts exist", parsePositiveInt).option("--json", "Output as JSON").action(handleCampaignCreate), program3.command("campaign-get").description("Get detailed campaign information").argument("<campaignId>", "Campaign ID", parsePositiveInt).option("--cdp-port <port>", "CDP debugging port (auto-discovered when omitted)", parsePositiveInt).option("--cdp-host <host>", "CDP host (default: 127.0.0.1)").option("--allow-remote", "SECURITY: allow non-loopback CDP connections (enables remote code execution on target)").option("--account-id <id>", "Account ID to select when multiple accounts exist", parsePositiveInt).option("--json", "Output as JSON").action(handleCampaignGet), program3.command("campaign-delete").description("Delete a campaign (archives by default, use --hard to permanently remove)").argument("<campaignId>", "Campaign ID to delete", parsePositiveInt).option("--hard", "Permanently delete the campaign and all related data").option("--cdp-port <port>", "CDP debugging port (auto-discovered when omitted)", parsePositiveInt).option("--cdp-host <host>", "CDP host (default: 127.0.0.1)").option("--allow-remote", "SECURITY: allow non-loopback CDP connections (enables remote code execution on target)").option("--account-id <id>", "Account ID to select when multiple accounts exist", parsePositiveInt).option("--json", "Output as JSON").action(handleCampaignDelete), program3.command("campaign-erase").description("Permanently erase a campaign and all related data (irreversible)").argument("<campaignId>", "Campaign ID to erase", parsePositiveInt).option("--cdp-port <port>", "CDP debugging port (auto-discovered when omitted)", parsePositiveInt).option("--cdp-host <host>", "CDP host (default: 127.0.0.1)").option("--allow-remote", "SECURITY: allow non-loopback CDP connections (enables remote code execution on target)").option("--account-id <id>", "Account ID to select when multiple accounts exist", parsePositiveInt).option("--json", "Output as JSON").action(handleCampaignErase), program3.command("campaign-exclude-list").description("View the exclude list for a campaign or action").argument("<campaignId>", "Campaign ID", parsePositiveInt).option("--action-id <id>", "Action ID (shows action-level exclude list instead of campaign-level)", parsePositiveInt).option("--cdp-port <port>", "CDP debugging port (auto-discovered when omitted)", parsePositiveInt).option("--cdp-host <host>", "CDP host (default: 127.0.0.1)").option("--allow-remote", "SECURITY: allow non-loopback CDP connections (enables remote code execution on target)").option("--account-id <id>", "Account ID to select when multiple accounts exist", parsePositiveInt).option("--json", "Output as JSON").action(handleCampaignExcludeList), program3.command("campaign-exclude-add").description("Add people to a campaign or action exclude list").argument("<campaignId>", "Campaign ID", parsePositiveInt).option("--person-ids <ids>", "Comma-separated person IDs").option("--person-ids-file <path>", "File containing person IDs").option("--action-id <id>", "Action ID (adds to action-level exclude list instead of campaign-level)", parsePositiveInt).option("--cdp-port <port>", "CDP debugging port (auto-discovered when omitted)", parsePositiveInt).option("--cdp-host <host>", "CDP host (default: 127.0.0.1)").option("--allow-remote", "SECURITY: allow non-loopback CDP connections (enables remote code execution on target)").option("--account-id <id>", "Account ID to select when multiple accounts exist", parsePositiveInt).option("--json", "Output as JSON").action(handleCampaignExcludeAdd), program3.command("campaign-exclude-remove").description("Remove people from a campaign or action exclude list").argument("<campaignId>", "Campaign ID", parsePositiveInt).option("--person-ids <ids>", "Comma-separated person IDs").option("--person-ids-file <path>", "File containing person IDs").option("--action-id <id>", "Action ID (removes from action-level exclude list instead of campaign-level)", parsePositiveInt).option("--cdp-port <port>", "CDP debugging port (auto-discovered when omitted)", parsePositiveInt).option("--cdp-host <host>", "CDP host (default: 127.0.0.1)").option("--allow-remote", "SECURITY: allow non-loopback CDP connections (enables remote code execution on target)").option("--account-id <id>", "Account ID to select when multiple accounts exist", parsePositiveInt).option("--json", "Output as JSON").action(handleCampaignExcludeRemove), program3.command("campaign-export").description("Export a campaign configuration as YAML or JSON").argument("<campaignId>", "Campaign ID to export", parsePositiveInt).addOption(new Option("--format <format>", "Export format").choices(["yaml", "json"]).default("yaml")).option("--output <path>", "Output file path (default: stdout)").option("--cdp-port <port>", "CDP debugging port (auto-discovered when omitted)", parsePositiveInt).option("--cdp-host <host>", "CDP host (default: 127.0.0.1)").option("--allow-remote", "SECURITY: allow non-loopback CDP connections (enables remote code execution on target)").option("--account-id <id>", "Account ID to select when multiple accounts exist", parsePositiveInt).action(handleCampaignExport), program3.command("campaign-status").description("Check campaign execution status").argument("<campaignId>", "Campaign ID to check", parsePositiveInt).option("--include-results", "Include execution results").option("--limit <n>", "Max results to show (default: 20)", parsePositiveInt).option("--cdp-port <port>", "CDP debugging port (auto-discovered when omitted)", parsePositiveInt).option("--cdp-host <host>", "CDP host (default: 127.0.0.1)").option("--allow-remote", "SECURITY: allow non-loopback CDP connections (enables remote code execution on target)").option("--account-id <id>", "Account ID to select when multiple accounts exist", parsePositiveInt).option("--json", "Output as JSON").action(handleCampaignStatus), program3.command("campaign-statistics").description("Get per-action statistics for a campaign").argument("<campaignId>", "Campaign ID", parsePositiveInt).option("--action-id <id>", "Filter to a specific action", parsePositiveInt).option("--max-errors <n>", "Max top errors per action (default: 5)", parsePositiveInt).option("--cdp-port <port>", "CDP debugging port (auto-discovered when omitted)", parsePositiveInt).option("--cdp-host <host>", "CDP host (default: 127.0.0.1)").option("--allow-remote", "SECURITY: allow non-loopback CDP connections (enables remote code execution on target)").option("--account-id <id>", "Account ID to select when multiple accounts exist", parsePositiveInt).option("--json", "Output as JSON").action(handleCampaignStatistics), program3.command("campaign-move-next").description("Move people from one action to the next in a campaign").argument("<campaignId>", "Campaign ID", parsePositiveInt).argument("<actionId>", "Action ID to move people from", parsePositiveInt).option("--person-ids <ids>", "Comma-separated person IDs").option("--person-ids-file <path>", "File containing person IDs").option("--cdp-port <port>", "CDP debugging port (auto-discovered when omitted)", parsePositiveInt).option("--cdp-host <host>", "CDP host (default: 127.0.0.1)").option("--allow-remote", "SECURITY: allow non-loopback CDP connections (enables remote code execution on target)").option("--account-id <id>", "Account ID to select when multiple accounts exist", parsePositiveInt).option("--json", "Output as JSON").action(handleCampaignMoveNext), program3.command("campaign-retry").description("Reset specified people for re-run in a campaign").argument("<campaignId>", "Campaign ID", parsePositiveInt).option("--person-ids <ids>", "Comma-separated person IDs").option("--person-ids-file <path>", "File containing person IDs").option("--cdp-port <port>", "CDP debugging port (auto-discovered when omitted)", parsePositiveInt).option("--cdp-host <host>", "CDP host (default: 127.0.0.1)").option("--allow-remote", "SECURITY: allow non-loopback CDP connections (enables remote code execution on target)").option("--account-id <id>", "Account ID to select when multiple accounts exist", parsePositiveInt).option("--json", "Output as JSON").action(handleCampaignRetry), program3.command("campaign-start").description("Start a campaign with specified target persons").argument("<campaignId>", "Campaign ID to start", parsePositiveInt).option("--person-ids <ids>", "Comma-separated person IDs").option("--person-ids-file <path>", "File containing person IDs").option("--cdp-port <port>", "CDP debugging port (auto-discovered when omitted)", parsePositiveInt).option("--cdp-host <host>", "CDP host (default: 127.0.0.1)").option("--allow-remote", "SECURITY: allow non-loopback CDP connections (enables remote code execution on target)").option("--account-id <id>", "Account ID to select when multiple accounts exist", parsePositiveInt).option("--json", "Output as JSON").action(handleCampaignStart), program3.command("campaign-stop").description("Stop a running campaign").argument("<campaignId>", "Campaign ID to stop", parsePositiveInt).option("--cdp-port <port>", "CDP debugging port (auto-discovered when omitted)", parsePositiveInt).option("--cdp-host <host>", "CDP host (default: 127.0.0.1)").option("--allow-remote", "SECURITY: allow non-loopback CDP connections (enables remote code execution on target)").option("--account-id <id>", "Account ID to select when multiple accounts exist", parsePositiveInt).option("--json", "Output as JSON").action(handleCampaignStop), program3.command("campaign-update").description("Update a campaign's name and/or description").argument("<campaignId>", "Campaign ID to update", parsePositiveInt).option("--name <name>", "New campaign name").option("--description <text>", "New campaign description").option("--clear-description", "Clear the campaign description").option("--cdp-port <port>", "CDP debugging port (auto-discovered when omitted)", parsePositiveInt).option("--cdp-host <host>", "CDP host (default: 127.0.0.1)").option("--allow-remote", "SECURITY: allow non-loopback CDP connections (enables remote code execution on target)").option("--account-id <id>", "Account ID to select when multiple accounts exist", parsePositiveInt).option("--json", "Output as JSON").action(handleCampaignUpdate), program3.command("campaign-add-action").description("Add a new action to a campaign's action chain").argument("<campaignId>", "Campaign ID", parsePositiveInt).requiredOption("--name <name>", "Display name for the action").requiredOption("--action-type <type>", "Action type identifier (e.g., 'VisitAndExtract', 'MessageToPerson')").option("--description <text>", "Action description").option("--cool-down <ms>", "Milliseconds between action executions", parsePositiveInt).option("--max-results <n>", "Maximum results per iteration (-1 for unlimited)", parseMaxResults).option("--action-settings <json>", "Action-specific settings as JSON").option("--cdp-port <port>", "CDP debugging port (auto-discovered when omitted)", parsePositiveInt).option("--cdp-host <host>", "CDP host (default: 127.0.0.1)").option("--allow-remote", "SECURITY: allow non-loopback CDP connections (enables remote code execution on target)").option("--account-id <id>", "Account ID to select when multiple accounts exist", parsePositiveInt).option("--json", "Output as JSON").action(handleCampaignAddAction), program3.command("campaign-remove-action").description("Remove an action from a campaign's action chain").argument("<campaignId>", "Campaign ID", parsePositiveInt).argument("<actionId>", "Action ID to remove", parsePositiveInt).option("--cdp-port <port>", "CDP debugging port (auto-discovered when omitted)", parsePositiveInt).option("--cdp-host <host>", "CDP host (default: 127.0.0.1)").option("--allow-remote", "SECURITY: allow non-loopback CDP connections (enables remote code execution on target)").option("--account-id <id>", "Account ID to select when multiple accounts exist", parsePositiveInt).option("--json", "Output as JSON").action(handleCampaignRemoveAction), program3.command("campaign-update-action").description("Update an existing action's configuration in a campaign").argument("<campaignId>", "Campaign ID", parsePositiveInt).argument("<actionId>", "Action ID to update", parsePositiveInt).option("--name <name>", "New display name for the action").option("--description <text>", "New action description").option("--clear-description", "Clear the action description").option("--cool-down <ms>", "Milliseconds between action executions", parsePositiveInt).option("--max-results <n>", "Maximum results per iteration (-1 for unlimited)", parseMaxResults).option("--action-settings <json>", "Action-specific settings as JSON (merged with existing)").option("--cdp-port <port>", "CDP debugging port (auto-discovered when omitted)", parsePositiveInt).option("--cdp-host <host>", "CDP host (default: 127.0.0.1)").option("--allow-remote", "SECURITY: allow non-loopback CDP connections (enables remote code execution on target)").option("--account-id <id>", "Account ID to select when multiple accounts exist", parsePositiveInt).option("--json", "Output as JSON").action(handleCampaignUpdateAction), program3.command("campaign-reorder-actions").description("Reorder actions in a campaign's action chain").argument("<campaignId>", "Campaign ID", parsePositiveInt).requiredOption("--action-ids <ids>", "Comma-separated action IDs in desired order").option("--cdp-port <port>", "CDP debugging port (auto-discovered when omitted)", parsePositiveInt).option("--cdp-host <host>", "CDP host (default: 127.0.0.1)").option("--allow-remote", "SECURITY: allow non-loopback CDP connections (enables remote code execution on target)").option("--account-id <id>", "Account ID to select when multiple accounts exist", parsePositiveInt).option("--json", "Output as JSON").action(handleCampaignReorderActions), program3.command("import-people-from-urls").description("Import LinkedIn profile URLs into a campaign action target list").argument("<campaignId>", "Campaign ID to import into", parsePositiveInt).option("--urls <urls>", "Comma-separated LinkedIn profile URLs").option("--urls-file <path>", "File containing LinkedIn profile URLs").option("--cdp-port <port>", "CDP debugging port (auto-discovered when omitted)", parsePositiveInt).option("--cdp-host <host>", "CDP host (default: 127.0.0.1)").option("--allow-remote", "SECURITY: allow non-loopback CDP connections (enables remote code execution on target)").option("--account-id <id>", "Account ID to select when multiple accounts exist", parsePositiveInt).option("--json", "Output as JSON").action(handleImportPeopleFromUrls), program3.command("collect-people").description("Collect people from a LinkedIn page into a campaign").argument("<campaignId>", "Campaign ID to collect into", parsePositiveInt).argument("<sourceUrl>", "LinkedIn page URL to collect from").option("--limit <n>", "Max profiles to collect", parsePositiveInt).option("--max-pages <n>", "Max pages to process", parsePositiveInt).option("--page-size <n>", "Results per page", parsePositiveInt).option("--source-type <type>", "Explicit source type (bypasses URL detection)").option("--cdp-port <port>", "CDP debugging port (auto-discovered when omitted)", parsePositiveInt).option("--cdp-host <host>", "CDP host (default: 127.0.0.1)").option("--allow-remote", "SECURITY: allow non-loopback CDP connections (enables remote code execution on target)").option("--account-id <id>", "Account ID to select when multiple accounts exist", parsePositiveInt).option("--json", "Output as JSON").action(handleCollectPeople), program3.command("campaign-remove-people").description("Remove people from a campaign's target list entirely").argument("<campaignId>", "Campaign ID to remove people from", parsePositiveInt).option("--person-ids <ids>", "Comma-separated person IDs").option("--person-ids-file <path>", "File containing person IDs").option("--cdp-port <port>", "CDP debugging port (auto-discovered when omitted)", parsePositiveInt).option("--cdp-host <host>", "CDP host (default: 127.0.0.1)").option("--allow-remote", "SECURITY: allow non-loopback CDP connections (enables remote code execution on target)").option("--account-id <id>", "Account ID to select when multiple accounts exist", parsePositiveInt).option("--json", "Output as JSON").action(handleCampaignRemovePeople), program3.command("list-collections").description("List LinkedHelper collections (Lists)").option("--json", "Output as JSON").action(handleListCollections), program3.command("create-collection").description("Create a new LinkedHelper collection (List)").argument("<name>", "Name for the new collection").option("--cdp-port <port>", "CDP debugging port (auto-discovered when omitted)", parsePositiveInt).option("--cdp-host <host>", "CDP host (default: 127.0.0.1)").option("--allow-remote", "SECURITY: allow non-loopback CDP connections (enables remote code execution on target)").option("--json", "Output as JSON").action(handleCreateCollection), program3.command("delete-collection").description("Delete a LinkedHelper collection (List) and its people associations").argument("<collectionId>", "Collection ID to delete", parsePositiveInt).option("--cdp-port <port>", "CDP debugging port (auto-discovered when omitted)", parsePositiveInt).option("--cdp-host <host>", "CDP host (default: 127.0.0.1)").option("--allow-remote", "SECURITY: allow non-loopback CDP connections (enables remote code execution on target)").option("--json", "Output as JSON").action(handleDeleteCollection), program3.command("add-people-to-collection").description("Add people to a LinkedHelper collection (List)").argument("<collectionId>", "Collection ID", parsePositiveInt).option("--person-ids <ids>", "Comma-separated person IDs").option("--person-ids-file <path>", "File containing person IDs").option("--cdp-port <port>", "CDP debugging port (auto-discovered when omitted)", parsePositiveInt).option("--cdp-host <host>", "CDP host (default: 127.0.0.1)").option("--allow-remote", "SECURITY: allow non-loopback CDP connections (enables remote code execution on target)").option("--json", "Output as JSON").action(handleAddPeopleToCollection), program3.command("remove-people-from-collection").description("Remove people from a LinkedHelper collection (List)").argument("<collectionId>", "Collection ID", parsePositiveInt).option("--person-ids <ids>", "Comma-separated person IDs").option("--person-ids-file <path>", "File containing person IDs").option("--cdp-port <port>", "CDP debugging port (auto-discovered when omitted)", parsePositiveInt).option("--cdp-host <host>", "CDP host (default: 127.0.0.1)").option("--allow-remote", "SECURITY: allow non-loopback CDP connections (enables remote code execution on target)").option("--json", "Output as JSON").action(handleRemovePeopleFromCollection), program3.command("import-people-from-collection").description("Import people from a LinkedHelper collection (List) into a campaign").argument("<collectionId>", "Collection ID to import from", parsePositiveInt).argument("<campaignId>", "Campaign ID to import into", parsePositiveInt).option("--cdp-port <port>", "CDP debugging port (auto-discovered when omitted)", parsePositiveInt).option("--cdp-host <host>", "CDP host (default: 127.0.0.1)").option("--allow-remote", "SECURITY: allow non-loopback CDP connections (enables remote code execution on target)").option("--json", "Output as JSON").action(handleImportPeopleFromCollection), program3.command("describe-actions").description("List available LinkedHelper action types").option("--category <category>", "Filter by category (people, messaging, engagement, crm, workflow)").option("--type <type>", "Get details for a specific action type").option("--json", "Output as JSON").action(handleDescribeActions), program3.command("query-messages").description("Query messaging history from the local database").option("--person-id <id>", "Filter by person ID", parsePositiveInt).option("--chat-id <id>", "Show specific conversation thread", parsePositiveInt).option("--search <text>", "Search message text").option("--limit <n>", "Max results (default: 20)", parsePositiveInt).option("--offset <n>", "Pagination offset (default: 0)", parseNonNegativeInt).option("--json", "Output as JSON").action(handleQueryMessages), program3.command("query-profile").description("Look up a cached profile from the local database").option("--person-id <id>", "Look up by internal person ID", parsePositiveInt).option("--public-id <slug>", "Look up by LinkedIn public ID").option("--include-positions", "Include full position history (career history)").option("--json", "Output as JSON").action(handleQueryProfile), program3.command("query-profiles").description("Search for profiles in the local database").option("--query <text>", "Search name or headline").option("--company <name>", "Filter by company").option("--include-history", "Search past positions too (not just current)").option("--limit <n>", "Max results (default: 20)", parsePositiveInt).option("--offset <n>", "Pagination offset (default: 0)", parseNonNegativeInt).option("--json", "Output as JSON").action(handleQueryProfiles), program3.command("query-profiles-bulk").description("Look up multiple cached profiles from the local database in a single call").option("--person-id <id>", "Look up by internal person ID (repeatable)", collectPositiveInt, []).option("--public-id <slug>", "Look up by LinkedIn public ID (repeatable)", collectString, []).option("--include-positions", "Include full position history (career history)").option("--json", "Output as JSON").action(handleQueryProfilesBulk), program3.command("scrape-messaging-history").description("Scrape messaging history from LinkedIn into the local database").option("--person-id <id>", "Person ID to scrape (repeatable, at least one required)", collectPositiveInt, []).option("--pause-others", "Pause all other campaigns during execution, then restore them").option("--cdp-port <port>", "CDP debugging port (auto-discovered when omitted)", parsePositiveInt).option("--cdp-host <host>", "CDP host (default: 127.0.0.1)").option("--allow-remote", "SECURITY: allow non-loopback CDP connections (enables remote code execution on target)").option("--json", "Output as JSON").action(handleScrapeMessagingHistory), program3.command("visit-profile").description("Visit a LinkedIn profile and extract data (name, positions, education, skills)").option("--person-id <id>", "Person ID to visit (provide this or --url)", parsePositiveInt).option("--url <url>", "LinkedIn profile URL to visit (provide this or --person-id)").option("--extract-current-organizations", "Extract current company info during profile visit").option("--cdp-port <port>", "CDP debugging port (auto-discovered when omitted)", parsePositiveInt).option("--cdp-host <host>", "CDP host (default: 127.0.0.1)").option("--allow-remote", "SECURITY: allow non-loopback CDP connections (enables remote code execution on target)").option("--json", "Output as JSON").action(handleVisitProfile), program3.command("check-replies").description("Check for new message replies from LinkedIn").option("--person-id <id>", "Person ID to check (repeatable, at least one required)", collectPositiveInt, []).option("--since <timestamp>", "Only show replies after this ISO timestamp").option("--pause-others", "Pause all other campaigns during execution, then restore them").option("--cdp-port <port>", "CDP debugging port (auto-discovered when omitted)", parsePositiveInt).option("--cdp-host <host>", "CDP host (default: 127.0.0.1)").option("--allow-remote", "SECURITY: allow non-loopback CDP connections (enables remote code execution on target)").option("--json", "Output as JSON").action(handleCheckReplies), program3.command("check-status").description("Check LinkedHelper status").option("--cdp-port <port>", "CDP debugging port (auto-discovered when omitted)", parsePositiveInt).option("--cdp-host <host>", "CDP host (default: 127.0.0.1)").option("--allow-remote", "SECURITY: allow non-loopback CDP connections (enables remote code execution on target)").option("--json", "Output as JSON").action(handleCheckStatus), program3.command("get-errors").description("Query current UI errors, dialogs, and blocking popups").option("--cdp-port <port>", "CDP debugging port (auto-discovered when omitted)", parsePositiveInt).option("--cdp-host <host>", "CDP host (default: 127.0.0.1)").option("--allow-remote", "SECURITY: allow non-loopback CDP connections (enables remote code execution on target)").option("--json", "Output as JSON").action(handleGetErrors), program3.command("dismiss-errors").description("Dismiss closable error popups in the instance UI").option("--cdp-port <port>", "CDP debugging port (auto-discovered when omitted)", parsePositiveInt).option("--cdp-host <host>", "CDP host (default: 127.0.0.1)").option("--allow-remote", "SECURITY: allow non-loopback CDP connections (enables remote code execution on target)").option("--json", "Output as JSON").action(handleDismissErrors), program3.command("get-action-budget").description("Get daily action budget with limit types, thresholds, and usage").option("--cdp-port <port>", "CDP debugging port (auto-discovered when omitted)", parsePositiveInt).option("--cdp-host <host>", "CDP host (default: 127.0.0.1)").option("--allow-remote", "SECURITY: allow non-loopback CDP connections (enables remote code execution on target)").option("--json", "Output as JSON").action(handleGetActionBudget), program3.command("get-throttle-status").description("Check if LinkedIn is throttling the account").option("--cdp-port <port>", "CDP debugging port (auto-discovered when omitted)", parsePositiveInt).option("--cdp-host <host>", "CDP host (default: 127.0.0.1)").option("--allow-remote", "SECURITY: allow non-loopback CDP connections (enables remote code execution on target)").option("--json", "Output as JSON").action(handleGetThrottleStatus), program3.command("comment-on-post").description("Post a comment on a LinkedIn post").requiredOption("--url <url>", "LinkedIn post URL").requiredOption("--text <text>", "Comment text to post").option("--parent-comment-urn <urn>", "Reply to a specific comment instead of posting top-level (use commentUrn from get-post)").option("--mentions <json>", `JSON array of {name} objects for @mentions (e.g. '[{"name":"John Doe"}]')`).option("--cdp-port <port>", "CDP debugging port (auto-discovered when omitted)", parsePositiveInt).option("--cdp-host <host>", "CDP host (default: 127.0.0.1)").option("--allow-remote", "SECURITY: allow non-loopback CDP connections (enables remote code execution on target)").option("--dry-run", "Validate the comment flow but skip typing and submitting").option("--json", "Output as JSON").action(handleCommentOnPost), program3.command("get-post").description("Get detailed data for a single LinkedIn post with comment thread").argument("<postUrl>", "LinkedIn post URL or URN").option("--comment-count <n>", "Maximum number of comments to load (default: 100, 0 to skip)", parseNonNegativeInt).option("--cdp-port <port>", "CDP debugging port (auto-discovered when omitted)", parsePositiveInt).option("--cdp-host <host>", "CDP host (default: 127.0.0.1)").option("--allow-remote", "SECURITY: allow non-loopback CDP connections (enables remote code execution on target)").option("--json", "Output as JSON").action(handleGetPost), program3.command("get-post-stats").description("Get engagement statistics for a LinkedIn post").argument("<postUrl>", "LinkedIn post URL or URN").option("--cdp-port <port>", "CDP debugging port (auto-discovered when omitted)", parsePositiveInt).option("--cdp-host <host>", "CDP host (default: 127.0.0.1)").option("--allow-remote", "SECURITY: allow non-loopback CDP connections (enables remote code execution on target)").option("--json", "Output as JSON").action(handleGetPostStats), program3.command("get-feed").description("Read the LinkedIn home feed with cursor-based pagination").option("--count <n>", "Number of posts per page (default: 10)", parsePositiveInt).option("--cursor <token>", "Cursor token from a previous call for the next page").option("--cdp-port <port>", "CDP debugging port (auto-discovered when omitted)", parsePositiveInt).option("--cdp-host <host>", "CDP host (default: 127.0.0.1)").option("--allow-remote", "SECURITY: allow non-loopback CDP connections (enables remote code execution on target)").option("--json", "Output as JSON").action(handleGetFeed), program3.command("dismiss-feed-post").description('Dismiss a post from the LinkedIn feed by clicking "Not interested"').argument("<feedIndex>", "Zero-based index of the post in the visible feed", parseNonNegativeInt).option("--cdp-port <port>", "CDP debugging port (auto-discovered when omitted)", parsePositiveInt).option("--cdp-host <host>", "CDP host (default: 127.0.0.1)").option("--allow-remote", "SECURITY: allow non-loopback CDP connections (enables remote code execution on target)").option("--dry-run", "Locate the menu item without clicking it").option("--json", "Output as JSON").action(handleDismissFeedPost), program3.command("react-to-post").description("React to a LinkedIn post with a specific reaction type").argument("<postUrl>", "LinkedIn post URL").addOption(new Option("--type <type>", "Reaction type (default: like)").choices(["like", "celebrate", "support", "love", "insightful", "funny"]).default("like")).option("--cdp-port <port>", "CDP debugging port (auto-discovered when omitted)", parsePositiveInt).option("--cdp-host <host>", "CDP host (default: 127.0.0.1)").option("--allow-remote", "SECURITY: allow non-loopback CDP connections (enables remote code execution on target)").option("--dry-run", "Detect current reaction state without clicking").option("--json", "Output as JSON").action(handleReactToPost), program3.command("react-to-comment").description("React to a specific LinkedIn comment with a specific reaction type").argument("<postUrl>", "LinkedIn post URL containing the target comment").argument("<commentUrn>", "Comment URN (urn:li:comment:(activity:...,...))").addOption(new Option("--type <type>", "Reaction type (default: like)").choices(["like", "celebrate", "support", "love", "insightful", "funny"]).default("like")).option("--cdp-port <port>", "CDP debugging port (auto-discovered when omitted)", parsePositiveInt).option("--cdp-host <host>", "CDP host (default: 127.0.0.1)").option("--allow-remote", "SECURITY: allow non-loopback CDP connections (enables remote code execution on target)").option("--dry-run", "Detect current reaction state without clicking").option("--json", "Output as JSON").action(handleReactToComment), program3.command("unfollow-from-feed").description("Unfollow the author of a post via its feed three-dot menu").argument("<feedIndex>", "Zero-based index of the post in the visible feed", parseNonNegativeInt).option("--cdp-port <port>", "CDP debugging port (auto-discovered when omitted)", parsePositiveInt).option("--cdp-host <host>", "CDP host (default: 127.0.0.1)").option("--allow-remote", "SECURITY: allow non-loopback CDP connections (enables remote code execution on target)").option("--dry-run", "Locate the menu item without clicking it").option("--json", "Output as JSON").action(handleUnfollowFromFeed), program3.command("hide-feed-author").description("Click 'Hide posts by {Name}' in a feed post's three-dot menu").argument("<feedIndex>", "Zero-based index of the post in the visible feed", parseNonNegativeInt).option("--cdp-port <port>", "CDP debugging port (auto-discovered when omitted)", parsePositiveInt).option("--cdp-host <host>", "CDP host (default: 127.0.0.1)").option("--allow-remote", "SECURITY: allow non-loopback CDP connections (enables remote code execution on target)").option("--dry-run", "Locate the menu item without clicking it").option("--json", "Output as JSON").action(handleHideFeedAuthor), program3.command("hide-feed-author-profile").description("Mute a LinkedIn profile's posts via the profile page's More menu (primarily 1st-degree connections)").argument("<profileUrl>", "LinkedIn profile URL").option("--cdp-port <port>", "CDP debugging port (auto-discovered when omitted)", parsePositiveInt).option("--cdp-host <host>", "CDP host (default: 127.0.0.1)").option("--allow-remote", "SECURITY: allow non-loopback CDP connections (enables remote code execution on target)").option("--dry-run", "Open the More menu and detect mute availability without clicking Mute").option("--json", "Output as JSON").action(handleHideFeedAuthorProfile), program3.command("unfollow-profile").description("Unfollow a LinkedIn member profile or organization page by navigating to it and clicking Following \u2192 Unfollow").argument("<profileUrl>", "LinkedIn profile URL (/in/{publicId}/) or company URL (/company/{slug}/)").option("--cdp-port <port>", "CDP debugging port (auto-discovered when omitted)", parsePositiveInt).option("--cdp-host <host>", "CDP host (default: 127.0.0.1)").option("--allow-remote", "SECURITY: allow non-loopback CDP connections (enables remote code execution on target)").option("--dry-run", "Detect the follow state without clicking Unfollow").option("--json", "Output as JSON").action(handleUnfollowProfile), program3.command("get-profile-activity").description("Get recent posts/activity from a LinkedIn profile").argument("<profile>", "LinkedIn profile public ID or URL").option("--count <n>", "Number of posts per page (default: 10)", parsePositiveInt).option("--cursor <token>", "Cursor token from a previous call for the next page").option("--cdp-port <port>", "CDP debugging port (auto-discovered when omitted)", parsePositiveInt).option("--cdp-host <host>", "CDP host (default: 127.0.0.1)").option("--allow-remote", "SECURITY: allow non-loopback CDP connections (enables remote code execution on target)").option("--json", "Output as JSON").action(handleGetProfileActivity), program3.command("build-url").description("Build a LinkedIn URL for a given source type").argument("<sourceType>", "Source type (e.g., SearchPage, SNSearchPage, OrganizationPeople)").option("--keywords <keywords>", "Search keywords (SearchPage, SNSearchPage)").option("--current-company <id>", "Current company ID (SearchPage, repeatable)", collectString, []).option("--past-company <id>", "Past company ID (SearchPage, repeatable)", collectString, []).option("--geo <id>", "Geographic URN ID (SearchPage, repeatable)", collectString, []).option("--industry <id>", "Industry ID (SearchPage, repeatable)", collectString, []).option("--school <id>", "School ID (SearchPage, repeatable)", collectString, []).option("--network <code>", "Connection degree: F, S, O (SearchPage, repeatable)", collectString, []).option("--profile-language <code>", "Profile language code (SearchPage, repeatable)", collectString, []).option("--service-category <id>", "Service category ID (SearchPage, repeatable)", collectString, []).option("--filter <spec>", "SN filter TYPE|ID|TEXT|INCLUDED (SNSearchPage, repeatable)", collectString, []).option("--slug <slug>", "Company or school slug (OrganizationPeople, Alumni)").option("--id <id>", "Entity ID (Group, Event, SNListPage, etc.)").option("--json", "Output as JSON").action(handleBuildUrl), program3.command("resolve-entity").description("Resolve a LinkedIn entity (company, geo, school) by name via the public LinkedIn typeahead (no auth, no LinkedHelper required)").argument("<entityType>", "Entity type: COMPANY, GEO, or SCHOOL").argument("<query>", "Search query").option("--limit <n>", "Max results to show", parsePositiveInt).option("--json", "Output as JSON").action(handleResolveEntity), program3.command("list-reference-data").description("List LinkedIn reference data (industries, seniorities, functions, etc.)").argument("<dataType>", "Data type: INDUSTRY, SENIORITY, FUNCTION, COMPANY_SIZE, CONNECTION_DEGREE, PROFILE_LANGUAGE").option("--json", "Output as JSON").action(handleListReferenceData), program3.command("search-posts").description("Search LinkedIn for posts by keyword or hashtag").argument("<query>", "Search query (keywords or hashtag)").option("--cursor <n>", "Index-based cursor from a previous search for the next page", parseNonNegativeInt).option("--count <n>", "Results per page (default: 10)", parsePositiveInt).option("--cdp-port <port>", "CDP debugging port (auto-discovered when omitted)", parsePositiveInt).option("--cdp-host <host>", "CDP host (default: 127.0.0.1)").option("--allow-remote", "SECURITY: allow non-loopback CDP connections (enables remote code execution on target)").option("--json", "Output as JSON").action(handleSearchPosts), program3.command("message-person").description("Send a direct message to a 1st-degree LinkedIn connection").option("--person-id <id>", "Person ID (provide this or --url)", parsePositiveInt).option("--url <url>", "LinkedIn profile URL (provide this or --person-id)").requiredOption("--message-template <json>", "Message template as JSON").option("--subject-template <json>", "Subject line template as JSON").option("--reject-if-replied", "Skip if person already replied").option("--reject-if-messaged", "Skip if already messaged").option("--keep-campaign", "Archive the ephemeral campaign instead of deleting it").option("--timeout <ms>", "Maximum time to wait for action completion in milliseconds (default: 5 min)", parsePositiveInt).option("--cdp-port <port>", "CDP debugging port (auto-discovered when omitted)", parsePositiveInt).option("--cdp-host <host>", "CDP host (default: 127.0.0.1)").option("--allow-remote", "SECURITY: allow non-loopback CDP connections (enables remote code execution on target)").option("--json", "Output as JSON").action(handleMessagePerson), program3.command("send-invite").description("Send a LinkedIn connection request").option("--person-id <id>", "Person ID (provide this or --url)", parsePositiveInt).option("--url <url>", "LinkedIn profile URL (provide this or --person-id)").option("--message-template <json>", "Invitation message template as JSON (empty for no message)").option("--save-as-lead-sn", "Save as lead in Sales Navigator").option("--keep-campaign", "Archive the ephemeral campaign instead of deleting it").option("--timeout <ms>", "Maximum time to wait for action completion in milliseconds (default: 5 min)", parsePositiveInt).option("--cdp-port <port>", "CDP debugging port (auto-discovered when omitted)", parsePositiveInt).option("--cdp-host <host>", "CDP host (default: 127.0.0.1)").option("--allow-remote", "SECURITY: allow non-loopback CDP connections (enables remote code execution on target)").option("--json", "Output as JSON").action(handleSendInvite), program3.command("send-inmail").description("Send an InMail message to a LinkedIn member (no connection required)").option("--person-id <id>", "Person ID (provide this or --url)", parsePositiveInt).option("--url <url>", "LinkedIn profile URL (provide this or --person-id)").requiredOption("--message-template <json>", "InMail body template as JSON").option("--subject-template <json>", "InMail subject line template as JSON").option("--reject-if-replied", "Skip if person already replied").option("--proceed-on-out-of-credits", "Continue even when InMail credits are exhausted").option("--keep-campaign", "Archive the ephemeral campaign instead of deleting it").option("--timeout <ms>", "Maximum time to wait for action completion in milliseconds (default: 5 min)", parsePositiveInt).option("--cdp-port <port>", "CDP debugging port (auto-discovered when omitted)", parsePositiveInt).option("--cdp-host <host>", "CDP host (default: 127.0.0.1)").option("--allow-remote", "SECURITY: allow non-loopback CDP connections (enables remote code execution on target)").option("--json", "Output as JSON").action(handleSendInmail), program3.command("follow-person").description("Follow or unfollow a LinkedIn profile").option("--person-id <id>", "Person ID (provide this or --url)", parsePositiveInt).option("--url <url>", "LinkedIn profile URL (provide this or --person-id)").addOption(new Option("--mode <mode>", "Follow or unfollow").choices(["follow", "unfollow"]).default("follow")).option("--skip-if-unfollowable", "Skip if person cannot be unfollowed").option("--keep-campaign", "Archive the ephemeral campaign instead of deleting it").option("--timeout <ms>", "Maximum time to wait for action completion in milliseconds (default: 5 min)", parsePositiveInt).option("--cdp-port <port>", "CDP debugging port (auto-discovered when omitted)", parsePositiveInt).option("--cdp-host <host>", "CDP host (default: 127.0.0.1)").option("--allow-remote", "SECURITY: allow non-loopback CDP connections (enables remote code execution on target)").option("--json", "Output as JSON").action(handleFollowPerson), program3.command("endorse-skills").description("Endorse skills on a LinkedIn profile").option("--person-id <id>", "Person ID (provide this or --url)", parsePositiveInt).option("--url <url>", "LinkedIn profile URL (provide this or --person-id)").option("--skill-name <name>", "Specific skill name to endorse (repeatable)", collectString, []).option("--limit <n>", "Max number of skills to endorse", parsePositiveInt).option("--skip-if-not-endorsable", "Skip if person has no endorsable skills").option("--keep-campaign", "Archive the ephemeral campaign instead of deleting it").option("--timeout <ms>", "Maximum time to wait for action completion in milliseconds (default: 5 min)", parsePositiveInt).option("--cdp-port <port>", "CDP debugging port (auto-discovered when omitted)", parsePositiveInt).option("--cdp-host <host>", "CDP host (default: 127.0.0.1)").option("--allow-remote", "SECURITY: allow non-loopback CDP connections (enables remote code execution on target)").option("--json", "Output as JSON").action((opts) => {
+  lhremote find-app --verbose      Print diagnostics while discovering instances
+  lhremote find-app --json         Machine-readable JSON output
+  lhremote find-app --ports        Probe every LinkedHelper process's listening ports for CDP
+  lhremote find-app --ports 19780  Probe listening ports of PID 19780 (any process)
+`), program3.command("launch-app").description("Launch the LinkedHelper application").option("--force", "Kill existing LinkedHelper processes before launching").option("--verbose", "Print diagnostic messages during launch (binary path, CDP probe status)").option("--no-visible", "Do not restore/focus the LinkedHelper launcher window on Windows").action(handleLaunchApp), program3.command("quit-app").description("Quit the LinkedHelper application").option("--verbose", "Print diagnostic messages while quitting").option("--cdp-port <port>", "CDP debugging port to target", parsePositiveInt).action(handleQuitApp), program3.command("list-accounts").description("List LinkedHelper accounts (selected workspace by default)").option("--cdp-port <port>", "CDP debugging port (auto-discovered when omitted)", parsePositiveInt).option("--cdp-host <host>", "CDP host (default: 127.0.0.1)").option("--allow-remote", "SECURITY: allow non-loopback CDP connections (enables remote code execution on target)").option("--json", "Output as JSON").option("--all-workspaces", "List accounts across every workspace the LH user belongs to, not just the selected one (LinkedHelper 2.113.x+)").action(handleListAccounts), program3.command("list-workspaces").description("List LinkedHelper workspaces the current user belongs to (2.113.x+)").option("--cdp-port <port>", "CDP debugging port (auto-discovered when omitted)", parsePositiveInt).option("--cdp-host <host>", "CDP host (default: 127.0.0.1)").option("--allow-remote", "SECURITY: allow non-loopback CDP connections (enables remote code execution on target)").option("--json", "Output as JSON").action(handleListWorkspaces), program3.command("start-instance").description("Start a LinkedHelper instance").argument("[accountId]", "Account ID to start (auto-selects when exactly one account exists)", parsePositiveInt).option("--cdp-port <port>", "CDP debugging port (auto-discovered when omitted)", parsePositiveInt).option("--cdp-host <host>", "CDP host (default: 127.0.0.1)").option("--allow-remote", "SECURITY: allow non-loopback CDP connections (enables remote code execution on target)").action(handleStartInstance), program3.command("stop-instance").description("Stop a LinkedHelper instance").argument("[accountId]", "Account ID to stop (auto-selects when exactly one account exists)", parsePositiveInt).option("--cdp-port <port>", "CDP debugging port (auto-discovered when omitted)", parsePositiveInt).option("--cdp-host <host>", "CDP host (default: 127.0.0.1)").option("--allow-remote", "SECURITY: allow non-loopback CDP connections (enables remote code execution on target)").action(handleStopInstance), program3.command("restart-instance").description("Restart a single LinkedHelper account instance. Stops it, waits for exit, starts it, and waits until connectable. No-op when already healthy unless --force is used.").argument("<accountId>", "Account ID to restart", parsePositiveInt).option("--cdp-port <port>", "CDP debugging port (auto-discovered when omitted)", parsePositiveInt).option("--cdp-host <host>", "CDP host (default: 127.0.0.1)").option("--allow-remote", "SECURITY: allow non-loopback CDP connections (enables remote code execution on target)").option("--force", "Restart even when the instance is already healthy").option("--json", "Output as JSON").action(handleRestartInstance), program3.command("ensure-instances").description("Idempotently start the specified account instances (skips already-running ones)").argument("<accountId...>", "Account IDs to ensure are running", (v, prev) => collectPositiveInt(v, prev)).option("--cdp-port <port>", "CDP debugging port (auto-discovered when omitted)", parsePositiveInt).option("--cdp-host <host>", "CDP host (default: 127.0.0.1)").option("--allow-remote", "SECURITY: allow non-loopback CDP connections (enables remote code execution on target)").option("--json", "Output as JSON").action(handleEnsureInstances), program3.command("list-orphans").description("List orphaned LinkedHelper account-instance processes").option("--json", "Output as JSON").action(handleListOrphans), program3.command("reap-orphans").description("Terminate orphaned LinkedHelper account-instance processes (dry-run by default)").option("--confirm", "Actually terminate orphaned processes (without this flag, performs a dry-run)").option("--json", "Output kill results as JSON").action(handleReapOrphans), program3.command("campaign-list").description("List LinkedHelper campaigns").option("--include-archived", "Include archived campaigns").option("--cdp-port <port>", "CDP debugging port (auto-discovered when omitted)", parsePositiveInt).option("--cdp-host <host>", "CDP host (default: 127.0.0.1)").option("--allow-remote", "SECURITY: allow non-loopback CDP connections (enables remote code execution on target)").option("--account-id <id>", "Account ID to select when multiple accounts exist", parsePositiveInt).option("--json", "Output as JSON").action(handleCampaignList), program3.command("campaign-list-people").description("List people assigned to a campaign").argument("<campaignId>", "Campaign ID", parsePositiveInt).option("--action-id <id>", "Filter to a specific action", parsePositiveInt).option("--status <status>", "Filter by status (queued, processed, successful, failed)").option("--urls <urls>", "Filter/verify by comma-separated LinkedIn profile URLs").option("--urls-file <path>", "Filter/verify by LinkedIn profile URLs read from a file (newline- or comma-separated)").option("--limit <n>", "Max results (default: 20)", parsePositiveInt).option("--offset <n>", "Pagination offset (default: 0)", parseNonNegativeInt).option("--cdp-port <port>", "CDP debugging port (auto-discovered when omitted)", parsePositiveInt).option("--cdp-host <host>", "CDP host (default: 127.0.0.1)").option("--allow-remote", "SECURITY: allow non-loopback CDP connections (enables remote code execution on target)").option("--account-id <id>", "Account ID to select when multiple accounts exist", parsePositiveInt).option("--json", "Output as JSON").action(handleCampaignListPeople), program3.command("campaign-list-organizations").description("List organizations assigned to an organizations campaign").argument("<campaignId>", "Campaign ID", parsePositiveInt).option("--action-id <id>", "Filter to a specific action", parsePositiveInt).option("--status <status>", "Filter by status (queued, processed, successful, failed)").option("--urls <urls>", "Filter/verify by comma-separated LinkedIn company URLs").option("--urls-file <path>", "Filter/verify by LinkedIn company URLs read from a file (newline- or comma-separated)").option("--limit <n>", "Max results (default: 20)", parsePositiveInt).option("--offset <n>", "Pagination offset (default: 0)", parseNonNegativeInt).option("--cdp-port <port>", "CDP debugging port (auto-discovered when omitted)", parsePositiveInt).option("--cdp-host <host>", "CDP host (default: 127.0.0.1)").option("--allow-remote", "SECURITY: allow non-loopback CDP connections (enables remote code execution on target)").option("--account-id <id>", "Account ID to select when multiple accounts exist", parsePositiveInt).option("--json", "Output as JSON").action(handleCampaignListOrganizations), program3.command("campaign-create").description("Create a new campaign from YAML or JSON configuration").option("--file <path>", "Path to campaign configuration file").option("--yaml <config>", "Inline YAML campaign configuration").option("--json-input <config>", "Inline JSON campaign configuration").option("--cdp-port <port>", "CDP debugging port (auto-discovered when omitted)", parsePositiveInt).option("--cdp-host <host>", "CDP host (default: 127.0.0.1)").option("--allow-remote", "SECURITY: allow non-loopback CDP connections (enables remote code execution on target)").option("--account-id <id>", "Account ID to select when multiple accounts exist", parsePositiveInt).option("--json", "Output as JSON").action(handleCampaignCreate), program3.command("campaign-get").description("Get detailed campaign information").argument("<campaignId>", "Campaign ID", parsePositiveInt).option("--cdp-port <port>", "CDP debugging port (auto-discovered when omitted)", parsePositiveInt).option("--cdp-host <host>", "CDP host (default: 127.0.0.1)").option("--allow-remote", "SECURITY: allow non-loopback CDP connections (enables remote code execution on target)").option("--account-id <id>", "Account ID to select when multiple accounts exist", parsePositiveInt).option("--json", "Output as JSON").action(handleCampaignGet), program3.command("campaign-delete").description("Delete a campaign (archives by default, use --hard to permanently remove)").argument("<campaignId>", "Campaign ID to delete", parsePositiveInt).option("--hard", "Permanently delete the campaign and all related data").option("--cdp-port <port>", "CDP debugging port (auto-discovered when omitted)", parsePositiveInt).option("--cdp-host <host>", "CDP host (default: 127.0.0.1)").option("--allow-remote", "SECURITY: allow non-loopback CDP connections (enables remote code execution on target)").option("--account-id <id>", "Account ID to select when multiple accounts exist", parsePositiveInt).option("--json", "Output as JSON").action(handleCampaignDelete), program3.command("campaign-erase").description("Permanently erase a campaign and all related data (irreversible)").argument("<campaignId>", "Campaign ID to erase", parsePositiveInt).option("--cdp-port <port>", "CDP debugging port (auto-discovered when omitted)", parsePositiveInt).option("--cdp-host <host>", "CDP host (default: 127.0.0.1)").option("--allow-remote", "SECURITY: allow non-loopback CDP connections (enables remote code execution on target)").option("--account-id <id>", "Account ID to select when multiple accounts exist", parsePositiveInt).option("--json", "Output as JSON").action(handleCampaignErase), program3.command("campaign-exclude-list").description("View the exclude list for a campaign or action").argument("<campaignId>", "Campaign ID", parsePositiveInt).option("--action-id <id>", "Action ID (shows action-level exclude list instead of campaign-level)", parsePositiveInt).option("--cdp-port <port>", "CDP debugging port (auto-discovered when omitted)", parsePositiveInt).option("--cdp-host <host>", "CDP host (default: 127.0.0.1)").option("--allow-remote", "SECURITY: allow non-loopback CDP connections (enables remote code execution on target)").option("--account-id <id>", "Account ID to select when multiple accounts exist", parsePositiveInt).option("--json", "Output as JSON").action(handleCampaignExcludeList), program3.command("campaign-exclude-add").description("Add people to a campaign or action exclude list").argument("<campaignId>", "Campaign ID", parsePositiveInt).option("--person-ids <ids>", "Comma-separated person IDs").option("--person-ids-file <path>", "File containing person IDs").option("--action-id <id>", "Action ID (adds to action-level exclude list instead of campaign-level)", parsePositiveInt).option("--cdp-port <port>", "CDP debugging port (auto-discovered when omitted)", parsePositiveInt).option("--cdp-host <host>", "CDP host (default: 127.0.0.1)").option("--allow-remote", "SECURITY: allow non-loopback CDP connections (enables remote code execution on target)").option("--account-id <id>", "Account ID to select when multiple accounts exist", parsePositiveInt).option("--json", "Output as JSON").action(handleCampaignExcludeAdd), program3.command("campaign-exclude-remove").description("Remove people from a campaign or action exclude list").argument("<campaignId>", "Campaign ID", parsePositiveInt).option("--person-ids <ids>", "Comma-separated person IDs").option("--person-ids-file <path>", "File containing person IDs").option("--action-id <id>", "Action ID (removes from action-level exclude list instead of campaign-level)", parsePositiveInt).option("--cdp-port <port>", "CDP debugging port (auto-discovered when omitted)", parsePositiveInt).option("--cdp-host <host>", "CDP host (default: 127.0.0.1)").option("--allow-remote", "SECURITY: allow non-loopback CDP connections (enables remote code execution on target)").option("--account-id <id>", "Account ID to select when multiple accounts exist", parsePositiveInt).option("--json", "Output as JSON").action(handleCampaignExcludeRemove), program3.command("campaign-export").description("Export a campaign configuration as YAML or JSON").argument("<campaignId>", "Campaign ID to export", parsePositiveInt).addOption(new Option("--format <format>", "Export format").choices(["yaml", "json"]).default("yaml")).option("--output <path>", "Output file path (default: stdout)").option("--cdp-port <port>", "CDP debugging port (auto-discovered when omitted)", parsePositiveInt).option("--cdp-host <host>", "CDP host (default: 127.0.0.1)").option("--allow-remote", "SECURITY: allow non-loopback CDP connections (enables remote code execution on target)").option("--account-id <id>", "Account ID to select when multiple accounts exist", parsePositiveInt).action(handleCampaignExport), program3.command("campaign-status").description("Check campaign execution status").argument("<campaignId>", "Campaign ID to check", parsePositiveInt).option("--include-results", "Include execution results").option("--limit <n>", "Max results to show (default: 20)", parsePositiveInt).option("--cdp-port <port>", "CDP debugging port (auto-discovered when omitted)", parsePositiveInt).option("--cdp-host <host>", "CDP host (default: 127.0.0.1)").option("--allow-remote", "SECURITY: allow non-loopback CDP connections (enables remote code execution on target)").option("--account-id <id>", "Account ID to select when multiple accounts exist", parsePositiveInt).option("--json", "Output as JSON").action(handleCampaignStatus), program3.command("campaign-statistics").description("Get per-action statistics for a campaign").argument("<campaignId>", "Campaign ID", parsePositiveInt).option("--action-id <id>", "Filter to a specific action", parsePositiveInt).option("--max-errors <n>", "Max top errors per action (default: 5)", parsePositiveInt).option("--cdp-port <port>", "CDP debugging port (auto-discovered when omitted)", parsePositiveInt).option("--cdp-host <host>", "CDP host (default: 127.0.0.1)").option("--allow-remote", "SECURITY: allow non-loopback CDP connections (enables remote code execution on target)").option("--account-id <id>", "Account ID to select when multiple accounts exist", parsePositiveInt).option("--json", "Output as JSON").action(handleCampaignStatistics), program3.command("campaign-move-next").description("Move people from one action to the next in a campaign").argument("<campaignId>", "Campaign ID", parsePositiveInt).argument("<actionId>", "Action ID to move people from", parsePositiveInt).option("--person-ids <ids>", "Comma-separated person IDs").option("--person-ids-file <path>", "File containing person IDs").option("--cdp-port <port>", "CDP debugging port (auto-discovered when omitted)", parsePositiveInt).option("--cdp-host <host>", "CDP host (default: 127.0.0.1)").option("--allow-remote", "SECURITY: allow non-loopback CDP connections (enables remote code execution on target)").option("--account-id <id>", "Account ID to select when multiple accounts exist", parsePositiveInt).option("--json", "Output as JSON").action(handleCampaignMoveNext), program3.command("campaign-retry").description("Reset specified people for re-run in a campaign").argument("<campaignId>", "Campaign ID", parsePositiveInt).option("--person-ids <ids>", "Comma-separated person IDs").option("--person-ids-file <path>", "File containing person IDs").option("--cdp-port <port>", "CDP debugging port (auto-discovered when omitted)", parsePositiveInt).option("--cdp-host <host>", "CDP host (default: 127.0.0.1)").option("--allow-remote", "SECURITY: allow non-loopback CDP connections (enables remote code execution on target)").option("--account-id <id>", "Account ID to select when multiple accounts exist", parsePositiveInt).option("--json", "Output as JSON").action(handleCampaignRetry), program3.command("campaign-start").description("Start a campaign with specified target persons").argument("<campaignId>", "Campaign ID to start", parsePositiveInt).option("--person-ids <ids>", "Comma-separated person IDs").option("--person-ids-file <path>", "File containing person IDs").option("--cdp-port <port>", "CDP debugging port (auto-discovered when omitted)", parsePositiveInt).option("--cdp-host <host>", "CDP host (default: 127.0.0.1)").option("--allow-remote", "SECURITY: allow non-loopback CDP connections (enables remote code execution on target)").option("--account-id <id>", "Account ID to select when multiple accounts exist", parsePositiveInt).option("--json", "Output as JSON").action(handleCampaignStart), program3.command("campaign-stop").description("Stop a running campaign").argument("<campaignId>", "Campaign ID to stop", parsePositiveInt).option("--cdp-port <port>", "CDP debugging port (auto-discovered when omitted)", parsePositiveInt).option("--cdp-host <host>", "CDP host (default: 127.0.0.1)").option("--allow-remote", "SECURITY: allow non-loopback CDP connections (enables remote code execution on target)").option("--account-id <id>", "Account ID to select when multiple accounts exist", parsePositiveInt).option("--json", "Output as JSON").action(handleCampaignStop), program3.command("campaign-update").description("Update a campaign's name and/or description").argument("<campaignId>", "Campaign ID to update", parsePositiveInt).option("--name <name>", "New campaign name").option("--description <text>", "New campaign description").option("--clear-description", "Clear the campaign description").option("--cdp-port <port>", "CDP debugging port (auto-discovered when omitted)", parsePositiveInt).option("--cdp-host <host>", "CDP host (default: 127.0.0.1)").option("--allow-remote", "SECURITY: allow non-loopback CDP connections (enables remote code execution on target)").option("--account-id <id>", "Account ID to select when multiple accounts exist", parsePositiveInt).option("--json", "Output as JSON").action(handleCampaignUpdate), program3.command("campaign-add-action").description("Add a new action to a campaign's action chain").argument("<campaignId>", "Campaign ID", parsePositiveInt).requiredOption("--name <name>", "Display name for the action").requiredOption("--action-type <type>", "Action type identifier (e.g., 'VisitAndExtract', 'MessageToPerson')").option("--description <text>", "Action description").option("--cool-down <ms>", "Milliseconds between action executions", parsePositiveInt).option("--max-results <n>", "Maximum results per iteration (-1 for unlimited)", parseMaxResults).option("--action-settings <json>", "Action-specific settings as JSON").option("--cdp-port <port>", "CDP debugging port (auto-discovered when omitted)", parsePositiveInt).option("--cdp-host <host>", "CDP host (default: 127.0.0.1)").option("--allow-remote", "SECURITY: allow non-loopback CDP connections (enables remote code execution on target)").option("--account-id <id>", "Account ID to select when multiple accounts exist", parsePositiveInt).option("--json", "Output as JSON").action(handleCampaignAddAction), program3.command("campaign-remove-action").description("Remove an action from a campaign's action chain").argument("<campaignId>", "Campaign ID", parsePositiveInt).argument("<actionId>", "Action ID to remove", parsePositiveInt).option("--cdp-port <port>", "CDP debugging port (auto-discovered when omitted)", parsePositiveInt).option("--cdp-host <host>", "CDP host (default: 127.0.0.1)").option("--allow-remote", "SECURITY: allow non-loopback CDP connections (enables remote code execution on target)").option("--account-id <id>", "Account ID to select when multiple accounts exist", parsePositiveInt).option("--json", "Output as JSON").action(handleCampaignRemoveAction), program3.command("campaign-update-action").description("Update an existing action's configuration in a campaign").argument("<campaignId>", "Campaign ID", parsePositiveInt).argument("<actionId>", "Action ID to update", parsePositiveInt).option("--name <name>", "New display name for the action").option("--description <text>", "New action description").option("--clear-description", "Clear the action description").option("--cool-down <ms>", "Milliseconds between action executions", parsePositiveInt).option("--max-results <n>", "Maximum results per iteration (-1 for unlimited)", parseMaxResults).option("--action-settings <json>", "Action-specific settings as JSON (merged with existing)").option("--cdp-port <port>", "CDP debugging port (auto-discovered when omitted)", parsePositiveInt).option("--cdp-host <host>", "CDP host (default: 127.0.0.1)").option("--allow-remote", "SECURITY: allow non-loopback CDP connections (enables remote code execution on target)").option("--account-id <id>", "Account ID to select when multiple accounts exist", parsePositiveInt).option("--json", "Output as JSON").action(handleCampaignUpdateAction), program3.command("campaign-reorder-actions").description("Reorder actions in a campaign's action chain").argument("<campaignId>", "Campaign ID", parsePositiveInt).requiredOption("--action-ids <ids>", "Comma-separated action IDs in desired order").option("--cdp-port <port>", "CDP debugging port (auto-discovered when omitted)", parsePositiveInt).option("--cdp-host <host>", "CDP host (default: 127.0.0.1)").option("--allow-remote", "SECURITY: allow non-loopback CDP connections (enables remote code execution on target)").option("--account-id <id>", "Account ID to select when multiple accounts exist", parsePositiveInt).option("--json", "Output as JSON").action(handleCampaignReorderActions), program3.command("import-people-from-urls").description("Import LinkedIn profile URLs into a campaign action target list").argument("<campaignId>", "Campaign ID to import into", parsePositiveInt).option("--urls <urls>", "Comma-separated LinkedIn profile URLs").option("--urls-file <path>", "File containing LinkedIn profile URLs").option("--cdp-port <port>", "CDP debugging port (auto-discovered when omitted)", parsePositiveInt).option("--cdp-host <host>", "CDP host (default: 127.0.0.1)").option("--allow-remote", "SECURITY: allow non-loopback CDP connections (enables remote code execution on target)").option("--account-id <id>", "Account ID to select when multiple accounts exist", parsePositiveInt).option("--json", "Output as JSON").action(handleImportPeopleFromUrls), program3.command("import-organizations-from-urls").description("Import LinkedIn company URLs into an organizations campaign action target list").argument("<campaignId>", "Campaign ID to import into (must be an organizations campaign)", parsePositiveInt).option("--urls <urls>", "Comma-separated LinkedIn company URLs").option("--urls-file <path>", "File containing LinkedIn company URLs").option("--cdp-port <port>", "CDP debugging port (auto-discovered when omitted)", parsePositiveInt).option("--cdp-host <host>", "CDP host (default: 127.0.0.1)").option("--allow-remote", "SECURITY: allow non-loopback CDP connections (enables remote code execution on target)").option("--account-id <id>", "Account ID to select when multiple accounts exist", parsePositiveInt).option("--json", "Output as JSON").action(handleImportOrganizationsFromUrls), program3.command("collect-people").description("Collect people from a LinkedIn page into a campaign").argument("<campaignId>", "Campaign ID to collect into", parsePositiveInt).argument("<sourceUrl>", "LinkedIn page URL to collect from").option("--limit <n>", "Max profiles to collect", parsePositiveInt).option("--max-pages <n>", "Max pages to process", parsePositiveInt).option("--page-size <n>", "Results per page", parsePositiveInt).option("--source-type <type>", "Explicit source type (bypasses URL detection)").option("--cdp-port <port>", "CDP debugging port (auto-discovered when omitted)", parsePositiveInt).option("--cdp-host <host>", "CDP host (default: 127.0.0.1)").option("--allow-remote", "SECURITY: allow non-loopback CDP connections (enables remote code execution on target)").option("--account-id <id>", "Account ID to select when multiple accounts exist", parsePositiveInt).option("--json", "Output as JSON").action(handleCollectPeople), program3.command("campaign-remove-people").description("Remove people from a campaign's target list entirely").argument("<campaignId>", "Campaign ID to remove people from", parsePositiveInt).option("--person-ids <ids>", "Comma-separated person IDs").option("--person-ids-file <path>", "File containing person IDs").option("--cdp-port <port>", "CDP debugging port (auto-discovered when omitted)", parsePositiveInt).option("--cdp-host <host>", "CDP host (default: 127.0.0.1)").option("--allow-remote", "SECURITY: allow non-loopback CDP connections (enables remote code execution on target)").option("--account-id <id>", "Account ID to select when multiple accounts exist", parsePositiveInt).option("--json", "Output as JSON").action(handleCampaignRemovePeople), program3.command("list-collections").description("List LinkedHelper collections (Lists)").option("--json", "Output as JSON").action(handleListCollections), program3.command("create-collection").description("Create a new LinkedHelper collection (List)").argument("<name>", "Name for the new collection").option("--cdp-port <port>", "CDP debugging port (auto-discovered when omitted)", parsePositiveInt).option("--cdp-host <host>", "CDP host (default: 127.0.0.1)").option("--allow-remote", "SECURITY: allow non-loopback CDP connections (enables remote code execution on target)").option("--json", "Output as JSON").action(handleCreateCollection), program3.command("delete-collection").description("Delete a LinkedHelper collection (List) and its people associations").argument("<collectionId>", "Collection ID to delete", parsePositiveInt).option("--cdp-port <port>", "CDP debugging port (auto-discovered when omitted)", parsePositiveInt).option("--cdp-host <host>", "CDP host (default: 127.0.0.1)").option("--allow-remote", "SECURITY: allow non-loopback CDP connections (enables remote code execution on target)").option("--json", "Output as JSON").action(handleDeleteCollection), program3.command("add-people-to-collection").description("Add people to a LinkedHelper collection (List)").argument("<collectionId>", "Collection ID", parsePositiveInt).option("--person-ids <ids>", "Comma-separated person IDs").option("--person-ids-file <path>", "File containing person IDs").option("--cdp-port <port>", "CDP debugging port (auto-discovered when omitted)", parsePositiveInt).option("--cdp-host <host>", "CDP host (default: 127.0.0.1)").option("--allow-remote", "SECURITY: allow non-loopback CDP connections (enables remote code execution on target)").option("--json", "Output as JSON").action(handleAddPeopleToCollection), program3.command("remove-people-from-collection").description("Remove people from a LinkedHelper collection (List)").argument("<collectionId>", "Collection ID", parsePositiveInt).option("--person-ids <ids>", "Comma-separated person IDs").option("--person-ids-file <path>", "File containing person IDs").option("--cdp-port <port>", "CDP debugging port (auto-discovered when omitted)", parsePositiveInt).option("--cdp-host <host>", "CDP host (default: 127.0.0.1)").option("--allow-remote", "SECURITY: allow non-loopback CDP connections (enables remote code execution on target)").option("--json", "Output as JSON").action(handleRemovePeopleFromCollection), program3.command("import-people-from-collection").description("Import people from a LinkedHelper collection (List) into a campaign").argument("<collectionId>", "Collection ID to import from", parsePositiveInt).argument("<campaignId>", "Campaign ID to import into", parsePositiveInt).option("--cdp-port <port>", "CDP debugging port (auto-discovered when omitted)", parsePositiveInt).option("--cdp-host <host>", "CDP host (default: 127.0.0.1)").option("--allow-remote", "SECURITY: allow non-loopback CDP connections (enables remote code execution on target)").option("--json", "Output as JSON").action(handleImportPeopleFromCollection), program3.command("describe-actions").description("List available LinkedHelper action types").option("--category <category>", "Filter by category (people, messaging, engagement, crm, workflow)").option("--type <type>", "Get details for a specific action type").option("--json", "Output as JSON").action(handleDescribeActions), program3.command("query-messages").description("Query messaging history from the local database").option("--person-id <id>", "Filter by person ID", parsePositiveInt).option("--chat-id <id>", "Show specific conversation thread", parsePositiveInt).option("--search <text>", "Search message text").option("--limit <n>", "Max results (default: 20)", parsePositiveInt).option("--offset <n>", "Pagination offset (default: 0)", parseNonNegativeInt).option("--json", "Output as JSON").action(handleQueryMessages), program3.command("query-profile").description("Look up a cached profile from the local database").option("--person-id <id>", "Look up by internal person ID", parsePositiveInt).option("--public-id <slug>", "Look up by LinkedIn public ID").option("--include-positions", "Include full position history (career history)").option("--json", "Output as JSON").action(handleQueryProfile), program3.command("query-profiles").description("Search for profiles in the local database").option("--query <text>", "Search name or headline").option("--company <name>", "Filter by company").option("--include-history", "Search past positions too (not just current)").option("--limit <n>", "Max results (default: 20)", parsePositiveInt).option("--offset <n>", "Pagination offset (default: 0)", parseNonNegativeInt).option("--json", "Output as JSON").action(handleQueryProfiles), program3.command("query-profiles-bulk").description("Look up multiple cached profiles from the local database in a single call").option("--person-id <id>", "Look up by internal person ID (repeatable)", collectPositiveInt, []).option("--public-id <slug>", "Look up by LinkedIn public ID (repeatable)", collectString, []).option("--include-positions", "Include full position history (career history)").option("--json", "Output as JSON").action(handleQueryProfilesBulk), program3.command("scrape-messaging-history").description("Scrape messaging history from LinkedIn into the local database").option("--person-id <id>", "Person ID to scrape (repeatable, at least one required)", collectPositiveInt, []).option("--pause-others", "Pause all other campaigns during execution, then restore them").option("--cdp-port <port>", "CDP debugging port (auto-discovered when omitted)", parsePositiveInt).option("--cdp-host <host>", "CDP host (default: 127.0.0.1)").option("--allow-remote", "SECURITY: allow non-loopback CDP connections (enables remote code execution on target)").option("--json", "Output as JSON").action(handleScrapeMessagingHistory), program3.command("visit-profile").description("Visit a LinkedIn profile and extract data (name, positions, education, skills)").option("--person-id <id>", "Person ID to visit (provide this or --url)", parsePositiveInt).option("--url <url>", "LinkedIn profile URL to visit (provide this or --person-id)").option("--extract-current-organizations", "Extract current company info during profile visit").option("--cdp-port <port>", "CDP debugging port (auto-discovered when omitted)", parsePositiveInt).option("--cdp-host <host>", "CDP host (default: 127.0.0.1)").option("--allow-remote", "SECURITY: allow non-loopback CDP connections (enables remote code execution on target)").option("--json", "Output as JSON").action(handleVisitProfile), program3.command("check-replies").description("Check for new message replies from LinkedIn").option("--person-id <id>", "Person ID to check (repeatable, at least one required)", collectPositiveInt, []).option("--since <timestamp>", "Only show replies after this ISO timestamp").option("--pause-others", "Pause all other campaigns during execution, then restore them").option("--cdp-port <port>", "CDP debugging port (auto-discovered when omitted)", parsePositiveInt).option("--cdp-host <host>", "CDP host (default: 127.0.0.1)").option("--allow-remote", "SECURITY: allow non-loopback CDP connections (enables remote code execution on target)").option("--json", "Output as JSON").action(handleCheckReplies), program3.command("check-status").description("Check LinkedHelper status").option("--cdp-port <port>", "CDP debugging port (auto-discovered when omitted)", parsePositiveInt).option("--cdp-host <host>", "CDP host (default: 127.0.0.1)").option("--allow-remote", "SECURITY: allow non-loopback CDP connections (enables remote code execution on target)").option("--json", "Output as JSON").action(handleCheckStatus), program3.command("get-errors").description("Query current UI errors, dialogs, and blocking popups").option("--cdp-port <port>", "CDP debugging port (auto-discovered when omitted)", parsePositiveInt).option("--cdp-host <host>", "CDP host (default: 127.0.0.1)").option("--allow-remote", "SECURITY: allow non-loopback CDP connections (enables remote code execution on target)").option("--json", "Output as JSON").action(handleGetErrors), program3.command("dismiss-errors").description("Dismiss closable error popups in the instance UI").option("--cdp-port <port>", "CDP debugging port (auto-discovered when omitted)", parsePositiveInt).option("--cdp-host <host>", "CDP host (default: 127.0.0.1)").option("--allow-remote", "SECURITY: allow non-loopback CDP connections (enables remote code execution on target)").option("--json", "Output as JSON").action(handleDismissErrors), program3.command("get-action-budget").description("Get daily action budget with limit types, thresholds, and usage").option("--cdp-port <port>", "CDP debugging port (auto-discovered when omitted)", parsePositiveInt).option("--cdp-host <host>", "CDP host (default: 127.0.0.1)").option("--allow-remote", "SECURITY: allow non-loopback CDP connections (enables remote code execution on target)").option("--json", "Output as JSON").action(handleGetActionBudget), program3.command("get-throttle-status").description("Check if LinkedIn is throttling the account").option("--cdp-port <port>", "CDP debugging port (auto-discovered when omitted)", parsePositiveInt).option("--cdp-host <host>", "CDP host (default: 127.0.0.1)").option("--allow-remote", "SECURITY: allow non-loopback CDP connections (enables remote code execution on target)").option("--json", "Output as JSON").action(handleGetThrottleStatus), program3.command("comment-on-post").description("Post a comment on a LinkedIn post").requiredOption("--url <url>", "LinkedIn post URL").requiredOption("--text <text>", "Comment text to post").option("--parent-comment-urn <urn>", "Reply to a specific comment instead of posting top-level (use commentUrn from get-post)").option("--mentions <json>", `JSON array of {name} objects for @mentions (e.g. '[{"name":"John Doe"}]')`).option("--cdp-port <port>", "CDP debugging port (auto-discovered when omitted)", parsePositiveInt).option("--cdp-host <host>", "CDP host (default: 127.0.0.1)").option("--allow-remote", "SECURITY: allow non-loopback CDP connections (enables remote code execution on target)").option("--dry-run", "Validate the comment flow but skip typing and submitting").option("--json", "Output as JSON").action(handleCommentOnPost), program3.command("get-post").description("Get detailed data for a single LinkedIn post with comment thread").argument("<postUrl>", "LinkedIn post URL or URN").option("--comment-count <n>", "Maximum number of comments to load (default: 100, 0 to skip)", parseNonNegativeInt).option("--cdp-port <port>", "CDP debugging port (auto-discovered when omitted)", parsePositiveInt).option("--cdp-host <host>", "CDP host (default: 127.0.0.1)").option("--allow-remote", "SECURITY: allow non-loopback CDP connections (enables remote code execution on target)").option("--json", "Output as JSON").action(handleGetPost), program3.command("get-post-stats").description("Get engagement statistics for a LinkedIn post").argument("<postUrl>", "LinkedIn post URL or URN").option("--cdp-port <port>", "CDP debugging port (auto-discovered when omitted)", parsePositiveInt).option("--cdp-host <host>", "CDP host (default: 127.0.0.1)").option("--allow-remote", "SECURITY: allow non-loopback CDP connections (enables remote code execution on target)").option("--json", "Output as JSON").action(handleGetPostStats), program3.command("get-feed").description("Read the LinkedIn home feed with cursor-based pagination").option("--count <n>", "Number of posts per page (default: 10)", parsePositiveInt).option("--cursor <token>", "Cursor token from a previous call for the next page").option("--cdp-port <port>", "CDP debugging port (auto-discovered when omitted)", parsePositiveInt).option("--cdp-host <host>", "CDP host (default: 127.0.0.1)").option("--allow-remote", "SECURITY: allow non-loopback CDP connections (enables remote code execution on target)").option("--json", "Output as JSON").action(handleGetFeed), program3.command("dismiss-feed-post").description('Dismiss a post from the LinkedIn feed by clicking "Not interested"').argument("<feedIndex>", "Zero-based index of the post in the visible feed", parseNonNegativeInt).option("--cdp-port <port>", "CDP debugging port (auto-discovered when omitted)", parsePositiveInt).option("--cdp-host <host>", "CDP host (default: 127.0.0.1)").option("--allow-remote", "SECURITY: allow non-loopback CDP connections (enables remote code execution on target)").option("--dry-run", "Locate the menu item without clicking it").option("--json", "Output as JSON").action(handleDismissFeedPost), program3.command("react-to-post").description("React to a LinkedIn post with a specific reaction type").argument("<postUrl>", "LinkedIn post URL").addOption(new Option("--type <type>", "Reaction type (default: like)").choices(["like", "celebrate", "support", "love", "insightful", "funny"]).default("like")).option("--cdp-port <port>", "CDP debugging port (auto-discovered when omitted)", parsePositiveInt).option("--cdp-host <host>", "CDP host (default: 127.0.0.1)").option("--allow-remote", "SECURITY: allow non-loopback CDP connections (enables remote code execution on target)").option("--dry-run", "Detect current reaction state without clicking").option("--json", "Output as JSON").action(handleReactToPost), program3.command("react-to-comment").description("React to a specific LinkedIn comment with a specific reaction type").argument("<postUrl>", "LinkedIn post URL containing the target comment").argument("<commentUrn>", "Comment URN (urn:li:comment:(activity:...,...))").addOption(new Option("--type <type>", "Reaction type (default: like)").choices(["like", "celebrate", "support", "love", "insightful", "funny"]).default("like")).option("--cdp-port <port>", "CDP debugging port (auto-discovered when omitted)", parsePositiveInt).option("--cdp-host <host>", "CDP host (default: 127.0.0.1)").option("--allow-remote", "SECURITY: allow non-loopback CDP connections (enables remote code execution on target)").option("--dry-run", "Detect current reaction state without clicking").option("--json", "Output as JSON").action(handleReactToComment), program3.command("unfollow-from-feed").description("Unfollow the author of a post via its feed three-dot menu").argument("<feedIndex>", "Zero-based index of the post in the visible feed", parseNonNegativeInt).option("--cdp-port <port>", "CDP debugging port (auto-discovered when omitted)", parsePositiveInt).option("--cdp-host <host>", "CDP host (default: 127.0.0.1)").option("--allow-remote", "SECURITY: allow non-loopback CDP connections (enables remote code execution on target)").option("--dry-run", "Locate the menu item without clicking it").option("--json", "Output as JSON").action(handleUnfollowFromFeed), program3.command("hide-feed-author").description("Click 'Hide posts by {Name}' in a feed post's three-dot menu").argument("<feedIndex>", "Zero-based index of the post in the visible feed", parseNonNegativeInt).option("--cdp-port <port>", "CDP debugging port (auto-discovered when omitted)", parsePositiveInt).option("--cdp-host <host>", "CDP host (default: 127.0.0.1)").option("--allow-remote", "SECURITY: allow non-loopback CDP connections (enables remote code execution on target)").option("--dry-run", "Locate the menu item without clicking it").option("--json", "Output as JSON").action(handleHideFeedAuthor), program3.command("hide-feed-author-profile").description("Mute a LinkedIn profile's posts via the profile page's More menu (primarily 1st-degree connections)").argument("<profileUrl>", "LinkedIn profile URL").option("--cdp-port <port>", "CDP debugging port (auto-discovered when omitted)", parsePositiveInt).option("--cdp-host <host>", "CDP host (default: 127.0.0.1)").option("--allow-remote", "SECURITY: allow non-loopback CDP connections (enables remote code execution on target)").option("--dry-run", "Open the More menu and detect mute availability without clicking Mute").option("--json", "Output as JSON").action(handleHideFeedAuthorProfile), program3.command("unfollow-profile").description("Unfollow a LinkedIn member profile or organization page by navigating to it and clicking Following \u2192 Unfollow").argument("<profileUrl>", "LinkedIn profile URL (/in/{publicId}/) or company URL (/company/{slug}/)").option("--cdp-port <port>", "CDP debugging port (auto-discovered when omitted)", parsePositiveInt).option("--cdp-host <host>", "CDP host (default: 127.0.0.1)").option("--allow-remote", "SECURITY: allow non-loopback CDP connections (enables remote code execution on target)").option("--dry-run", "Detect the follow state without clicking Unfollow").option("--json", "Output as JSON").action(handleUnfollowProfile), program3.command("get-profile-activity").description("Get recent posts/activity from a LinkedIn profile").argument("<profile>", "LinkedIn profile public ID or URL").option("--count <n>", "Number of posts per page (default: 10)", parsePositiveInt).option("--cursor <token>", "Cursor token from a previous call for the next page").option("--cdp-port <port>", "CDP debugging port (auto-discovered when omitted)", parsePositiveInt).option("--cdp-host <host>", "CDP host (default: 127.0.0.1)").option("--allow-remote", "SECURITY: allow non-loopback CDP connections (enables remote code execution on target)").option("--json", "Output as JSON").action(handleGetProfileActivity), program3.command("build-url").description("Build a LinkedIn URL for a given source type").argument("<sourceType>", "Source type (e.g., SearchPage, SNSearchPage, OrganizationPeople)").option("--keywords <keywords>", "Search keywords (SearchPage, SNSearchPage)").option("--current-company <id>", "Current company ID (SearchPage, repeatable)", collectString, []).option("--past-company <id>", "Past company ID (SearchPage, repeatable)", collectString, []).option("--geo <id>", "Geographic URN ID (SearchPage, repeatable)", collectString, []).option("--industry <id>", "Industry ID (SearchPage, repeatable)", collectString, []).option("--school <id>", "School ID (SearchPage, repeatable)", collectString, []).option("--network <code>", "Connection degree: F, S, O (SearchPage, repeatable)", collectString, []).option("--profile-language <code>", "Profile language code (SearchPage, repeatable)", collectString, []).option("--service-category <id>", "Service category ID (SearchPage, repeatable)", collectString, []).option("--filter <spec>", "SN filter TYPE|ID|TEXT|INCLUDED (SNSearchPage, repeatable)", collectString, []).option("--slug <slug>", "Company or school slug (OrganizationPeople, Alumni)").option("--id <id>", "Entity ID (Group, Event, SNListPage, etc.)").option("--json", "Output as JSON").action(handleBuildUrl), program3.command("resolve-entity").description("Resolve a LinkedIn entity (company, geo, school) by name via the public LinkedIn typeahead (no auth, no LinkedHelper required)").argument("<entityType>", "Entity type: COMPANY, GEO, or SCHOOL").argument("<query>", "Search query").option("--limit <n>", "Max results to show", parsePositiveInt).option("--json", "Output as JSON").action(handleResolveEntity), program3.command("list-reference-data").description("List LinkedIn reference data (industries, seniorities, functions, etc.)").argument("<dataType>", "Data type: INDUSTRY, SENIORITY, FUNCTION, COMPANY_SIZE, CONNECTION_DEGREE, PROFILE_LANGUAGE").option("--json", "Output as JSON").action(handleListReferenceData), program3.command("search-posts").description("Search LinkedIn for posts by keyword or hashtag").argument("<query>", "Search query (keywords or hashtag)").option("--cursor <n>", "Index-based cursor from a previous search for the next page", parseNonNegativeInt).option("--count <n>", "Results per page (default: 10)", parsePositiveInt).option("--cdp-port <port>", "CDP debugging port (auto-discovered when omitted)", parsePositiveInt).option("--cdp-host <host>", "CDP host (default: 127.0.0.1)").option("--allow-remote", "SECURITY: allow non-loopback CDP connections (enables remote code execution on target)").option("--json", "Output as JSON").action(handleSearchPosts), program3.command("message-person").description("Send a direct message to a 1st-degree LinkedIn connection").option("--person-id <id>", "Person ID (provide this or --url)", parsePositiveInt).option("--url <url>", "LinkedIn profile URL (provide this or --person-id)").requiredOption("--message-template <json>", "Message template as JSON").option("--subject-template <json>", "Subject line template as JSON").option("--reject-if-replied", "Skip if person already replied").option("--reject-if-messaged", "Skip if already messaged").option("--keep-campaign", "Archive the ephemeral campaign instead of deleting it").option("--timeout <ms>", "Maximum time to wait for action completion in milliseconds (default: 5 min)", parsePositiveInt).option("--cdp-port <port>", "CDP debugging port (auto-discovered when omitted)", parsePositiveInt).option("--cdp-host <host>", "CDP host (default: 127.0.0.1)").option("--allow-remote", "SECURITY: allow non-loopback CDP connections (enables remote code execution on target)").option("--json", "Output as JSON").action(handleMessagePerson), program3.command("send-invite").description("Send a LinkedIn connection request").option("--person-id <id>", "Person ID (provide this or --url)", parsePositiveInt).option("--url <url>", "LinkedIn profile URL (provide this or --person-id)").option("--message-template <json>", "Invitation message template as JSON (empty for no message)").option("--save-as-lead-sn", "Save as lead in Sales Navigator").option("--keep-campaign", "Archive the ephemeral campaign instead of deleting it").option("--timeout <ms>", "Maximum time to wait for action completion in milliseconds (default: 5 min)", parsePositiveInt).option("--cdp-port <port>", "CDP debugging port (auto-discovered when omitted)", parsePositiveInt).option("--cdp-host <host>", "CDP host (default: 127.0.0.1)").option("--allow-remote", "SECURITY: allow non-loopback CDP connections (enables remote code execution on target)").option("--json", "Output as JSON").action(handleSendInvite), program3.command("send-inmail").description("Send an InMail message to a LinkedIn member (no connection required)").option("--person-id <id>", "Person ID (provide this or --url)", parsePositiveInt).option("--url <url>", "LinkedIn profile URL (provide this or --person-id)").requiredOption("--message-template <json>", "InMail body template as JSON").option("--subject-template <json>", "InMail subject line template as JSON").option("--reject-if-replied", "Skip if person already replied").option("--proceed-on-out-of-credits", "Continue even when InMail credits are exhausted").option("--keep-campaign", "Archive the ephemeral campaign instead of deleting it").option("--timeout <ms>", "Maximum time to wait for action completion in milliseconds (default: 5 min)", parsePositiveInt).option("--cdp-port <port>", "CDP debugging port (auto-discovered when omitted)", parsePositiveInt).option("--cdp-host <host>", "CDP host (default: 127.0.0.1)").option("--allow-remote", "SECURITY: allow non-loopback CDP connections (enables remote code execution on target)").option("--json", "Output as JSON").action(handleSendInmail), program3.command("follow-person").description("Follow or unfollow a LinkedIn profile").option("--person-id <id>", "Person ID (provide this or --url)", parsePositiveInt).option("--url <url>", "LinkedIn profile URL (provide this or --person-id)").addOption(new Option("--mode <mode>", "Follow or unfollow").choices(["follow", "unfollow"]).default("follow")).option("--skip-if-unfollowable", "Skip if person cannot be unfollowed").option("--keep-campaign", "Archive the ephemeral campaign instead of deleting it").option("--timeout <ms>", "Maximum time to wait for action completion in milliseconds (default: 5 min)", parsePositiveInt).option("--cdp-port <port>", "CDP debugging port (auto-discovered when omitted)", parsePositiveInt).option("--cdp-host <host>", "CDP host (default: 127.0.0.1)").option("--allow-remote", "SECURITY: allow non-loopback CDP connections (enables remote code execution on target)").option("--json", "Output as JSON").action(handleFollowPerson), program3.command("endorse-skills").description("Endorse skills on a LinkedIn profile").option("--person-id <id>", "Person ID (provide this or --url)", parsePositiveInt).option("--url <url>", "LinkedIn profile URL (provide this or --person-id)").option("--skill-name <name>", "Specific skill name to endorse (repeatable)", collectString, []).option("--limit <n>", "Max number of skills to endorse", parsePositiveInt).option("--skip-if-not-endorsable", "Skip if person has no endorsable skills").option("--keep-campaign", "Archive the ephemeral campaign instead of deleting it").option("--timeout <ms>", "Maximum time to wait for action completion in milliseconds (default: 5 min)", parsePositiveInt).option("--cdp-port <port>", "CDP debugging port (auto-discovered when omitted)", parsePositiveInt).option("--cdp-host <host>", "CDP host (default: 127.0.0.1)").option("--allow-remote", "SECURITY: allow non-loopback CDP connections (enables remote code execution on target)").option("--json", "Output as JSON").action((opts) => {
     let skillNames = opts.skillName?.length ? opts.skillName : void 0;
     return handleEndorseSkills({ ...opts, skillNames, skillName: void 0 });
   }), program3.command("like-person-posts").description("Like and optionally comment on posts and articles by a LinkedIn profile").option("--person-id <id>", "Person ID (provide this or --url)", parsePositiveInt).option("--url <url>", "LinkedIn profile URL (provide this or --person-id)").option("--number-of-articles <n>", "Number of articles to like", parsePositiveInt).option("--number-of-posts <n>", "Number of posts to like", parsePositiveInt).option("--max-age-of-articles <days>", "Maximum age of articles in days", parsePositiveInt).option("--max-age-of-posts <days>", "Maximum age of posts in days", parsePositiveInt).option("--should-add-comment", "Also add a comment to liked posts/articles").option("--message-template <json>", "Comment text template as JSON (required with --should-add-comment)").option("--skip-if-not-liked", "Skip if nothing was liked").option("--keep-campaign", "Archive the ephemeral campaign instead of deleting it").option("--timeout <ms>", "Maximum time to wait for action completion in milliseconds (default: 5 min)", parsePositiveInt).option("--cdp-port <port>", "CDP debugging port (auto-discovered when omitted)", parsePositiveInt).option("--cdp-host <host>", "CDP host (default: 127.0.0.1)").option("--allow-remote", "SECURITY: allow non-loopback CDP connections (enables remote code execution on target)").option("--json", "Output as JSON").action(handleLikePersonPosts), program3.command("remove-connection").description("Remove a person from 1st-degree LinkedIn connections (unfriend)").option("--person-id <id>", "Person ID (provide this or --url)", parsePositiveInt).option("--url <url>", "LinkedIn profile URL (provide this or --person-id)").option("--keep-campaign", "Archive the ephemeral campaign instead of deleting it").option("--timeout <ms>", "Maximum time to wait for action completion in milliseconds (default: 5 min)", parsePositiveInt).option("--cdp-port <port>", "CDP debugging port (auto-discovered when omitted)", parsePositiveInt).option("--cdp-host <host>", "CDP host (default: 127.0.0.1)").option("--allow-remote", "SECURITY: allow non-loopback CDP connections (enables remote code execution on target)").option("--json", "Output as JSON").action(handleRemoveConnection), program3.command("enrich-profile").description("Enrich a LinkedIn profile by extracting additional data").option("--person-id <id>", "Person ID (provide this or --url)", parsePositiveInt).option("--url <url>", "LinkedIn profile URL (provide this or --person-id)").option("--enrich-profile-info", "Enrich profile info").option("--enrich-phones", "Enrich phone numbers").option("--enrich-emails", "Enrich email addresses").option("--enrich-socials", "Enrich social profiles").option("--enrich-companies", "Enrich company data").option("--keep-campaign", "Archive the ephemeral campaign instead of deleting it").option("--timeout <ms>", "Maximum time to wait for action completion in milliseconds (default: 5 min)", parsePositiveInt).option("--cdp-port <port>", "CDP debugging port (auto-discovered when omitted)", parsePositiveInt).option("--cdp-host <host>", "CDP host (default: 127.0.0.1)").option("--allow-remote", "SECURITY: allow non-loopback CDP connections (enables remote code execution on target)").option("--json", "Output as JSON").action(handleEnrichProfile), program3;
@@ -52208,18 +52769,39 @@ function registerCampaignList(server) {
   });
 }
 
+// packages/mcp/dist/tools/campaign-list-organizations.js
+function registerCampaignListOrganizations(server) {
+  server.tool("campaign-list-organizations", "List organizations assigned to an organizations campaign with their processing status. Returns organization details (name, LinkedIn slug, numeric company ID) and which action they are currently at.", {
+    campaignId: external_exports.number().int().positive().describe("Campaign ID (must be an organizations campaign)"),
+    actionId: external_exports.number().int().positive().optional().describe("Filter to organizations in a specific action"),
+    status: external_exports.enum(["queued", "processed", "successful", "failed"]).optional().describe("Filter by processing status"),
+    companyUrls: external_exports.array(external_exports.string()).optional().describe("Filter to (and verify) these LinkedIn company URLs. Use this after a bulk import-organizations-from-urls call to confirm, per URL, which companies actually landed on the target list \u2014 see notFoundCompanyUrls in the response for the rest."),
+    limit: external_exports.number().int().positive().optional().describe("Maximum number of results (default: 20, or the number of companyUrls when filtering by URL)"),
+    offset: external_exports.number().int().nonnegative().optional().default(0).describe("Pagination offset (default: 0)"),
+    ...cdpConnectionSchema
+  }, async ({ campaignId, actionId, status, companyUrls, limit, offset, cdpPort, cdpHost, allowRemote, accountId }) => {
+    try {
+      let result = await campaignListOrganizations({ campaignId, actionId, status, companyUrls, limit, offset, cdpPort, cdpHost, allowRemote, accountId });
+      return mcpSuccess(JSON.stringify(result, null, 2));
+    } catch (error51) {
+      return error51 instanceof ActionNotFoundError ? mcpError(`Action ${String(actionId)} not found in campaign ${String(campaignId)}.`) : mcpCatchAll(error51, "Failed to list campaign organizations");
+    }
+  });
+}
+
 // packages/mcp/dist/tools/campaign-list-people.js
 function registerCampaignListPeople(server) {
   server.tool("campaign-list-people", "List people assigned to a campaign with their processing status. Returns person details (name, LinkedIn public ID) and which action they are currently at.", {
     campaignId: external_exports.number().int().positive().describe("Campaign ID"),
     actionId: external_exports.number().int().positive().optional().describe("Filter to people in a specific action"),
     status: external_exports.enum(["queued", "processed", "successful", "failed"]).optional().describe("Filter by processing status"),
-    limit: external_exports.number().int().positive().optional().default(20).describe("Maximum number of results (default: 20)"),
+    linkedInUrls: external_exports.array(external_exports.string()).optional().describe("Filter to (and verify) these LinkedIn profile URLs. Use this after a bulk import-people-from-urls call to confirm, per URL, which contacts actually landed on the target list \u2014 see notFoundLinkedInUrls in the response for the rest."),
+    limit: external_exports.number().int().positive().optional().describe("Maximum number of results (default: 20, or the number of linkedInUrls when filtering by URL)"),
     offset: external_exports.number().int().nonnegative().optional().default(0).describe("Pagination offset (default: 0)"),
     ...cdpConnectionSchema
-  }, async ({ campaignId, actionId, status, limit, offset, cdpPort, cdpHost, allowRemote, accountId }) => {
+  }, async ({ campaignId, actionId, status, linkedInUrls, limit, offset, cdpPort, cdpHost, allowRemote, accountId }) => {
     try {
-      let result = await campaignListPeople({ campaignId, actionId, status, limit, offset, cdpPort, cdpHost, allowRemote, accountId });
+      let result = await campaignListPeople({ campaignId, actionId, status, linkedInUrls, limit, offset, cdpPort, cdpHost, allowRemote, accountId });
       return mcpSuccess(JSON.stringify(result, null, 2));
     } catch (error51) {
       return error51 instanceof ActionNotFoundError ? mcpError(`Action ${String(actionId)} not found in campaign ${String(campaignId)}.`) : mcpCatchAll(error51, "Failed to list campaign people");
@@ -52344,6 +52926,22 @@ function registerCampaignUpdateAction(server) {
       return mcpSuccess(JSON.stringify(result, null, 2));
     } catch (error51) {
       return error51 instanceof ActionNotFoundError ? mcpError(`Action ${String(actionId)} not found in campaign ${String(campaignId)}.`) : mcpCatchAll(error51, "Failed to update action");
+    }
+  });
+}
+
+// packages/mcp/dist/tools/import-organizations-from-urls.js
+function registerImportOrganizationsFromUrls(server) {
+  server.tool("import-organizations-from-urls", "Import LinkedIn company URLs into an organizations campaign action's target list (campaigns whose targetKind is 'organizations', e.g. an OrganizationsExtractor chain). Rejects people campaigns. Idempotent \u2014 re-importing an already-targeted organization is a no-op. Large URL sets are automatically chunked into batches of 200.", {
+    campaignId: external_exports.number().int().positive().describe("Organizations campaign ID to import companies into"),
+    companyUrls: external_exports.array(external_exports.string().url()).nonempty().describe("LinkedIn company URLs to import (e.g. https://www.linkedin.com/company/<slug-or-id>)"),
+    ...cdpConnectionSchema
+  }, async ({ campaignId, companyUrls, cdpPort, cdpHost, allowRemote, accountId }) => {
+    try {
+      let result = await importOrganizationsFromUrls({ campaignId, companyUrls, cdpPort, cdpHost, allowRemote, accountId });
+      return mcpSuccess(JSON.stringify(result, null, 2));
+    } catch (error51) {
+      return error51 instanceof CampaignExecutionError ? mcpError(`Failed to import organizations: ${error51.message}`) : mcpCatchAll(error51, "Failed to import organizations");
     }
   });
 }
@@ -53611,14 +54209,16 @@ function registerUnfollowProfile(server) {
 function registerVisitProfile(server) {
   server.tool("visit-profile", "Visit a LinkedIn profile via LinkedHelper's VisitAndExtract action and return the extracted profile data. Accepts either a person ID or a LinkedIn profile URL. Deducts from the daily action budget.", {
     personId: external_exports.number().int().positive().optional().describe("Internal person ID to visit"),
-    url: external_exports.string().optional().describe("LinkedIn profile URL (e.g. https://www.linkedin.com/in/jane-doe-123). The person must already exist in the database."),
+    url: external_exports.string().optional().describe("LinkedIn profile URL (e.g. https://www.linkedin.com/in/jane-doe-123). The person will be imported if not already in the database."),
     extractCurrentOrganizations: external_exports.boolean().optional().describe("Extract current company info during profile visit"),
+    keepCampaign: external_exports.boolean().optional().describe("Archive the ephemeral campaign instead of deleting it"),
+    timeout: external_exports.number().int().positive().optional().describe("Maximum time to wait for action completion in milliseconds (default: 5 min)"),
     ...cdpConnectionSchema
-  }, async ({ personId, url: url2, extractCurrentOrganizations, cdpPort, cdpHost, allowRemote, accountId }) => {
+  }, async ({ personId, url: url2, extractCurrentOrganizations, keepCampaign, timeout: timeout2, cdpPort, cdpHost, allowRemote, accountId }) => {
     if (personId == null == (url2 == null))
       return mcpError("Exactly one of personId or url must be provided.");
     try {
-      let result = await withLoggedInStateRetryAtPort(cdpPort, cdpHost ?? "127.0.0.1", allowRemote ?? !1, () => visitProfile({ personId, url: url2, extractCurrentOrganizations, cdpPort, cdpHost, allowRemote, accountId }));
+      let result = await withLoggedInStateRetryAtPort(cdpPort, cdpHost ?? "127.0.0.1", allowRemote ?? !1, () => visitProfile({ personId, url: url2, extractCurrentOrganizations, keepCampaign, timeout: timeout2, cdpPort, cdpHost, allowRemote, accountId }));
       return mcpSuccess(JSON.stringify(result, null, 2));
     } catch (error51) {
       return mcpCatchAll(error51, "Failed to visit profile");
@@ -53674,7 +54274,7 @@ function registerListOperations(server) {
 
 // packages/mcp/dist/tools/index.js
 function registerAllTools(server) {
-  registerEnsureInstances(server), registerListOrphans(server), registerReapOrphans(server), registerAddPeopleToCollection(server), registerCommentOnPost(server), registerCampaignAddAction(server), registerCampaignCloneAction(server), registerCampaignCreate(server), registerCampaignDelete(server), registerCampaignErase(server), registerCampaignExcludeAdd(server), registerCampaignExcludeList(server), registerCampaignExcludeRemove(server), registerCampaignExport(server), registerCampaignGet(server), registerCampaignImportFromSourceUrl(server), registerCampaignList(server), registerCampaignListPeople(server), registerCampaignMoveNext(server), registerCampaignRemoveAction(server), registerCampaignRemovePeople(server), registerCampaignReorderActions(server), registerCampaignRetry(server), registerCampaignStart(server), registerCampaignStatistics(server), registerCampaignStatus(server), registerCampaignStop(server), registerCampaignUpdate(server), registerCampaignUpdateAction(server), registerCampaignValidateActionSettings(server), registerFindApp(server), registerGetActionBudget(server), registerGetFeed(server), registerHideFeedAuthor(server), registerHideFeedAuthorProfile(server), registerGetPost(server), registerGetPostEngagers(server), registerGetPostStats(server), registerGetProfileActivity(server), registerGetErrors(server), registerGetThrottleStatus(server), registerLaunchApp(server), registerQuitApp(server), registerListAccounts(server), registerListWorkspaces(server), registerRestartInstance(server), registerStartInstance(server), registerStopInstance(server), registerQueryMessages(server), registerQueryProfile(server), registerQueryProfiles(server), registerQueryProfilesBulk(server), registerReactToPost(server), registerReactToComment(server), registerScrapeMessagingHistory(server), registerSearchPosts(server), registerCreateCollection(server), registerDeleteCollection(server), registerDismissFeedPost(server), registerDismissErrors(server), registerCheckReplies(server), registerCheckStatus(server), registerCollectPeople(server), registerDescribeActions(server), registerImportPeopleFromCollection(server), registerImportPeopleFromUrls(server), registerListCollections(server), registerListLinkedInReferenceData(server), registerRemovePeopleFromCollection(server), registerBuildLinkedInUrl(server), registerResolveLinkedInEntity(server), registerVisitProfile(server), registerEndorseSkills(server), registerEnrichProfile(server), registerFollowPerson(server), registerLikePersonPosts(server), registerMessagePerson(server), registerRemoveConnection(server), registerSendInmail(server), registerSendInvite(server), registerUnfollowFromFeed(server), registerUnfollowProfile(server), registerGetOperation(server), registerCancelOperation(server), registerListOperations(server);
+  registerEnsureInstances(server), registerListOrphans(server), registerReapOrphans(server), registerAddPeopleToCollection(server), registerCommentOnPost(server), registerCampaignAddAction(server), registerCampaignCloneAction(server), registerCampaignCreate(server), registerCampaignDelete(server), registerCampaignErase(server), registerCampaignExcludeAdd(server), registerCampaignExcludeList(server), registerCampaignExcludeRemove(server), registerCampaignExport(server), registerCampaignGet(server), registerCampaignImportFromSourceUrl(server), registerCampaignList(server), registerCampaignListOrganizations(server), registerCampaignListPeople(server), registerCampaignMoveNext(server), registerCampaignRemoveAction(server), registerCampaignRemovePeople(server), registerCampaignReorderActions(server), registerCampaignRetry(server), registerCampaignStart(server), registerCampaignStatistics(server), registerCampaignStatus(server), registerCampaignStop(server), registerCampaignUpdate(server), registerCampaignUpdateAction(server), registerCampaignValidateActionSettings(server), registerFindApp(server), registerGetActionBudget(server), registerGetFeed(server), registerHideFeedAuthor(server), registerHideFeedAuthorProfile(server), registerGetPost(server), registerGetPostEngagers(server), registerGetPostStats(server), registerGetProfileActivity(server), registerGetErrors(server), registerGetThrottleStatus(server), registerLaunchApp(server), registerQuitApp(server), registerListAccounts(server), registerListWorkspaces(server), registerRestartInstance(server), registerStartInstance(server), registerStopInstance(server), registerQueryMessages(server), registerQueryProfile(server), registerQueryProfiles(server), registerQueryProfilesBulk(server), registerReactToPost(server), registerReactToComment(server), registerScrapeMessagingHistory(server), registerSearchPosts(server), registerCreateCollection(server), registerDeleteCollection(server), registerDismissFeedPost(server), registerDismissErrors(server), registerCheckReplies(server), registerCheckStatus(server), registerCollectPeople(server), registerDescribeActions(server), registerImportOrganizationsFromUrls(server), registerImportPeopleFromCollection(server), registerImportPeopleFromUrls(server), registerListCollections(server), registerListLinkedInReferenceData(server), registerRemovePeopleFromCollection(server), registerBuildLinkedInUrl(server), registerResolveLinkedInEntity(server), registerVisitProfile(server), registerEndorseSkills(server), registerEnrichProfile(server), registerFollowPerson(server), registerLikePersonPosts(server), registerMessagePerson(server), registerRemoveConnection(server), registerSendInmail(server), registerSendInvite(server), registerUnfollowFromFeed(server), registerUnfollowProfile(server), registerGetOperation(server), registerCancelOperation(server), registerListOperations(server);
 }
 
 // packages/mcp/dist/server.js

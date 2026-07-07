@@ -86,6 +86,10 @@ Single-developer repository — no PRs, no human or Copilot code review (Copilot
   | `server.json` | `version` and `packages[0].version` |
   - The release workflow stamps the 6 `package.json` files from the git tag but does **not** auto-bump the plugin/server files — after each release, commit an update to match the new tag.
 
+## graphify
+
+`.graphifyignore` excludes `dist-bundle/`, `dist-mcpb/`, `dist-mcpb-staging/` — esbuild-bundled/packaged release output, not source. Before this was added they contributed ~46% of the graph's nodes as duplicate copies of `packages/*` symbols already graphed correctly from source. If a new bundled/packaged output directory is added under a name the default skip-list doesn't catch (`dist`/`build`/`out` are skipped automatically; anything named `dist-*` or similar is not), add it here too.
+
 ## Design Decisions
 
 Architecture Decision Records live in `docs/adr/` and explain *why* the codebase is structured the way it is:

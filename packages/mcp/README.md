@@ -65,6 +65,7 @@ The table below is generated from [`packages/mcp/src/tools/`](src/tools).
 | `campaign-get` |
 | `campaign-import-from-source-url` |
 | `campaign-list` |
+| `campaign-list-organizations` |
 | `campaign-list-people` |
 | `campaign-move-next` |
 | `campaign-remove-action` |
@@ -104,6 +105,7 @@ The table below is generated from [`packages/mcp/src/tools/`](src/tools).
 | `get-throttle-status` |
 | `hide-feed-author` |
 | `hide-feed-author-profile` |
+| `import-organizations-from-urls` |
 | `import-people-from-collection` |
 | `import-people-from-urls` |
 | `launch-app` |

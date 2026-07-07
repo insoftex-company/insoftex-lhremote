@@ -33,14 +33,14 @@ describe("CampaignRepository", () => {
       const campaigns = repo.listCampaigns();
 
       // Should not include archived campaign (id=3)
-      expect(campaigns).toHaveLength(4);
+      expect(campaigns).toHaveLength(5);
       expect(campaigns.map((c) => c.id)).not.toContain(3);
     });
 
     it("includes archived campaigns when requested", () => {
       const campaigns = repo.listCampaigns({ includeArchived: true });
 
-      expect(campaigns).toHaveLength(5);
+      expect(campaigns).toHaveLength(6);
       expect(campaigns.map((c) => c.id)).toContain(3);
     });
 
@@ -630,6 +630,145 @@ describe("CampaignRepository", () => {
       const result = repo.listPeople(5, { publicIds: [] });
 
       expect(result.people.map((p) => p.personId).sort()).toEqual([1, 3]);
+    });
+  });
+
+  describe("targetKind", () => {
+    it("derives people kind for type-1 campaigns", () => {
+      expect(repo.getCampaign(1).targetKind).toBe("people");
+    });
+
+    it("derives organizations kind for type-2 campaigns", () => {
+      expect(repo.getCampaign(6).targetKind).toBe("organizations");
+    });
+
+    it("includes targetKind in campaign list summaries", () => {
+      const campaigns = repo.listCampaigns();
+      const kindById = new Map(campaigns.map((c) => [c.id, c.targetKind]));
+      expect(kindById.get(1)).toBe("people");
+      expect(kindById.get(6)).toBe("organizations");
+    });
+  });
+
+  describe("listOrganizations", () => {
+    // Campaign 6 (type 2) / action 8: org 1 (Acme Robotics, slug
+    // "acme-robotics" + company id "27109959") queued, org 2 (Globex,
+    // company id "1389" only) processed. Action 9: org 3 (no mini profile,
+    // no external ids) queued.
+
+    it("returns all organizations of a campaign", () => {
+      const result = repo.listOrganizations(6);
+
+      expect(result.total).toBe(3);
+      expect(result.organizations.map((o) => o.organizationId).sort()).toEqual([
+        1, 2, 3,
+      ]);
+    });
+
+    it("returns organization entry fields", () => {
+      const result = repo.listOrganizations(6);
+      const acme = result.organizations.find((o) => o.organizationId === 1);
+
+      expect(acme).toMatchObject({
+        name: "Acme Robotics",
+        publicId: "acme-robotics",
+        companyId: "27109959",
+        status: "queued",
+        currentActionId: 8,
+      });
+    });
+
+    it("handles organizations without mini profile or external ids", () => {
+      const result = repo.listOrganizations(6);
+      const bare = result.organizations.find((o) => o.organizationId === 3);
+
+      expect(bare).toMatchObject({
+        name: null,
+        publicId: null,
+        companyId: null,
+        status: "queued",
+        currentActionId: 9,
+      });
+    });
+
+    it("filters by actionId", () => {
+      const result = repo.listOrganizations(6, { actionId: 8 });
+
+      expect(result.organizations.map((o) => o.organizationId).sort()).toEqual([
+        1, 2,
+      ]);
+    });
+
+    it("filters by status", () => {
+      const result = repo.listOrganizations(6, { status: "processed" });
+
+      expect(result.organizations).toHaveLength(1);
+      expect(result.organizations[0]?.organizationId).toBe(2);
+    });
+
+    it("filters by public slug case-insensitively", () => {
+      const result = repo.listOrganizations(6, {
+        companyIds: ["ACME-Robotics"],
+      });
+
+      expect(result.organizations).toHaveLength(1);
+      expect(result.organizations[0]?.organizationId).toBe(1);
+    });
+
+    it("filters by numeric company id", () => {
+      const result = repo.listOrganizations(6, { companyIds: ["1389"] });
+
+      expect(result.organizations).toHaveLength(1);
+      expect(result.organizations[0]?.organizationId).toBe(2);
+    });
+
+    it("matches a mixed batch of slugs and numeric ids", () => {
+      const result = repo.listOrganizations(6, {
+        companyIds: ["acme-robotics", "1389", "nonexistent"],
+      });
+
+      expect(result.organizations.map((o) => o.organizationId).sort()).toEqual([
+        1, 2,
+      ]);
+    });
+
+    it("returns no organizations when no company ids match", () => {
+      const result = repo.listOrganizations(6, { companyIds: ["nope"] });
+
+      expect(result.organizations).toHaveLength(0);
+      expect(result.total).toBe(0);
+    });
+
+    it("ignores an empty company id list (no filtering)", () => {
+      const result = repo.listOrganizations(6, { companyIds: [] });
+
+      expect(result.organizations).toHaveLength(3);
+    });
+
+    it("respects limit and offset", () => {
+      const page1 = repo.listOrganizations(6, { limit: 2, offset: 0 });
+      const page2 = repo.listOrganizations(6, { limit: 2, offset: 2 });
+
+      expect(page1.organizations).toHaveLength(2);
+      expect(page2.organizations).toHaveLength(1);
+      expect(page1.total).toBe(3);
+    });
+
+    it("throws CampaignNotFoundError for missing campaign", () => {
+      expect(() => repo.listOrganizations(999)).toThrow(CampaignNotFoundError);
+    });
+
+    it("throws ActionNotFoundError for action not in campaign", () => {
+      expect(() => repo.listOrganizations(6, { actionId: 1 })).toThrow(
+        ActionNotFoundError,
+      );
+    });
+
+    it("returns empty result for a people campaign with no org targets", () => {
+      const result = repo.listOrganizations(1);
+
+      expect(result.organizations).toHaveLength(0);
+      expect(result.total).toBe(0);
     });
   });
 

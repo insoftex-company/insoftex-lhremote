@@ -9,12 +9,15 @@ import type {
   CampaignActionUpdateConfig,
   Campaign,
   CampaignAction,
+  CampaignOrganizationEntry,
   CampaignPersonEntry,
   CampaignPersonState,
   CampaignState,
   CampaignSummary,
+  CampaignTargetKind,
   CampaignUpdateConfig,
   GetResultsOptions,
+  ListCampaignOrganizationsOptions,
   ListCampaignPeopleOptions,
   ListCampaignsOptions,
 } from "../../types/index.js";
@@ -32,6 +35,7 @@ interface CampaignRow {
   id: number;
   name: string;
   description: string | null;
+  type: number;
   is_paused: number | null;
   is_archived: number | null;
   is_valid: number | null;
@@ -81,6 +85,16 @@ interface CampaignPersonRow {
   total: number;
 }
 
+interface CampaignOrganizationRow {
+  organization_id: number;
+  name: string | null;
+  public_id: string | null;
+  company_id: string | null;
+  state: number;
+  action_id: number;
+  total: number;
+}
+
 const PERSON_STATE_MAP: Record<number, CampaignPersonState> = {
   1: "queued",
   2: "processed",
@@ -104,6 +118,13 @@ function deriveCampaignState(
   if (isValid === 0) return "invalid";
   if (isPaused === 1) return "paused";
   return "active";
+}
+
+/** Maps the `campaigns.type` column to a {@link CampaignTargetKind}. */
+function deriveTargetKind(type: number): CampaignTargetKind {
+  if (type === 1) return "people";
+  if (type === 2) return "organizations";
+  return "unknown";
 }
 
 /**
@@ -162,7 +183,7 @@ export class CampaignRepository {
     const { db } = client;
 
     this.stmtListCampaigns = db.prepare(
-      `SELECT c.id, c.name, c.description, c.is_paused, c.is_archived,
+      `SELECT c.id, c.name, c.description, c.type, c.is_paused, c.is_archived,
               c.is_valid, c.li_account_id, c.created_at,
               (SELECT COUNT(*) FROM actions a WHERE a.campaign_id = c.id) AS action_count
        FROM campaigns c
@@ -171,7 +192,7 @@ export class CampaignRepository {
     );
 
     this.stmtListAllCampaigns = db.prepare(
-      `SELECT c.id, c.name, c.description, c.is_paused, c.is_archived,
+      `SELECT c.id, c.name, c.description, c.type, c.is_paused, c.is_archived,
               c.is_valid, c.li_account_id, c.created_at,
               (SELECT COUNT(*) FROM actions a WHERE a.campaign_id = c.id) AS action_count
        FROM campaigns c
@@ -179,7 +200,7 @@ export class CampaignRepository {
     );
 
     this.stmtGetCampaign = db.prepare(
-      `SELECT id, name, description, is_paused, is_archived, is_valid,
+      `SELECT id, name, description, type, is_paused, is_archived, is_valid,
               li_account_id, created_at
        FROM campaigns WHERE id = ?`,
     );
@@ -257,6 +278,7 @@ export class CampaignRepository {
       name: r.name,
       description: r.description,
       state: deriveCampaignState(r.is_paused, r.is_archived, r.is_valid),
+      targetKind: deriveTargetKind(r.type),
       liAccountId: r.li_account_id,
       actionCount: r.action_count,
       createdAt: r.created_at,
@@ -277,6 +299,7 @@ export class CampaignRepository {
       name: row.name,
       description: row.description,
       state: deriveCampaignState(row.is_paused, row.is_archived, row.is_valid),
+      targetKind: deriveTargetKind(row.type),
       liAccountId: row.li_account_id,
       isPaused: row.is_paused === 1,
       isArchived: row.is_archived === 1,
@@ -449,6 +472,106 @@ export class CampaignRepository {
     }));
 
     return { people, total };
+  }
+
+  /**
+   * List organizations assigned to a campaign, with optional filtering and
+   * pagination. The organization analogue of {@link listPeople}, reading
+   * `action_target_organizations` instead of `action_target_people`.
+   *
+   * `companyIds` filtering matches case-insensitively against both the
+   * public slug and the numeric company ID (`organization_external_ids`
+   * rows with `type_group` of `'public'` or `'company'`), since LinkedIn
+   * company URLs come in both shapes.
+   *
+   * @throws {CampaignNotFoundError} if no campaign exists with the given ID.
+   * @throws {ActionNotFoundError} if actionId is specified but doesn't belong to the campaign.
+   */
+  listOrganizations(
+    campaignId: number,
+    options: ListCampaignOrganizationsOptions = {},
+  ): { organizations: CampaignOrganizationEntry[]; total: number } {
+    // Verify campaign exists
+    this.getCampaign(campaignId);
+
+    const { actionId, status, companyIds, limit = 20, offset = 0 } = options;
+
+    // If actionId is provided, verify it belongs to this campaign
+    if (actionId !== undefined) {
+      const actions = this.getCampaignActions(campaignId);
+      if (!actions.some((a) => a.id === actionId)) {
+        throw new ActionNotFoundError(actionId, campaignId);
+      }
+    }
+
+    const conditions: string[] = ["a.campaign_id = ?"];
+    const params: (number | string)[] = [campaignId];
+
+    if (actionId !== undefined) {
+      conditions.push("ato.action_id = ?");
+      params.push(actionId);
+    }
+
+    if (status !== undefined) {
+      const stateNum = PERSON_STATE_REVERSE[status];
+      if (stateNum !== undefined) {
+        conditions.push("ato.state = ?");
+        params.push(stateNum);
+      }
+    }
+
+    if (companyIds !== undefined && companyIds.length > 0) {
+      // Both joins are LEFT JOINs — NULL IN (...) is not true, so rows
+      // with neither a matching slug nor a matching company ID drop out.
+      const upper = companyIds.map((id) => id.toUpperCase());
+      const placeholders = upper.map(() => "?").join(", ");
+      conditions.push(
+        `(oei_pub.external_id_uppercase IN (${placeholders})
+          OR oei_co.external_id_uppercase IN (${placeholders}))`,
+      );
+      params.push(...upper, ...upper);
+    }
+
+    const where = conditions.join(" AND ");
+
+    const sql = `
+      SELECT
+        ato.organization_id,
+        omp.name,
+        oei_pub.external_id AS public_id,
+        oei_co.external_id AS company_id,
+        ato.state,
+        ato.action_id,
+        COUNT(*) OVER() AS total
+      FROM action_target_organizations ato
+      JOIN actions a ON ato.action_id = a.id
+      LEFT JOIN organization_mini_profile omp ON ato.organization_id = omp.organization_id
+      LEFT JOIN organization_external_ids oei_pub
+        ON ato.organization_id = oei_pub.organization_id AND oei_pub.type_group = 'public'
+      LEFT JOIN organization_external_ids oei_co
+        ON ato.organization_id = oei_co.organization_id AND oei_co.type_group = 'company'
+      WHERE ${where}
+      ORDER BY ato.organization_id
+      LIMIT ? OFFSET ?`;
+
+    const rows = this.client.db.prepare(sql).all(
+      ...params,
+      limit,
+      offset,
+    ) as unknown as CampaignOrganizationRow[];
+
+    const total = rows.length > 0 ? (rows[0] as CampaignOrganizationRow).total : 0;
+
+    const organizations: CampaignOrganizationEntry[] = rows.map((r) => ({
+      organizationId: r.organization_id,
+      name: r.name,
+      publicId: r.public_id,
+      companyId: r.company_id,
+      status: PERSON_STATE_MAP[r.state] ?? "queued",
+      currentActionId: r.action_id,
+    }));
+
+    return { organizations, total };
   }
 
   /**

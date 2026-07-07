@@ -499,6 +499,61 @@ db.exec(`
   CREATE INDEX action_target_people_action_idx ON action_target_people(action_id);
   CREATE INDEX action_target_people_person_idx ON action_target_people(person_id);
 
+  CREATE TABLE organizations(
+    id INTEGER PRIMARY KEY,
+    original_id INTEGER,
+    created_at DATETIME DEFAULT (STRFTIME('%Y-%m-%dT%H:%M:%fZ', 'NOW')),
+    updated_at DATETIME DEFAULT (STRFTIME('%Y-%m-%dT%H:%M:%fZ', 'NOW'))
+  );
+
+  CREATE TABLE organization_mini_profile(
+    id INTEGER PRIMARY KEY,
+    organization_id INTEGER NOT NULL,
+    name TEXT,
+    name_uppercase TEXT,
+    logo TEXT,
+    created_at DATETIME DEFAULT (STRFTIME('%Y-%m-%dT%H:%M:%fZ', 'NOW')),
+    updated_at DATETIME DEFAULT (STRFTIME('%Y-%m-%dT%H:%M:%fZ', 'NOW')),
+    sent_at_to_pas DATETIME,
+    actual_at DATETIME,
+    UNIQUE (organization_id),
+    FOREIGN KEY(organization_id) REFERENCES organizations(id)
+  );
+
+  CREATE TABLE organization_external_ids(
+    id INTEGER PRIMARY KEY,
+    organization_id INTEGER NOT NULL,
+    external_id TEXT NOT NULL,
+    external_id_uppercase TEXT NOT NULL,
+    type_group TEXT NOT NULL CHECK(type_group IN ('company', 'public')),
+    created_at DATETIME DEFAULT (STRFTIME('%Y-%m-%dT%H:%M:%fZ', 'NOW')),
+    updated_at DATETIME DEFAULT (STRFTIME('%Y-%m-%dT%H:%M:%fZ', 'NOW')),
+    UNIQUE(external_id, type_group),
+    FOREIGN KEY(organization_id) REFERENCES organizations(id)
+  );
+  CREATE INDEX organization_external_ids_organization_idx ON organization_external_ids(organization_id);
+
+  CREATE TABLE action_target_organizations(
+    id INTEGER PRIMARY KEY,
+    action_id INTEGER NOT NULL,
+    action_version_id INTEGER NOT NULL,
+    organization_id INTEGER NOT NULL,
+    state INTEGER NOT NULL DEFAULT 1,
+    created_at DATETIME NOT NULL,
+    collect_id INTEGER,
+    deduplication_id INTEGER,
+    override_platform TEXT,
+    collecting_scope_id INTEGER,
+    collecting_scope_type TEXT,
+    prev_action_target_platform TEXT,
+    li_account_id INTEGER NOT NULL,
+    FOREIGN KEY(action_id) REFERENCES actions(id),
+    FOREIGN KEY(action_version_id) REFERENCES action_versions(id),
+    FOREIGN KEY(organization_id) REFERENCES organizations(id)
+  );
+  CREATE INDEX action_target_organizations_action_idx ON action_target_organizations(action_id);
+  CREATE INDEX action_target_organizations_organization_idx ON action_target_organizations(organization_id);
+
   CREATE TABLE person_in_campaigns_history(
     id INTEGER PRIMARY KEY,
     campaign_id INTEGER NOT NULL,
@@ -743,6 +798,54 @@ db.exec(`
   VALUES
     (3, 5, 1, 3, -999, '${NOW}', '${NOW}', '${NOW}', '${NOW}'),
     (4, 5, 3, 4, -999, '${NOW}', '${NOW}', '${NOW}', '${NOW}');
+`);
+
+// Campaign 6: Organizations campaign (type 2) — OrganizationsExtractor chain
+// mirroring the real "Universal Org Extractor" shape. Org 1 has both a
+// public slug and a numeric company ID, org 2 only the numeric company ID
+// (URL-by-ID imports), org 3 no external IDs at all (collected but never
+// resolved) — exercises NULL handling in listOrganizations.
+db.exec(`
+  INSERT INTO campaigns (id, name, description, type, is_paused, is_archived, is_valid, li_account_id, created_at, updated_at)
+  VALUES (6, 'Org Extractor Campaign', 'Extract company data', 2, 1, 0, 1, 1, '2025-01-11T10:00:00.000Z', '${NOW}');
+
+  INSERT INTO action_configs (id, actionType, actionSettings, coolDown, maxActionResultsPerIteration, isDraft)
+  VALUES
+    (8, 'OrganizationsExtractor', '{}', 60000, 10, 0),
+    (9, 'SendOrganizationToWebhook', '{"url":"https://example.test/webhook","convertMultiLine":true,"exportAsFlatObject":true}', 60000, 10, 0);
+
+  INSERT INTO actions (id, campaign_id, name, description, created_at, updated_at)
+  VALUES
+    (8, 6, 'Extract Organizations', 'Visit and extract company pages', '${NOW}', '${NOW}'),
+    (9, 6, 'Send To Webhook', 'Post extracted data', '${NOW}', '${NOW}');
+
+  INSERT INTO action_versions (id, action_id, config_id, created_at, updated_at)
+  VALUES
+    (8, 8, 8, '${NOW}', '${NOW}'),
+    (9, 9, 9, '${NOW}', '${NOW}');
+
+  INSERT INTO organizations (id, original_id, created_at, updated_at)
+  VALUES
+    (1, 9001, '${NOW}', '${NOW}'),
+    (2, 9002, '${NOW}', '${NOW}'),
+    (3, 9003, '${NOW}', '${NOW}');
+
+  INSERT INTO organization_mini_profile (id, organization_id, name, name_uppercase, created_at, updated_at)
+  VALUES
+    (1, 1, 'Acme Robotics', 'ACME ROBOTICS', '${NOW}', '${NOW}'),
+    (2, 2, 'Globex', 'GLOBEX', '${NOW}', '${NOW}');
+
+  INSERT INTO organization_external_ids (id, organization_id, external_id, external_id_uppercase, type_group, created_at, updated_at)
+  VALUES
+    (1, 1, 'acme-robotics', 'ACME-ROBOTICS', 'public', '${NOW}', '${NOW}'),
+    (2, 1, '27109959', '27109959', 'company', '${NOW}', '${NOW}'),
+    (3, 2, '1389', '1389', 'company', '${NOW}', '${NOW}');
+
+  INSERT INTO action_target_organizations (id, action_id, action_version_id, organization_id, state, li_account_id, created_at)
+  VALUES
+    (1, 8, 8, 1, 1, 1, '${NOW}'),
+    (2, 8, 8, 2, 2, 1, '${NOW}'),
+    (3, 9, 9, 3, 1, 1, '${NOW}');
 `);
 
 // ── Exclude List Data ────────────────────────────────────────────────

@@ -11,6 +11,15 @@ export type CampaignState =
   | "invalid";
 
 /**
+ * What kind of targets a campaign accepts, derived from the
+ * `campaigns.type` column (1 = people, 2 = organizations).
+ *
+ * `"unknown"` is returned for any other value so future LinkedHelper
+ * campaign types surface loudly instead of being misclassified.
+ */
+export type CampaignTargetKind = "people" | "organizations" | "unknown";
+
+/**
  * Summary view of a campaign for list operations.
  */
 export interface CampaignSummary {
@@ -18,6 +27,7 @@ export interface CampaignSummary {
   name: string;
   description: string | null;
   state: CampaignState;
+  targetKind: CampaignTargetKind;
   liAccountId: number;
   actionCount: number;
   createdAt: string;
@@ -31,6 +41,7 @@ export interface Campaign {
   name: string;
   description: string | null;
   state: CampaignState;
+  targetKind: CampaignTargetKind;
   liAccountId: number;
   isPaused: boolean;
   isArchived: boolean;
@@ -161,6 +172,48 @@ export interface ListCampaignPeopleOptions {
 }
 
 /**
+ * An organization assigned to a campaign with its processing state.
+ *
+ * States reuse {@link CampaignPersonState} — `action_target_organizations.state`
+ * uses the same numeric encoding as `action_target_people.state`.
+ */
+export interface CampaignOrganizationEntry {
+  /** Internal organization ID. */
+  organizationId: number;
+  /** Organization name from mini profile. */
+  name: string | null;
+  /** LinkedIn public slug (e.g. `mobimeo` for linkedin.com/company/mobimeo). */
+  publicId: string | null;
+  /** Numeric LinkedIn company ID. */
+  companyId: string | null;
+  /** Processing state in the action target list. */
+  status: CampaignPersonState;
+  /** Action ID the organization is currently assigned to. */
+  currentActionId: number;
+}
+
+/**
+ * Options for listing organizations in a campaign.
+ */
+export interface ListCampaignOrganizationsOptions {
+  /** Filter to organizations in a specific action. */
+  actionId?: number;
+  /** Filter by processing status. */
+  status?: CampaignPersonState;
+  /**
+   * Filter to organizations whose LinkedIn identifier is in this list.
+   * Matches both the public slug (`type_group = 'public'`) and the numeric
+   * company ID (`type_group = 'company'`), since company URLs come in both
+   * shapes (linkedin.com/company/mobimeo, linkedin.com/company/27109959).
+   */
+  companyIds?: string[];
+  /** Maximum number of results (default: 20). */
+  limit?: number;
+  /** Pagination offset (default: 0). */
+  offset?: number;
+}
+
+/**
  * Configuration for creating a new campaign.
  */
 export interface CampaignConfig {
@@ -245,6 +298,30 @@ export interface ImportPeopleResult {
   alreadyInQueue: number;
   /** Number of people already processed. */
   alreadyProcessed: number;
+  /** Number of URLs that failed to import. */
+  failed: number;
+}
+
+/**
+ * Result of importing organizations into a campaign action from LinkedIn
+ * company URLs.
+ *
+ * Mirrors {@link ImportPeopleResult}; the underlying
+ * `importOrganizationsFromUrls` IPC returns the same
+ * `total.addToTarget` stats shape, except it reports `inExcludeList`
+ * and may omit `failed` entirely.
+ */
+export interface ImportOrganizationsResult {
+  /** Action ID the organizations were imported into. */
+  actionId: number;
+  /** Number of organizations successfully added. */
+  successful: number;
+  /** Number of organizations already in the target queue. */
+  alreadyInQueue: number;
+  /** Number of organizations already processed. */
+  alreadyProcessed: number;
+  /** Number of organizations skipped because they are in an exclude list. */
+  inExcludeList: number;
   /** Number of URLs that failed to import. */
   failed: number;
 }

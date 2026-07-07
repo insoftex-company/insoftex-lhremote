@@ -27,6 +27,7 @@ import { registerCampaignExport } from "./campaign-export.js";
 import { registerCampaignGet } from "./campaign-get.js";
 import { registerCampaignImportFromSourceUrl } from "./campaign-import-from-source-url.js";
 import { registerCampaignList } from "./campaign-list.js";
+import { registerCampaignListOrganizations } from "./campaign-list-organizations.js";
 import { registerCampaignListPeople } from "./campaign-list-people.js";
 import { registerCampaignMoveNext } from "./campaign-move-next.js";
 import { registerCampaignRemoveAction } from "./campaign-remove-action.js";
@@ -34,6 +35,7 @@ import { registerCampaignRemovePeople } from "./campaign-remove-people.js";
 import { registerCampaignReorderActions } from "./campaign-reorder-actions.js";
 import { registerCampaignRetry } from "./campaign-retry.js";
 import { registerCampaignUpdateAction } from "./campaign-update-action.js";
+import { registerImportOrganizationsFromUrls } from "./import-organizations-from-urls.js";
 import { registerImportPeopleFromUrls } from "./import-people-from-urls.js";
 import { registerCampaignStart } from "./campaign-start.js";
 import { registerCampaignStatistics } from "./campaign-statistics.js";
@@ -117,6 +119,7 @@ export {
   registerCampaignGet,
   registerCampaignImportFromSourceUrl,
   registerCampaignList,
+  registerCampaignListOrganizations,
   registerCampaignListPeople,
   registerCampaignMoveNext,
   registerCampaignRemoveAction,
@@ -148,6 +151,7 @@ export {
   registerGetProfileActivity,
   registerGetErrors,
   registerGetThrottleStatus,
+  registerImportOrganizationsFromUrls,
   registerImportPeopleFromCollection,
   registerImportPeopleFromUrls,
   registerLaunchApp,
@@ -195,6 +199,7 @@ export function registerAllTools(server: McpServer): void {
   registerCampaignGet(server);
   registerCampaignImportFromSourceUrl(server);
   registerCampaignList(server);
+  registerCampaignListOrganizations(server);
   registerCampaignListPeople(server);
   registerCampaignMoveNext(server);
   registerCampaignRemoveAction(server);
@@ -242,6 +247,7 @@ export function registerAllTools(server: McpServer): void {
   registerCheckStatus(server);
   registerCollectPeople(server);
   registerDescribeActions(server);
+  registerImportOrganizationsFromUrls(server);
   registerImportPeopleFromCollection(server);
   registerImportPeopleFromUrls(server);
   registerListCollections(server);

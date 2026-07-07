@@ -113,7 +113,9 @@ describe("createProgram", () => {
     expect(commandNames).toContain("restart-instance");
     expect(commandNames).toContain("list-orphans");
     expect(commandNames).toContain("reap-orphans");
-    expect(commandNames).toHaveLength(78);
+    expect(commandNames).toContain("campaign-list-organizations");
+    expect(commandNames).toContain("import-organizations-from-urls");
+    expect(commandNames).toHaveLength(80);
   });
 
   describe("launch-app", () => {

@@ -25,6 +25,7 @@ const MOCK_RESULT: CampaignUpdateOutput = {
   name: "Updated Name",
   description: null,
   state: "active",
+  targetKind: "people",
   liAccountId: 1,
   isPaused: false,
   isArchived: false,

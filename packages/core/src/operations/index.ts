@@ -42,6 +42,18 @@ export {
   type CampaignListPeopleOutput,
 } from "./campaign-list-people.js";
 
+// Campaign organizations
+export {
+  campaignListOrganizations,
+  type CampaignListOrganizationsInput,
+  type CampaignListOrganizationsOutput,
+} from "./campaign-list-organizations.js";
+export {
+  importOrganizationsFromUrls,
+  type ImportOrganizationsFromUrlsInput,
+  type ImportOrganizationsFromUrlsOutput,
+} from "./import-organizations-from-urls.js";
+
 // Campaign execution
 export {
   campaignStart,
@@ -289,6 +301,7 @@ export {
 export {
   buildCompanyUrl,
   buildProfileUrl,
+  extractCompanyId,
   extractFollowableTarget,
   extractPublicId,
   LINKEDIN_COMPANY_RE,

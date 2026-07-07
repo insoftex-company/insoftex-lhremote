@@ -185,6 +185,8 @@ describe("createServer", () => {
     expect(names).toContain("get-operation");
     expect(names).toContain("cancel-operation");
     expect(names).toContain("list-operations");
-    expect(names).toHaveLength(85);
+    expect(names).toContain("campaign-list-organizations");
+    expect(names).toContain("import-organizations-from-urls");
+    expect(names).toHaveLength(87);
   });
 });

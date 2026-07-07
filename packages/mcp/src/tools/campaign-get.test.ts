@@ -28,6 +28,7 @@ const MOCK_CAMPAIGN: Campaign = {
   name: "Outreach Campaign",
   description: "Connect with engineering leaders",
   state: "active",
+  targetKind: "people",
   liAccountId: 1,
   isPaused: true,
   isArchived: false,

@@ -1,0 +1,106 @@
+// SPDX-License-Identifier: AGPL-3.0-only
+// Copyright (C) 2026 Oleksii PELYKH
+
+import {
+  CampaignExecutionError,
+  CampaignNotFoundError,
+  errorMessage,
+  InstanceNotRunningError,
+  importOrganizationsFromUrls,
+  type ImportOrganizationsFromUrlsOutput,
+} from "@insoftex/lhremote-core";
+import { parseUrls, readUrlsFile } from "../url-list.js";
+
+/** Handle the {@link https://github.com/insoftex-company/insoftex-lhremote#campaign-targeting | import-organizations-from-urls} CLI command. */
+export async function handleImportOrganizationsFromUrls(
+  campaignId: number,
+  options: {
+    urls?: string;
+    urlsFile?: string;
+    cdpPort?: number;
+    cdpHost?: string;
+    allowRemote?: boolean;
+    accountId?: number;
+    json?: boolean;
+  },
+): Promise<void> {
+  // Reject conflicting options
+  if (options.urls && options.urlsFile) {
+    process.stderr.write("Use only one of --urls or --urls-file.\n");
+    process.exitCode = 1;
+    return;
+  }
+
+  // Parse URLs from options
+  let companyUrls: string[];
+  if (options.urls) {
+    companyUrls = parseUrls(options.urls);
+  } else if (options.urlsFile) {
+    try {
+      companyUrls = readUrlsFile(options.urlsFile);
+    } catch (error) {
+      const message = errorMessage(error);
+      process.stderr.write(`${message}\n`);
+      process.exitCode = 1;
+      return;
+    }
+  } else {
+    process.stderr.write("Either --urls or --urls-file is required.\n");
+    process.exitCode = 1;
+    return;
+  }
+
+  if (companyUrls.length === 0) {
+    process.stderr.write("No URLs provided.\n");
+    process.exitCode = 1;
+    return;
+  }
+
+  let result: ImportOrganizationsFromUrlsOutput;
+  try {
+    result = await importOrganizationsFromUrls({
+      campaignId,
+      companyUrls,
+      cdpPort: options.cdpPort,
+      cdpHost: options.cdpHost,
+      allowRemote: options.allowRemote,
+      accountId: options.accountId,
+    });
+  } catch (error) {
+    if (error instanceof CampaignNotFoundError) {
+      process.stderr.write(`Campaign ${String(campaignId)} not found.\n`);
+    } else if (error instanceof CampaignExecutionError) {
+      process.stderr.write(
+        `Failed to import organizations: ${error.message}\n`,
+      );
+    } else if (error instanceof InstanceNotRunningError) {
+      process.stderr.write(`${error.message}\n`);
+    } else {
+      const message = errorMessage(error);
+      process.stderr.write(`${message}\n`);
+    }
+    process.exitCode = 1;
+    return;
+  }
+
+  if (options.json) {
+    process.stdout.write(JSON.stringify(result, null, 2) + "\n");
+  } else {
+    process.stdout.write(
+      `Imported ${String(result.imported)} organizations into campaign ${String(campaignId)} action ${String(result.actionId)}.` +
+        (result.alreadyInQueue > 0
+          ? ` ${String(result.alreadyInQueue)} already in queue.`
+          : "") +
+        (result.alreadyProcessed > 0
+          ? ` ${String(result.alreadyProcessed)} already processed.`
+          : "") +
+        (result.inExcludeList > 0
+          ? ` ${String(result.inExcludeList)} in exclude list.`
+          : "") +
+        (result.failed > 0
+          ? ` ${String(result.failed)} failed.`
+          : "") +
+        "\n",
+    );
+  }
+}

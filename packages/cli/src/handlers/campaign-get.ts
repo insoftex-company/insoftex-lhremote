@@ -44,6 +44,7 @@ export async function handleCampaignGet(
   } else {
     process.stdout.write(`Campaign #${result.id}: ${result.name}\n`);
     process.stdout.write(`State: ${result.state}\n`);
+    process.stdout.write(`Target kind: ${result.targetKind}\n`);
     process.stdout.write(`Paused: ${result.isPaused ? "yes" : "no"}\n`);
     process.stdout.write(
       `Archived: ${result.isArchived ? "yes" : "no"}\n`,

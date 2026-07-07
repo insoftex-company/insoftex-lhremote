@@ -74,6 +74,7 @@ const MOCK_CAMPAIGN: Campaign = {
   name: "[ephemeral] MessageToPerson",
   description: null,
   state: "paused",
+  targetKind: "people",
   liAccountId: 1,
   isPaused: true,
   isArchived: false,

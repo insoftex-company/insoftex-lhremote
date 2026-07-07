@@ -41,6 +41,7 @@ const MOCK_RESULT: CampaignCreateOutput = {
   name: "Test Campaign",
   description: null,
   state: "active",
+  targetKind: "people",
   liAccountId: 1,
   isPaused: false,
   isArchived: false,

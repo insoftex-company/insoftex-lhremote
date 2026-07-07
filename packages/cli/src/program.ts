@@ -18,6 +18,7 @@ import {
   handleCampaignExport,
   handleCampaignGet,
   handleCampaignList,
+  handleCampaignListOrganizations,
   handleCampaignListPeople,
   handleCampaignMoveNext,
   handleCampaignRemoveAction,
@@ -34,6 +35,7 @@ import {
   handleDeleteCollection,
   handleDismissFeedPost,
   handleDismissErrors,
+  handleImportOrganizationsFromUrls,
   handleImportPeopleFromCollection,
   handleImportPeopleFromUrls,
   handleListCollections,
@@ -283,6 +285,23 @@ Examples:
     .option("--account-id <id>", "Account ID to select when multiple accounts exist", parsePositiveInt)
     .option("--json", "Output as JSON")
     .action(handleCampaignListPeople);
+
+  program
+    .command("campaign-list-organizations")
+    .description("List organizations assigned to an organizations campaign")
+    .argument("<campaignId>", "Campaign ID", parsePositiveInt)
+    .option("--action-id <id>", "Filter to a specific action", parsePositiveInt)
+    .option("--status <status>", "Filter by status (queued, processed, successful, failed)")
+    .option("--urls <urls>", "Filter/verify by comma-separated LinkedIn company URLs")
+    .option("--urls-file <path>", "Filter/verify by LinkedIn company URLs read from a file (newline- or comma-separated)")
+    .option("--limit <n>", "Max results (default: 20)", parsePositiveInt)
+    .option("--offset <n>", "Pagination offset (default: 0)", parseNonNegativeInt)
+    .option("--cdp-port <port>", "CDP debugging port (auto-discovered when omitted)", parsePositiveInt)
+    .option("--cdp-host <host>", "CDP host (default: 127.0.0.1)")
+    .option("--allow-remote", "SECURITY: allow non-loopback CDP connections (enables remote code execution on target)")
+    .option("--account-id <id>", "Account ID to select when multiple accounts exist", parsePositiveInt)
+    .option("--json", "Output as JSON")
+    .action(handleCampaignListOrganizations);
 
   program
     .command("campaign-create")
@@ -583,6 +602,19 @@ Examples:
     .option("--account-id <id>", "Account ID to select when multiple accounts exist", parsePositiveInt)
     .option("--json", "Output as JSON")
     .action(handleImportPeopleFromUrls);
+
+  program
+    .command("import-organizations-from-urls")
+    .description("Import LinkedIn company URLs into an organizations campaign action target list")
+    .argument("<campaignId>", "Campaign ID to import into (must be an organizations campaign)", parsePositiveInt)
+    .option("--urls <urls>", "Comma-separated LinkedIn company URLs")
+    .option("--urls-file <path>", "File containing LinkedIn company URLs")
+    .option("--cdp-port <port>", "CDP debugging port (auto-discovered when omitted)", parsePositiveInt)
+    .option("--cdp-host <host>", "CDP host (default: 127.0.0.1)")
+    .option("--allow-remote", "SECURITY: allow non-loopback CDP connections (enables remote code execution on target)")
+    .option("--account-id <id>", "Account ID to select when multiple accounts exist", parsePositiveInt)
+    .option("--json", "Output as JSON")
+    .action(handleImportOrganizationsFromUrls);
 
   program
     .command("collect-people")
