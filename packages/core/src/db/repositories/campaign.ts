@@ -436,13 +436,27 @@ export class CampaignRepository {
 
     const where = conditions.join(" AND ");
 
+    // GROUP BY collapses the fan-out from person_external_ids: a person can
+    // have several 'public' rows (a permanent URN-style id plus one or more
+    // vanity slugs from LinkedIn profile-URL history), and action_target_people
+    // has been observed with duplicate rows for the same (person_id, action_id)
+    // in real LinkedHelper databases. Either source multiplies this JOIN into
+    // several rows per targeted person. Without collapsing, `LIMIT` counts raw
+    // joined rows rather than distinct people — callers that size the limit to
+    // an expected person count (e.g. campaign-list-people's URL-verification
+    // mode, see ADR-010) can then have later people silently pushed past the
+    // window, making already-present people wrongly report as not found.
+    // MIN/MAX are arbitrary-but-deterministic picks across a duplicate group;
+    // when publicIds is set, MIN(pei.external_id) is guaranteed to still be
+    // one of the requested IDs, since the WHERE clause already restricts
+    // pei.external_id to that set.
     const sql = `
       SELECT
         atp.person_id,
         COALESCE(mp.first_name, '') AS first_name,
         mp.last_name,
-        pei.external_id AS public_id,
-        atp.state,
+        MIN(pei.external_id) AS public_id,
+        MAX(atp.state) AS state,
         atp.action_id,
         COUNT(*) OVER() AS total
       FROM action_target_people atp
@@ -451,6 +465,7 @@ export class CampaignRepository {
       LEFT JOIN person_external_ids pei
         ON atp.person_id = pei.person_id AND pei.type_group = 'public'
       WHERE ${where}
+      GROUP BY atp.person_id, atp.action_id
       ORDER BY atp.person_id
       LIMIT ? OFFSET ?`;
 
@@ -534,13 +549,26 @@ export class CampaignRepository {
 
     const where = conditions.join(" AND ");
 
+    // GROUP BY collapses the fan-out from organization_external_ids — an org
+    // can have multiple 'public' rows (renamed vanity slugs) and this joins
+    // two copies of that table (oei_pub, oei_co), so without collapsing a
+    // single org can multiply into several rows here, same class of bug as
+    // listPeople above. MIN/MAX are arbitrary-but-deterministic picks; note
+    // that when companyIds is used to filter, the picked public_id/company_id
+    // here is for display only — if a caller's batch submits two different
+    // ids that both belong to the same org (e.g. its old slug and its
+    // current one, after a rename), all of that org's matching rows survive
+    // the WHERE and get grouped together, but MIN() then only surfaces one
+    // of the submitted ids, not both. Callers needing an authoritative
+    // "which submitted companyIds matched" answer should use
+    // {@link matchedCompanyIds} instead of this method's output.
     const sql = `
       SELECT
         ato.organization_id,
         omp.name,
-        oei_pub.external_id AS public_id,
-        oei_co.external_id AS company_id,
-        ato.state,
+        MIN(oei_pub.external_id) AS public_id,
+        MIN(oei_co.external_id) AS company_id,
+        MAX(ato.state) AS state,
         ato.action_id,
         COUNT(*) OVER() AS total
       FROM action_target_organizations ato
@@ -551,6 +579,7 @@ export class CampaignRepository {
       LEFT JOIN organization_external_ids oei_co
         ON ato.organization_id = oei_co.organization_id AND oei_co.type_group = 'company'
       WHERE ${where}
+      GROUP BY ato.organization_id, ato.action_id
       ORDER BY ato.organization_id
       LIMIT ? OFFSET ?`;
 
@@ -572,6 +601,53 @@ export class CampaignRepository {
     }));
 
     return { organizations, total };
+  }
+
+  /**
+   * Returns the subset of `upperCompanyIds` (already uppercased) that match
+   * an organization on the campaign's target list, checking both the public
+   * slug and the numeric company ID independently.
+   *
+   * Unlike {@link listOrganizations}'s `companyIds` filter, this is not
+   * paginated and does not fan out: `UNION`+`DISTINCT` bounds the result to
+   * at most `upperCompanyIds.length` rows regardless of how many aliases an
+   * organization has, so it can't silently drop a match the way a `LIMIT`
+   * sized to the submitted batch could. Use this (not `listOrganizations`'s
+   * `publicId`/`companyId` output) to authoritatively answer "which of these
+   * submitted company URLs actually landed on the target list" — see
+   * ADR-010's people-side equivalent for why the display query alone isn't
+   * safe for that.
+   *
+   * @throws {CampaignNotFoundError} if no campaign exists with the given ID.
+   */
+  matchedCompanyIds(campaignId: number, upperCompanyIds: string[]): Set<string> {
+    this.getCampaign(campaignId);
+
+    if (upperCompanyIds.length === 0) return new Set();
+
+    const placeholders = upperCompanyIds.map(() => "?").join(", ");
+    const sql = `
+      SELECT oei_pub.external_id_uppercase AS matched_id
+      FROM action_target_organizations ato
+      JOIN actions a ON ato.action_id = a.id
+      JOIN organization_external_ids oei_pub
+        ON oei_pub.organization_id = ato.organization_id AND oei_pub.type_group = 'public'
+      WHERE a.campaign_id = ? AND oei_pub.external_id_uppercase IN (${placeholders})
+      UNION
+      SELECT oei_co.external_id_uppercase
+      FROM action_target_organizations ato
+      JOIN actions a ON ato.action_id = a.id
+      JOIN organization_external_ids oei_co
+        ON oei_co.organization_id = ato.organization_id AND oei_co.type_group = 'company'
+      WHERE a.campaign_id = ? AND oei_co.external_id_uppercase IN (${placeholders})`;
+
+    const rows = this.client.db
+      .prepare(sql)
+      .all(campaignId, ...upperCompanyIds, campaignId, ...upperCompanyIds) as unknown as {
+      matched_id: string;
+    }[];
+
+    return new Set(rows.map((r) => r.matched_id));
   }
 
   /**

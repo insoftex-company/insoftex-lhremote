@@ -43,6 +43,11 @@ const MOCK_ORGANIZATIONS = {
   total: 2,
 };
 
+// Ground truth mirroring MOCK_ORGANIZATIONS, used by the matchedCompanyIds
+// mock below — the operation now derives notFoundCompanyUrls from that
+// dedicated repository method rather than from listOrganizations's output.
+const KNOWN_COMPANY_IDS = new Set(["ACME-ROBOTICS", "27109959", "1389"]);
+
 function setupMocks() {
   vi.mocked(resolveAccount).mockResolvedValue(1);
 
@@ -54,6 +59,12 @@ function setupMocks() {
   vi.mocked(CampaignRepository).mockImplementation(function () {
     return {
       listOrganizations: vi.fn().mockReturnValue(MOCK_ORGANIZATIONS),
+      matchedCompanyIds: vi
+        .fn()
+        .mockImplementation(
+          (_campaignId: number, ids: string[]) =>
+            new Set(ids.filter((id) => KNOWN_COMPANY_IDS.has(id))),
+        ),
     } as unknown as CampaignRepository;
   });
 }
@@ -199,6 +210,25 @@ describe("campaignListOrganizations", () => {
       });
 
       expect(result.notFoundCompanyUrls).toBeUndefined();
+      expect(lastRepoInstance().matchedCompanyIds).not.toHaveBeenCalled();
+    });
+
+    it("derives notFoundCompanyUrls from matchedCompanyIds, not listOrganizations's output", async () => {
+      setupMocks();
+
+      await campaignListOrganizations({
+        campaignId: 4,
+        cdpPort: 9222,
+        companyUrls: [
+          "https://www.linkedin.com/company/acme-robotics/",
+          "https://www.linkedin.com/company/1389",
+        ],
+      });
+
+      expect(lastRepoInstance().matchedCompanyIds).toHaveBeenCalledWith(4, [
+        "ACME-ROBOTICS",
+        "1389",
+      ]);
     });
 
     it("throws on malformed company URLs before any DB access", async () => {

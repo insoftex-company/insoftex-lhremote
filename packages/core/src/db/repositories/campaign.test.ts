@@ -631,6 +631,47 @@ describe("CampaignRepository", () => {
 
       expect(result.people.map((p) => p.personId).sort()).toEqual([1, 3]);
     });
+
+    it("collapses a person with multiple 'public' external IDs into one entry", () => {
+      // A person can have more than one 'public' row in person_external_ids
+      // (a permanent URN-style id plus one or more vanity-slug aliases from
+      // profile-URL history). Without collapsing, the JOIN in listPeople
+      // would return one row per alias for the same person.
+      db.exec(
+        `INSERT INTO person_external_ids (person_id, external_id, external_id_uppercase, type_group)
+         VALUES (1, 'ada-lovelace-alt', 'ADA-LOVELACE-ALT', 'public')`,
+      );
+
+      const result = repo.listPeople(5);
+
+      const adaEntries = result.people.filter((p) => p.personId === 1);
+      expect(adaEntries).toHaveLength(1);
+      expect(result.total).toBe(2);
+    });
+
+    it("does not let a duplicated target-list row push another matched person out of a tight limit", () => {
+      // Mirrors a real production shape: action_target_people has been
+      // observed with duplicate rows for the same (person_id, action_id).
+      // A caller verifying a batch of submitted URLs (ADR-010) sizes `limit`
+      // to the number of URLs submitted — if the duplicate isn't collapsed,
+      // it can consume more than one LIMIT slot and silently push a
+      // different, later (higher person_id), genuinely-matched person out
+      // of the result, making them wrongly report as "not found".
+      db.exec(
+        `INSERT INTO action_target_people (action_id, action_version_id, person_id, state, li_account_id, created_at)
+         VALUES (5, 5, 1, 1, 1, STRFTIME('%Y-%m-%dT%H:%M:%fZ', 'NOW'))`,
+      );
+
+      // Two submitted URLs -> limit sized to 2, matching campaign-list-people's
+      // convention (Math.min(Math.max(publicIds.length, 1), IMPORT_CHUNK_SIZE)).
+      const result = repo.listPeople(5, {
+        publicIds: ["ada-lovelace-test", "grace-hopper-test"],
+        limit: 2,
+      });
+
+      expect(result.people.map((p) => p.personId).sort()).toEqual([1, 3]);
+      expect(result.total).toBe(2);
+    });
   });
 
   describe("targetKind", () => {
@@ -769,6 +810,79 @@ describe("CampaignRepository", () => {
 
       expect(result.organizations).toHaveLength(0);
       expect(result.total).toBe(0);
+    });
+
+    it("collapses an org with a renamed public alias into one entry", () => {
+      // Same fan-out risk as listPeople's person_external_ids, but here two
+      // separate LEFT JOINs (oei_pub, oei_co) can each multiply independently.
+      db.exec(
+        `INSERT INTO organization_external_ids (organization_id, external_id, external_id_uppercase, type_group)
+         VALUES (1, 'acme-robotics-old', 'ACME-ROBOTICS-OLD', 'public')`,
+      );
+
+      const result = repo.listOrganizations(6);
+
+      expect(result.organizations.filter((o) => o.organizationId === 1)).toHaveLength(1);
+      expect(result.total).toBe(3);
+    });
+
+    it("does not let a duplicated target-list row push another matched org out of a tight limit", () => {
+      db.exec(
+        `INSERT INTO action_target_organizations (action_id, action_version_id, organization_id, state, li_account_id, created_at)
+         VALUES (8, 8, 1, 1, 1, STRFTIME('%Y-%m-%dT%H:%M:%fZ', 'NOW'))`,
+      );
+
+      const result = repo.listOrganizations(6, {
+        companyIds: ["acme-robotics", "1389"],
+        limit: 2,
+      });
+
+      expect(result.organizations.map((o) => o.organizationId).sort()).toEqual([1, 2]);
+      expect(result.total).toBe(2);
+    });
+  });
+
+  describe("matchedCompanyIds", () => {
+    it("matches by public slug and by numeric company id independently", () => {
+      const matched = repo.matchedCompanyIds(6, ["ACME-ROBOTICS", "1389", "NOPE"]);
+
+      expect(matched).toEqual(new Set(["ACME-ROBOTICS", "1389"]));
+    });
+
+    it("returns an empty set for an empty input list", () => {
+      expect(repo.matchedCompanyIds(6, [])).toEqual(new Set());
+    });
+
+    it("finds every submitted alias even when two resolve to the same org", () => {
+      // If a caller's batch happens to submit two different URLs that both
+      // resolve to the same already-renamed org (one using the old slug, one
+      // the current one), both rows survive listOrganizations's per-row OR
+      // filter and get grouped together — MIN(oei_pub.external_id) then picks
+      // only one alphabetically, so a naive foundIds derived from that
+      // display output would wrongly report the other submitted alias as not
+      // found even though it's the very same, genuinely-targeted org.
+      // "aaa-old-name" sorts before "acme-robotics".
+      db.exec(
+        `INSERT INTO organization_external_ids (organization_id, external_id, external_id_uppercase, type_group)
+         VALUES (1, 'aaa-old-name', 'AAA-OLD-NAME', 'public')`,
+      );
+
+      const displayed = repo.listOrganizations(6, {
+        companyIds: ["acme-robotics", "aaa-old-name"],
+      });
+      expect(displayed.organizations).toHaveLength(1);
+      // Demonstrates the gap: only the MIN-picked alias is visible here.
+      expect(displayed.organizations[0]?.publicId).toBe("aaa-old-name");
+
+      // matchedCompanyIds isn't fooled by the same MIN-pick collapsing.
+      const matched = repo.matchedCompanyIds(6, ["ACME-ROBOTICS", "AAA-OLD-NAME"]);
+      expect(matched).toEqual(new Set(["ACME-ROBOTICS", "AAA-OLD-NAME"]));
+    });
+
+    it("throws CampaignNotFoundError for missing campaign", () => {
+      expect(() => repo.matchedCompanyIds(999, ["ACME-ROBOTICS"])).toThrow(
+        CampaignNotFoundError,
+      );
     });
   });
 

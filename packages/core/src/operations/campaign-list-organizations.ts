@@ -100,11 +100,12 @@ export async function campaignListOrganizations(
       return output;
     }
 
-    const foundIds = new Set<string>();
-    for (const org of result.organizations) {
-      if (org.publicId !== null) foundIds.add(org.publicId.toUpperCase());
-      if (org.companyId !== null) foundIds.add(org.companyId.toUpperCase());
-    }
+    // Not derived from result.organizations: that list collapses each org's
+    // matching rows for display, so if two submitted URLs resolve to the same
+    // org (e.g. its old slug and its current one), only one of them survives
+    // the collapse (see listOrganizations's doc comment). matchedCompanyIds
+    // checks each submitted id independently instead.
+    const foundIds = campaignRepo.matchedCompanyIds(input.campaignId, companyIds ?? []);
     const notFoundCompanyUrls = [...urlByCompanyId.entries()]
       .filter(([companyId]) => !foundIds.has(companyId))
       .map(([, url]) => url);
