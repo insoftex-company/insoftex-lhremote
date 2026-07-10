@@ -1,13 +1,13 @@
 {
   ".claude-plugin/marketplace.json": {
-    "mtime": 1783393620.9903007,
-    "ast_hash": "06cea35cb0ec97391cfe50c34defa641",
-    "semantic_hash": "06cea35cb0ec97391cfe50c34defa641"
+    "mtime": 1783638344.0744529,
+    "ast_hash": "ce5be6af506bdc5862827106f6303340",
+    "semantic_hash": "ce5be6af506bdc5862827106f6303340"
   },
   ".claude-plugin/plugin.json": {
-    "mtime": 1783393619.9186523,
-    "ast_hash": "ac2d468e09f831f4a14d64e3e6c1ffde",
-    "semantic_hash": "ac2d468e09f831f4a14d64e3e6c1ffde"
+    "mtime": 1783638344.0733318,
+    "ast_hash": "6a9e2ce6716d6f9f62d38ea825f47f2f",
+    "semantic_hash": "6a9e2ce6716d6f9f62d38ea825f47f2f"
   },
   ".claude/settings.json": {
     "mtime": 1782099401.737356,
@@ -55,14 +55,14 @@
     "semantic_hash": "270afb63ba7d820fd6d0908d71abef4e"
   },
   "package.json": {
-    "mtime": 1783393612.4932556,
-    "ast_hash": "b86e02705cebb339e81db08c401d6aea",
-    "semantic_hash": "b86e02705cebb339e81db08c401d6aea"
+    "mtime": 1783638241.7817383,
+    "ast_hash": "f3af394ee29f6943306063c9b63952ca",
+    "semantic_hash": "f3af394ee29f6943306063c9b63952ca"
   },
   "packages/cli/package.json": {
-    "mtime": 1783393615.0306408,
-    "ast_hash": "a4fd6d2b292ce04b31dd36fc3bd5a595",
-    "semantic_hash": "a4fd6d2b292ce04b31dd36fc3bd5a595"
+    "mtime": 1783638250.4055424,
+    "ast_hash": "54dccca88059233af22a0e681e4f2018",
+    "semantic_hash": "54dccca88059233af22a0e681e4f2018"
   },
   "packages/cli/src/cli.ts": {
     "mtime": 1781913638.9278986,
@@ -845,9 +845,9 @@
     "semantic_hash": "8c49fc5188b6afa17b60cad8c7185d87"
   },
   "packages/core/package.json": {
-    "mtime": 1783393614.017115,
-    "ast_hash": "fee059ecc5cec0896426793deda1fb65",
-    "semantic_hash": "fee059ecc5cec0896426793deda1fb65"
+    "mtime": 1783638245.7773614,
+    "ast_hash": "ff564844eb84235631c7509b6e809e82",
+    "semantic_hash": "ff564844eb84235631c7509b6e809e82"
   },
   "packages/core/src/cdp/app-discovery.test.ts": {
     "mtime": 1783362426.787153,
@@ -1105,14 +1105,14 @@
     "semantic_hash": "799ee79549cd783c777846c11af8fc15"
   },
   "packages/core/src/db/repositories/campaign.test.ts": {
-    "mtime": 1783377688.242994,
-    "ast_hash": "e5e9943c3e3530d95f3e18ecc35b8e67",
-    "semantic_hash": "e5e9943c3e3530d95f3e18ecc35b8e67"
+    "mtime": 1783637902.3827672,
+    "ast_hash": "f7f2b1d47c46bf1014e024e7471711ce",
+    "semantic_hash": "f7f2b1d47c46bf1014e024e7471711ce"
   },
   "packages/core/src/db/repositories/campaign.ts": {
-    "mtime": 1783376683.2948794,
-    "ast_hash": "5535ee9582f1e3f4dbbfa3e9b1ebc7f7",
-    "semantic_hash": "5535ee9582f1e3f4dbbfa3e9b1ebc7f7"
+    "mtime": 1783637918.3297389,
+    "ast_hash": "602bdcddff6ab45e9f46fb964197b83b",
+    "semantic_hash": "602bdcddff6ab45e9f46fb964197b83b"
   },
   "packages/core/src/db/repositories/collection-list.integration.test.ts": {
     "mtime": 1781913638.951393,
@@ -2315,9 +2315,9 @@
     "semantic_hash": "a71bb791799ba852aacb48783f0dcc31"
   },
   "packages/e2e/package.json": {
-    "mtime": 1783393618.6084578,
-    "ast_hash": "5b9dcfc651adf7b2dbc03858b01e79ec",
-    "semantic_hash": "5b9dcfc651adf7b2dbc03858b01e79ec"
+    "mtime": 1783638259.7576332,
+    "ast_hash": "285cdc7a7488bfe2d297461470fa0053",
+    "semantic_hash": "285cdc7a7488bfe2d297461470fa0053"
   },
   "packages/e2e/src/app-service.e2e.test.ts": {
     "mtime": 1782099401.788724,
@@ -2550,9 +2550,9 @@
     "semantic_hash": "369254b8fa207e6ac7a34fd37fc98923"
   },
   "packages/lhremote/package.json": {
-    "mtime": 1783393628.0875738,
-    "ast_hash": "3f9fe423998e94347a9676d37e184d32",
-    "semantic_hash": "3f9fe423998e94347a9676d37e184d32"
+    "mtime": 1783638297.9233115,
+    "ast_hash": "ffd8ee96ccc0a3c54605b51141dd1de5",
+    "semantic_hash": "ffd8ee96ccc0a3c54605b51141dd1de5"
   },
   "packages/lhremote/src/cli.test.ts": {
     "mtime": 1782099401.7979383,
@@ -2570,9 +2570,9 @@
     "semantic_hash": "d64c6fc34284785a28e33375947cf63d"
   },
   "packages/mcp/package.json": {
-    "mtime": 1783393616.049423,
-    "ast_hash": "db5c722f0fa5e07b07b6ca7aa4668fac",
-    "semantic_hash": "db5c722f0fa5e07b07b6ca7aa4668fac"
+    "mtime": 1783638253.791264,
+    "ast_hash": "b54bb7effe3b23d7212280b79c1f354b",
+    "semantic_hash": "b54bb7effe3b23d7212280b79c1f354b"
   },
   "packages/mcp/src/helpers.ts": {
     "mtime": 1782271446.41091,
@@ -3470,9 +3470,9 @@
     "semantic_hash": "a89f92fd62092bf5db6fa173daa6ee3a"
   },
   "server.json": {
-    "mtime": 1783393622.0166433,
-    "ast_hash": "fe8c4b71a15dbcc85f7886ba3ab647ed",
-    "semantic_hash": "fe8c4b71a15dbcc85f7886ba3ab647ed"
+    "mtime": 1783638344.0746844,
+    "ast_hash": "c0fbd8b1207d72a900bd8b5f0f63c14d",
+    "semantic_hash": "c0fbd8b1207d72a900bd8b5f0f63c14d"
   },
   "tsconfig.base.json": {
     "mtime": 1781913638.9938996,
@@ -3555,9 +3555,9 @@
     "semantic_hash": "5c82790e5945bd791b6d1f4fd8387233"
   },
   "CLAUDE.md": {
-    "mtime": 1783362625.0809066,
-    "ast_hash": "6443af796843f239e5ff5fba9adf79c0",
-    "semantic_hash": "6443af796843f239e5ff5fba9adf79c0"
+    "mtime": 1783649669.4475045,
+    "ast_hash": "c1412e08868ffc9d2c3b7a7deedbf3ab",
+    "semantic_hash": "c1412e08868ffc9d2c3b7a7deedbf3ab"
   },
   "CONTRIBUTING.md": {
     "mtime": 1782099401.738634,
@@ -3810,14 +3810,14 @@
     "semantic_hash": "dc3b3cc1cc0b67a90a1d0d320930957d"
   },
   "packages/core/src/operations/campaign-list-organizations.test.ts": {
-    "mtime": 1783378084.5517638,
-    "ast_hash": "1497dfed273e69949be7266c517b4496",
-    "semantic_hash": "1497dfed273e69949be7266c517b4496"
+    "mtime": 1783637797.8433158,
+    "ast_hash": "be00c0f0f0b6dac4b79bdd3c7fe63fbb",
+    "semantic_hash": "be00c0f0f0b6dac4b79bdd3c7fe63fbb"
   },
   "packages/core/src/operations/campaign-list-organizations.ts": {
-    "mtime": 1783378084.5546558,
-    "ast_hash": "8c21a386629569f5e6b594bb1a9e3acb",
-    "semantic_hash": "8c21a386629569f5e6b594bb1a9e3acb"
+    "mtime": 1783637928.4413545,
+    "ast_hash": "ba013ad76a8e910e29f61f17bc56c637",
+    "semantic_hash": "ba013ad76a8e910e29f61f17bc56c637"
   },
   "packages/core/src/operations/import-organizations-from-urls.test.ts": {
     "mtime": 1783378084.5486615,
