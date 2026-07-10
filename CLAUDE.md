@@ -86,6 +86,13 @@ Single-developer repository — no PRs, no human or Copilot code review (Copilot
   | `server.json` | `version` and `packages[0].version` |
   - The release workflow stamps the 6 `package.json` files from the git tag but does **not** auto-bump the plugin/server files — after each release, commit an update to match the new tag.
 
+## Remote Access (lhserver)
+
+`lhserver` (see `~/.ssh/config`) is the Windows machine running the production LinkedHelper instances the EspoCRM sync scripts target. Two things about it are easy to get wrong:
+
+- **Non-interactive `ssh lhserver "..."` execs run under `cmd.exe`, not PowerShell** — confirmed by `dir` returning a classic `cmd.exe` banner (`Volume in drive C has no label...`), not PowerShell's `Get-ChildItem` table format. Invoke PowerShell explicitly (`powershell -NoProfile -Command "..."`) when you need it rather than assuming PowerShell syntax works over a plain exec.
+- **Auth fails silently if the local ssh-agent has dropped the key's unlocked identity, not because of a network problem.** The key is passphrase-protected; a non-interactive session (no TTY) can't be prompted, so it fails with `Permission denied (publickey,password,keyboard-interactive)` — `ssh -v` shows the server *accepting* the key, then `read_passphrase: can't open /dev/tty`. Check `ssh-add -l`; "The agent has no identities" is the actual cause. This presents the same way for any ssh-agent-held key (e.g. GitHub), not just `lhserver`. Ask the user to re-run `ssh-add` (or unlock via Keychain) — don't loop retries, and don't chase it as a routing/ARP issue (it never presents as `No route to host`, and clearing ARP caches or killing ssh processes doesn't address it).
+
 ## graphify
 
 `.graphifyignore` excludes `dist-bundle/`, `dist-mcpb/`, `dist-mcpb-staging/` — esbuild-bundled/packaged release output, not source. Before this was added they contributed ~46% of the graph's nodes as duplicate copies of `packages/*` symbols already graphed correctly from source. If a new bundled/packaged output directory is added under a name the default skip-list doesn't catch (`dist`/`build`/`out` are skipped automatically; anything named `dist-*` or similar is not), add it here too.
