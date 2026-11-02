@@ -39,7 +39,7 @@ lhremote CDPClient
 
 2. **Port discovery via process enumeration** — the launcher listens on a known port (default 9222), but instance ports are dynamic. Discovery works by finding the launcher PID via `pid-port`, enumerating child processes via `ps-list`, and probing each candidate with an HTTP request to `/json/list` to verify it speaks CDP.
 
-3. **Automatic reconnection** with exponential backoff (500ms base, max 5 attempts) — the Electron app may restart or instances may be cycled, so the CDP client handles transient disconnections transparently.
+3. **Single-use `CDPClient` with caller-owned reconnection** — `CDPClient` opens one WebSocket connection and is intentionally discarded when that connection closes unexpectedly.  Reconnection is the responsibility of `LauncherService.reconnect()` and `withLauncherRecovery`, which create a fresh `CDPClient` on each recovery attempt.  Keeping auto-reconnect inside `CDPClient` caused orphaned background connections: after `LauncherService` replaced the old client with a new one and properly disconnected it in the operation's `finally` block, the old client's background task would eventually grab the CDP target, holding it indefinitely and blocking all future acquisitions (see CHANGELOG v0.23.1).
 
 4. **Request/response correlation** via incremental message IDs — the CDP protocol multiplexes requests and events over a single WebSocket, so each outgoing request is tagged with a numeric ID and matched to its response.
 

@@ -4,7 +4,13 @@
 import { resolveInstancePort } from "../cdp/index.js";
 import { CDPClient } from "../cdp/client.js";
 import { discoverTargets } from "../cdp/discovery.js";
-import { humanizedClick, humanizedHover, retryInteraction, waitForDOMStable, waitForElement } from "../linkedin/dom-automation.js";
+import {
+  humanizedClick,
+  humanizedHover,
+  retryInteraction,
+  waitForDOMStable,
+  waitForElement,
+} from "../linkedin/dom-automation.js";
 import type { HumanizedMouse } from "../linkedin/humanized-mouse.js";
 import {
   REACTION_CELEBRATE,
@@ -15,9 +21,19 @@ import {
   REACTION_SUPPORT,
   REACTION_TRIGGER,
 } from "../linkedin/selectors.js";
+import { assertActionBudget } from "../services/action-budget-guard.js";
 import { gaussianDelay } from "../utils/delay.js";
-import type { ConnectionOptions } from "./types.js";
+import { buildCdpOptions, type ConnectionOptions } from "./types.js";
 import { gateOnLoggedInState } from "./wait-for-logged-in-state.js";
+
+/**
+ * Limit type ID for PostLike in the LinkedHelper budget system.
+ *
+ * Corroborated in-repo rather than asserted: `ActionBudgetRepository`'s
+ * `ACTION_TYPE_TO_LIMIT_TYPE` maps the `LikePost` action config type to `18`,
+ * and the budget suite's `limit_types` fixture seeds `(18, 'PostLike')`.
+ */
+const POST_LIKE_LIMIT_TYPE_ID = 18;
 
 /**
  * Supported LinkedIn reaction types.
@@ -30,13 +46,7 @@ import { gateOnLoggedInState } from "./wait-for-logged-in-state.js";
  * - `INSIGHTFUL` → Insightful (light bulb)
  * - `FUNNY` → Funny (laughing face)
  */
-export type ReactionType =
-  | "like"
-  | "celebrate"
-  | "support"
-  | "love"
-  | "insightful"
-  | "funny";
+export type ReactionType = "like" | "celebrate" | "support" | "love" | "insightful" | "funny";
 
 /** Map from reaction type to its selector in the reactions popup. */
 const REACTION_SELECTORS: Readonly<Record<ReactionType, string>> = {
@@ -49,9 +59,7 @@ const REACTION_SELECTORS: Readonly<Record<ReactionType, string>> = {
 };
 
 /** All valid reaction type values. */
-export const REACTION_TYPES: readonly ReactionType[] = Object.keys(
-  REACTION_SELECTORS,
-) as ReactionType[];
+export const REACTION_TYPES: readonly ReactionType[] = Object.keys(REACTION_SELECTORS) as ReactionType[];
 
 /** Map from display name (as it appears in aria-labels) to reaction type. */
 const REACTION_NAME_MAP: Readonly<Partial<Record<string, ReactionType>>> = {
@@ -73,9 +81,7 @@ const REACTION_NAME_MAP: Readonly<Partial<Record<string, ReactionType>>> = {
  *
  * @returns The current reaction type, or `null` if not reacted.
  */
-async function detectCurrentReaction(
-  client: CDPClient,
-): Promise<ReactionType | null> {
+async function detectCurrentReaction(client: CDPClient): Promise<ReactionType | null> {
   const label = await client.evaluate<string | null>(
     `(() => {
       const el = document.querySelector(${JSON.stringify(REACTION_TRIGGER)});
@@ -142,24 +148,25 @@ export interface ReactToPostOutput {
  * the current reaction state, and validates that the reaction popup opens,
  * but skips the final reaction click.
  *
+ * Checks the action budget before attempting the reaction and fails with a
+ * {@link BudgetExceededError} if the PostLike limit has been reached.  The
+ * check runs before the dry-run branch and before the already-reacted no-op,
+ * so an exhausted budget refuses either of those too — see
+ * {@link assertActionBudget} for why.
+ *
  * @param input - Post URL, reaction type, and CDP connection parameters.
  * @returns Confirmation of the reaction applied, including whether the
  *   post was already reacted with the requested type.
  */
-export async function reactToPost(
-  input: ReactToPostInput,
-): Promise<ReactToPostOutput> {
-  const cdpPort = await resolveInstancePort(input.cdpPort, input.cdpHost);
+export async function reactToPost(input: ReactToPostInput): Promise<ReactToPostOutput> {
+  const cdpPort = await resolveInstancePort(input.cdpPort, input.cdpHost, undefined, input.accountId);
   const cdpHost = input.cdpHost ?? "127.0.0.1";
   const allowRemote = input.allowRemote ?? false;
   const reactionType = input.reactionType ?? "like";
   const dryRun = input.dryRun ?? false;
 
   if (!REACTION_TYPES.includes(reactionType)) {
-    throw new Error(
-      `Invalid reaction type "${reactionType}". ` +
-        `Valid types: ${REACTION_TYPES.join(", ")}`,
-    );
+    throw new Error(`Invalid reaction type "${reactionType}". ` + `Valid types: ${REACTION_TYPES.join(", ")}`);
   }
 
   // Enforce loopback guard
@@ -170,17 +177,22 @@ export async function reactToPost(
     );
   }
 
+  // Check the action budget before reacting, on the same terms and at the same
+  // point in the sequence as `comment-on-post`.  Placed ahead of the logged-in
+  // gate, target discovery, the CDP connection and every DOM step — but not
+  // free: reading the budget itself resolves an account, which probes the
+  // launcher over CDP, and opens the account's database.  What it saves is the
+  // page work, not all work.
+  await assertActionBudget(POST_LIKE_LIMIT_TYPE_ID, cdpPort, buildCdpOptions(input));
+
   await gateOnLoggedInState(cdpPort, cdpHost, allowRemote, { timeout: 60_000 });
 
   const targets = await discoverTargets(cdpPort, cdpHost);
-  const linkedInTarget = targets.find(
-    (t) => t.type === "page" && t.url?.includes("linkedin.com"),
-  );
+  const linkedInTarget = targets.find((t) => t.type === "page" && t.url?.includes("linkedin.com"));
 
   if (!linkedInTarget) {
     throw new Error(
-      "No LinkedIn page found in LinkedHelper. " +
-        "Ensure LinkedHelper is running with an active LinkedIn session.",
+      "No LinkedIn page found in LinkedHelper. " + "Ensure LinkedHelper is running with an active LinkedIn session.",
     );
   }
 

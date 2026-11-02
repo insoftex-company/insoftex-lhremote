@@ -195,6 +195,43 @@ describe("getFeed", () => {
     expect(post?.hashtags).toEqual(["linkedin", "tech"]);
   });
 
+  it("addresses the three-dot menu with the registry's menu-button selector", async () => {
+    // Spelled out rather than imported from the registry on purpose:
+    // importing FEED_POST_MENU_BUTTON would compare the constant with itself
+    // and pass through any change to it.  Spelled out, a change to the
+    // registry value fails HERE.  get-feed most needed that: its URL capture
+    // degrades silently when the selector goes stale (no match -> clicked
+    // false -> url: null, no throw), so unlike its three siblings nothing
+    // went red for it at all (lhremote#856).
+    //
+    // Scope of this pin: the two consumers that go through the constant.
+    // Three further occurrences of the same aria-label prefix are hardcoded
+    // inside in-page scripts in get-feed.ts -- the author-header scan, the
+    // scrape post-detection predicate, and waitForFeedLoad's readiness poll.
+    // Those are item-relative queries carrying no mainFeed/listitem ancestor,
+    // so they are not the byte-identical named copy this pin covers, and
+    // they remain unpinned.
+    const EXPECTED_MENU_BUTTON_SELECTOR =
+      '[data-testid="mainFeed"] div[role="listitem"] button[aria-label^="Open control menu for post"]';
+
+    const { evaluate } = setupMocks([rawPost({ url: "https://www.linkedin.com/feed/update/urn:li:activity:1/" })]);
+
+    await getFeed({ cdpPort: CDP_PORT, count: 1 });
+
+    const scripts = evaluate.mock.calls.map(([script]) => String(script));
+    const embedded = JSON.stringify(EXPECTED_MENU_BUTTON_SELECTOR);
+
+    // Both consumers in capturePostUrl: the scroll-into-view fallback and
+    // the indexed click.
+    expect(scripts.some((script) => script.includes("scrollIntoView") && script.includes(embedded))).toBe(true);
+
+    const clickScripts = scripts.filter((script) => script.includes("btn.click()"));
+    expect(clickScripts.length).toBeGreaterThan(0);
+    for (const script of clickScripts) {
+      expect(script).toContain(embedded);
+    }
+  });
+
   it("returns null URL when raw post has null url", async () => {
     setupMocks([rawPost({ url: null })]);
 
@@ -303,11 +340,16 @@ describe("getFeed", () => {
     // Custom mock: 3 posts where only the first has a successful URL extraction.
     // The clipboard mock returns a URL for the first post only; all subsequent
     // reads return null, causing capturePostUrl to genuinely fail for posts 2–3.
-    vi.mocked(discoverTargets).mockResolvedValue([{
-      id: "target-1", type: "page", title: "LinkedIn",
-      url: "https://www.linkedin.com/feed/",
-      description: "", devtoolsFrontendUrl: "",
-    }]);
+    vi.mocked(discoverTargets).mockResolvedValue([
+      {
+        id: "target-1",
+        type: "page",
+        title: "LinkedIn",
+        url: "https://www.linkedin.com/feed/",
+        description: "",
+        devtoolsFrontendUrl: "",
+      },
+    ]);
 
     const posts = [
       { ...rawPost({ url: null }), _isNew: true },
@@ -365,11 +407,16 @@ describe("getFeed", () => {
     let copyLinkClicks = 0;
     let clipIdx = 0;
 
-    vi.mocked(discoverTargets).mockResolvedValue([{
-      id: "target-1", type: "page", title: "LinkedIn",
-      url: "https://www.linkedin.com/feed/",
-      description: "", devtoolsFrontendUrl: "",
-    }]);
+    vi.mocked(discoverTargets).mockResolvedValue([
+      {
+        id: "target-1",
+        type: "page",
+        title: "LinkedIn",
+        url: "https://www.linkedin.com/feed/",
+        description: "",
+        devtoolsFrontendUrl: "",
+      },
+    ]);
 
     const evaluate = vi.fn().mockImplementation((script: string) => {
       const s = String(script);
@@ -517,9 +564,12 @@ describe("getFeed", () => {
         if (scrapeCall === 1) {
           return Promise.resolve(firstScrape.map((p) => ({ ...p, _isNew: true })));
         }
-        return Promise.resolve(secondScrape.map((p, i) => ({
-          ...p, _isNew: i >= firstScrape.length,
-        })));
+        return Promise.resolve(
+          secondScrape.map((p, i) => ({
+            ...p,
+            _isNew: i >= firstScrape.length,
+          })),
+        );
       }
       if (s.includes("navigator.clipboard.writeText")) return Promise.resolve(undefined);
       if (s.includes("__capturedClipboard = null")) return Promise.resolve(undefined);
@@ -567,9 +617,7 @@ describe("getFeed", () => {
         // First call: posts are new.  Subsequent: same posts, not new.
         const isFirst = staleScrapeCount === 0;
         staleScrapeCount++;
-        return Promise.resolve(
-          fixedPosts.map((p) => ({ ...p, _isNew: isFirst })),
-        );
+        return Promise.resolve(fixedPosts.map((p) => ({ ...p, _isNew: isFirst })));
       }
       if (s.includes("navigator.clipboard.writeText")) return Promise.resolve(undefined);
       if (s.includes("__capturedClipboard = null")) return Promise.resolve(undefined);
@@ -590,24 +638,18 @@ describe("getFeed", () => {
     expect(result.posts).toHaveLength(2);
     // At least 1 scroll from the feed loop; confusion scrolls from retry
     // logic may add more Input.dispatchMouseEvent calls.
-    const scrollCalls = send.mock.calls.filter(
-      (c) => c[0] === "Input.dispatchMouseEvent",
-    );
+    const scrollCalls = send.mock.calls.filter((c) => c[0] === "Input.dispatchMouseEvent");
     expect(scrollCalls.length).toBeGreaterThanOrEqual(1);
   });
 
   it("throws when no LinkedIn page found", async () => {
     vi.mocked(discoverTargets).mockResolvedValue([]);
 
-    await expect(getFeed({ cdpPort: CDP_PORT })).rejects.toThrow(
-      "No LinkedIn page found in LinkedHelper",
-    );
+    await expect(getFeed({ cdpPort: CDP_PORT })).rejects.toThrow("No LinkedIn page found in LinkedHelper");
   });
 
   it("throws on non-loopback host without allowRemote", async () => {
-    await expect(
-      getFeed({ cdpPort: CDP_PORT, cdpHost: "192.168.1.1" }),
-    ).rejects.toThrow("requires --allow-remote");
+    await expect(getFeed({ cdpPort: CDP_PORT, cdpHost: "192.168.1.1" })).rejects.toThrow("requires --allow-remote");
   });
 
   it("disconnects CDP client after operation", async () => {
@@ -645,6 +687,37 @@ describe("getFeed", () => {
     expect(disconnect).toHaveBeenCalled();
   });
 
+  it("carries a year-old post's timestamp through the whole seam", async () => {
+    // `parseTimestamp` and the extractor are asserted separately, and the JOIN
+    // between them -- `mapRawPosts` -- is what actually decides what a caller
+    // receives, so the year unit is driven end to end here as well. Scope the
+    // claim precisely: a join fault whose effect is already visible at two
+    // hours -- nulling the field, dropping it, mis-sourcing it, skipping the
+    // parse, clamping to now -- also fails the `2h` seam case below, so this
+    // case does not catch that class on its own. What it catches ALONE is a
+    // fault that only bites at long ages: keyed on the unit token (a
+    // `=== "1y"` special case, a year-only branch), or on the resulting
+    // magnitude (a max-age clamp whose threshold sits between 2h and 1y).
+    // Those two are caught for DIFFERENT reasons, and only the second is about
+    // age: a clamp does not read the unit token at all, so move its threshold
+    // under two hours and the `2h` case starts failing too.  The first is
+    // genuinely unit-keyed, so it is the token and not the age that has to be
+    // held: swapping `1y` for a DIFFERENT unit (`1mo`) drops both of its
+    // examples, while swapping it for another year spelling (`2y`, `11yr`)
+    // still catches a year-only branch and loses only the `=== "1y"` literal.
+    // `mapRawPosts` is shared with `searchPosts` and `getProfileActivity`,
+    // but this test drives only `getFeed`, so it says nothing about their
+    // reads of the same field.
+    const now = Date.now();
+    setupMocks([rawPost({ timestamp: "1y" })]);
+
+    const result = await getFeed({ cdpPort: CDP_PORT });
+
+    const ts = result.posts[0]?.timestamp;
+    expect(ts).toBeTypeOf("number");
+    expect(Math.abs(now - 31_536_000_000 - (ts as number))).toBeLessThan(5000);
+  });
+
   it("parses relative timestamp into epoch milliseconds", async () => {
     const now = Date.now();
     setupMocks([rawPost({ timestamp: "2h" })]);
@@ -655,7 +728,7 @@ describe("getFeed", () => {
     expect(ts).toBeTypeOf("number");
     // Should be approximately 2 hours ago (within 5 seconds tolerance)
     const twoHoursMs = 2 * 60 * 60 * 1000;
-    expect(Math.abs((now - twoHoursMs) - (ts as number))).toBeLessThan(5000);
+    expect(Math.abs(now - twoHoursMs - (ts as number))).toBeLessThan(5000);
   });
 
   it("extracts and deduplicates hashtags from post text", async () => {
@@ -702,49 +775,49 @@ describe("parseTimestamp", () => {
     const now = Date.now();
     const result = parseTimestamp("30s");
     expect(result).toBeTypeOf("number");
-    expect(Math.abs((now - 30_000) - (result as number))).toBeLessThan(1000);
+    expect(Math.abs(now - 30_000 - (result as number))).toBeLessThan(1000);
   });
 
   it("parses minutes", () => {
     const now = Date.now();
     const result = parseTimestamp("52m");
     expect(result).toBeTypeOf("number");
-    expect(Math.abs((now - 52 * 60_000) - (result as number))).toBeLessThan(1000);
+    expect(Math.abs(now - 52 * 60_000 - (result as number))).toBeLessThan(1000);
   });
 
   it("parses hours", () => {
     const now = Date.now();
     const result = parseTimestamp("16h");
     expect(result).toBeTypeOf("number");
-    expect(Math.abs((now - 16 * 3_600_000) - (result as number))).toBeLessThan(1000);
+    expect(Math.abs(now - 16 * 3_600_000 - (result as number))).toBeLessThan(1000);
   });
 
   it("parses days", () => {
     const now = Date.now();
     const result = parseTimestamp("3d");
     expect(result).toBeTypeOf("number");
-    expect(Math.abs((now - 3 * 86_400_000) - (result as number))).toBeLessThan(1000);
+    expect(Math.abs(now - 3 * 86_400_000 - (result as number))).toBeLessThan(1000);
   });
 
   it("parses weeks", () => {
     const now = Date.now();
     const result = parseTimestamp("1w");
     expect(result).toBeTypeOf("number");
-    expect(Math.abs((now - 604_800_000) - (result as number))).toBeLessThan(1000);
+    expect(Math.abs(now - 604_800_000 - (result as number))).toBeLessThan(1000);
   });
 
   it("parses months", () => {
     const now = Date.now();
     const result = parseTimestamp("1mo");
     expect(result).toBeTypeOf("number");
-    expect(Math.abs((now - 2_592_000_000) - (result as number))).toBeLessThan(1000);
+    expect(Math.abs(now - 2_592_000_000 - (result as number))).toBeLessThan(1000);
   });
 
   it("parses multi-digit months", () => {
     const now = Date.now();
     const result = parseTimestamp("11mo");
     expect(result).toBeTypeOf("number");
-    expect(Math.abs((now - 11 * 2_592_000_000) - (result as number))).toBeLessThan(1000);
+    expect(Math.abs(now - 11 * 2_592_000_000 - (result as number))).toBeLessThan(1000);
   });
 
   it("treats 'm' as minutes, not the start of 'mo'", () => {
@@ -754,13 +827,38 @@ describe("parseTimestamp", () => {
     const now = Date.now();
     const result = parseTimestamp("5m");
     expect(result).toBeTypeOf("number");
-    expect(Math.abs((now - 5 * 60_000) - (result as number))).toBeLessThan(1000);
+    expect(Math.abs(now - 5 * 60_000 - (result as number))).toBeLessThan(1000);
+  });
+
+  it("parses years", () => {
+    // The feed extractor's `FIELD_TIMESTAMP` now CLASSIFIES `1y` as a
+    // timestamp, so this parser has to accept what that classifier can emit.
+    // A token classified upstream and dropped here does not surface as an
+    // error -- it resets `publishedAt` to null, which is the same silent loss
+    // `mo` was added to fix.
+    const now = Date.now();
+    const result = parseTimestamp("1y");
+    expect(result).toBeTypeOf("number");
+    expect(Math.abs(now - 31_536_000_000 - (result as number))).toBeLessThan(1000);
+  });
+
+  it("parses multi-digit years spelled 'yr'", () => {
+    // Both spellings LinkedIn uses, because the extractor classifies both.
+    //
+    // What this does NOT pin, stated so nobody reads it as more than it is:
+    // the ORDER of `yr` and `y` in the alternation. Measured by swapping them
+    // — the suite still passes, because the regex is anchored and `$` forces
+    // the engine to backtrack out of a `y` that leaves `r` unconsumed. What
+    // these three tests do catch is the year units being dropped or lost
+    // altogether, which fails all three.
+    const now = Date.now();
+    const result = parseTimestamp("11yr");
+    expect(result).toBeTypeOf("number");
+    expect(Math.abs(now - 11 * 31_536_000_000 - (result as number))).toBeLessThan(1000);
   });
 
   it("parses ISO datetime", () => {
-    expect(parseTimestamp("2026-03-25T10:00:00Z")).toBe(
-      Date.parse("2026-03-25T10:00:00Z"),
-    );
+    expect(parseTimestamp("2026-03-25T10:00:00Z")).toBe(Date.parse("2026-03-25T10:00:00Z"));
   });
 
   it("returns null for null input", () => {

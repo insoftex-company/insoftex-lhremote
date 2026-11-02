@@ -17,10 +17,12 @@ import { EphemeralCampaignService } from "./ephemeral-campaign.js";
 
 // Mock InstanceService
 const mockEvaluateUI = vi.fn();
+const mockDismissInstancePopups = vi.fn().mockResolvedValue(undefined);
 
 vi.mock("./instance.js", () => ({
   InstanceService: vi.fn().mockImplementation(function (this: Record<string, unknown>) {
     this.evaluateUI = mockEvaluateUI;
+    this.dismissInstancePopups = mockDismissInstancePopups;
   }),
 }));
 
@@ -72,6 +74,7 @@ const MOCK_CAMPAIGN: Campaign = {
   name: "[ephemeral] MessageToPerson",
   description: null,
   state: "paused",
+  targetKind: "people",
   liAccountId: 1,
   isPaused: true,
   isArchived: false,

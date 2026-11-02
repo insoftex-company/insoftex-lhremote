@@ -3,36 +3,74 @@
 
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-vi.mock("@lhremote/core", async (importOriginal) => {
-  const actual = await importOriginal<typeof import("@lhremote/core")>();
+// ---------------------------------------------------------------------------
+// Mocks
+// ---------------------------------------------------------------------------
+
+vi.mock("@insoftex/lhremote-core", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@insoftex/lhremote-core")>();
   return {
     ...actual,
-    LauncherService: vi.fn(),
+    acquireLauncherWithRecovery: vi.fn(),
+    waitForInstanceShutdown: vi.fn().mockResolvedValue(undefined),
+    withLauncherQueue: vi.fn(async (op: () => Promise<unknown>) => op()),
+    withLauncherRecovery: vi.fn(
+      async (_launcher: unknown, op: () => Promise<unknown>) => ({
+        result: await op(),
+        launcherRecovered: false,
+      }),
+    ),
+  };
+});
+
+vi.mock("../operation-registry.js", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../operation-registry.js")>();
+  return {
+    ...actual,
+    operationRegistry: new actual.OperationRegistry(),
+    runAsyncOp: async (
+      _registry: unknown,
+      _kind: unknown,
+      work: (signal: AbortSignal, progress: (msg: string) => void) => Promise<unknown>,
+    ) => {
+      const ac = new AbortController();
+      const result = await work(ac.signal, () => undefined);
+      return { status: "completed", result };
+    },
   };
 });
 
 import {
   type Account,
-  LauncherService,
   LinkedHelperNotRunningError,
-} from "@lhremote/core";
+  acquireLauncherWithRecovery,
+} from "@insoftex/lhremote-core";
 
 import { registerStopInstance } from "./stop-instance.js";
 import { createMockServer } from "./testing/mock-server.js";
 
-function mockLauncher(overrides: Record<string, unknown> = {}) {
+// ---------------------------------------------------------------------------
+// Helpers
+// ---------------------------------------------------------------------------
+
+function mockLauncherConnection(overrides: Record<string, unknown> = {}) {
   const disconnect = vi.fn();
-  vi.mocked(LauncherService).mockImplementation(function () {
-    return {
-      connect: vi.fn().mockResolvedValue(undefined),
-      disconnect,
-      listAccounts: vi.fn().mockResolvedValue([]),
-      stopInstance: vi.fn().mockResolvedValue(undefined),
-      ...overrides,
-    } as unknown as LauncherService;
-  });
-  return { disconnect };
+  const mockLauncher = {
+    disconnect,
+    currentPort: 9222,
+    listAccounts: vi.fn().mockResolvedValue([]),
+    stopInstance: vi.fn().mockResolvedValue(undefined),
+    ...overrides,
+  };
+  vi.mocked(acquireLauncherWithRecovery).mockResolvedValue(
+    { launcher: mockLauncher } as unknown as Awaited<ReturnType<typeof acquireLauncherWithRecovery>>,
+  );
+  return { disconnect, mockLauncher };
 }
+
+// ---------------------------------------------------------------------------
+// Tests
+// ---------------------------------------------------------------------------
 
 describe("registerStopInstance", () => {
   beforeEach(() => {
@@ -60,13 +98,12 @@ describe("registerStopInstance", () => {
     const { server, getHandler } = createMockServer();
     registerStopInstance(server);
 
-    const stopInstance = vi.fn().mockResolvedValue(undefined);
-    mockLauncher({ stopInstance });
+    const { mockLauncher } = mockLauncherConnection();
 
     const handler = getHandler("stop-instance");
     const result = await handler({ accountId: 42, cdpPort: 9222 });
 
-    expect(stopInstance).toHaveBeenCalledWith(42);
+    expect(vi.mocked(mockLauncher.stopInstance)).toHaveBeenCalledWith(42);
     expect(result).toEqual({
       content: [
         { type: "text", text: "Instance stopped for account 42" },
@@ -82,16 +119,14 @@ describe("registerStopInstance", () => {
       { id: 42, liId: 42, name: "Alice" },
     ];
 
-    const stopInstance = vi.fn().mockResolvedValue(undefined);
-    mockLauncher({
+    const { mockLauncher } = mockLauncherConnection({
       listAccounts: vi.fn().mockResolvedValue(accounts),
-      stopInstance,
     });
 
     const handler = getHandler("stop-instance");
     const result = await handler({ cdpPort: 9222 });
 
-    expect(stopInstance).toHaveBeenCalledWith(42);
+    expect(vi.mocked(mockLauncher.stopInstance)).toHaveBeenCalledWith(42);
     expect(result).toEqual({
       content: [
         { type: "text", text: "Instance stopped for account 42" },
@@ -103,7 +138,7 @@ describe("registerStopInstance", () => {
     const { server, getHandler } = createMockServer();
     registerStopInstance(server);
 
-    mockLauncher({
+    mockLauncherConnection({
       listAccounts: vi.fn().mockResolvedValue([]),
     });
 
@@ -112,7 +147,7 @@ describe("registerStopInstance", () => {
 
     expect(result).toEqual({
       isError: true,
-      content: [{ type: "text", text: "No accounts found." }],
+      content: [{ type: "text", text: "Failed to stop instance: No accounts found." }],
     });
   });
 
@@ -125,7 +160,7 @@ describe("registerStopInstance", () => {
       { id: 2, liId: 2, name: "Bob" },
     ];
 
-    mockLauncher({
+    mockLauncherConnection({
       listAccounts: vi.fn().mockResolvedValue(accounts),
     });
 
@@ -137,7 +172,7 @@ describe("registerStopInstance", () => {
       content: [
         {
           type: "text",
-          text: "Multiple accounts found. Specify accountId. Use list-accounts to see available accounts.",
+          text: "Failed to stop instance: Multiple accounts found. Specify accountId. Use list-accounts to see available accounts.",
         },
       ],
     });
@@ -147,14 +182,9 @@ describe("registerStopInstance", () => {
     const { server, getHandler } = createMockServer();
     registerStopInstance(server);
 
-    vi.mocked(LauncherService).mockImplementation(function () {
-      return {
-        connect: vi
-          .fn()
-          .mockRejectedValue(new LinkedHelperNotRunningError(9222)),
-        disconnect: vi.fn(),
-      } as unknown as LauncherService;
-    });
+    vi.mocked(acquireLauncherWithRecovery).mockRejectedValue(
+      new LinkedHelperNotRunningError(9222),
+    );
 
     const handler = getHandler("stop-instance");
     const result = await handler({ accountId: 42, cdpPort: 9222 });
@@ -174,10 +204,8 @@ describe("registerStopInstance", () => {
     const { server, getHandler } = createMockServer();
     registerStopInstance(server);
 
-    mockLauncher({
-      stopInstance: vi
-        .fn()
-        .mockRejectedValue(new Error("unexpected failure")),
+    mockLauncherConnection({
+      stopInstance: vi.fn().mockRejectedValue(new Error("unexpected failure")),
     });
 
     const handler = getHandler("stop-instance");
@@ -194,23 +222,27 @@ describe("registerStopInstance", () => {
     });
   });
 
-  it("passes cdpPort to LauncherService", async () => {
+  it("passes cdpPort to acquireLauncherWithRecovery", async () => {
     const { server, getHandler } = createMockServer();
     registerStopInstance(server);
 
-    mockLauncher();
+    mockLauncherConnection({ currentPort: 4567 });
 
     const handler = getHandler("stop-instance");
     await handler({ accountId: 42, cdpPort: 4567 });
 
-    expect(LauncherService).toHaveBeenCalledWith(4567, {});
+    expect(vi.mocked(acquireLauncherWithRecovery)).toHaveBeenCalledWith(
+      4567,
+      expect.any(Object),
+      expect.anything(),
+    );
   });
 
   it("disconnects after successful call", async () => {
     const { server, getHandler } = createMockServer();
     registerStopInstance(server);
 
-    const { disconnect } = mockLauncher();
+    const { disconnect } = mockLauncherConnection();
 
     const handler = getHandler("stop-instance");
     await handler({ accountId: 42, cdpPort: 9222 });
@@ -222,7 +254,7 @@ describe("registerStopInstance", () => {
     const { server, getHandler } = createMockServer();
     registerStopInstance(server);
 
-    const { disconnect } = mockLauncher({
+    const { disconnect } = mockLauncherConnection({
       stopInstance: vi.fn().mockRejectedValue(new Error("fail")),
     });
 

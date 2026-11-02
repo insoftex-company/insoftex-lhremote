@@ -1,16 +1,11 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 // Copyright (C) 2026 Oleksii PELYKH
 
-import {
-  CampaignNotFoundError,
-  errorMessage,
-  campaignRetry,
-  type CampaignRetryOutput,
-} from "@lhremote/core";
+import { CampaignNotFoundError, errorMessage, campaignRetry, type CampaignRetryOutput } from "@insoftex/lhremote-core";
 
 import { resolvePersonIds } from "./person-ids.js";
 
-/** Handle the {@link https://github.com/alexey-pelykh/lhremote#campaigns | campaign-retry} CLI command. */
+/** Handle the {@link https://github.com/alexey-pelykh/lhremote#campaign-status--retry | campaign-retry} CLI command. */
 export async function handleCampaignRetry(
   campaignId: number,
   options: {
@@ -19,6 +14,7 @@ export async function handleCampaignRetry(
     cdpPort?: number;
     cdpHost?: string;
     allowRemote?: boolean;
+    accountId?: number;
     json?: boolean;
   },
 ): Promise<void> {
@@ -40,6 +36,7 @@ export async function handleCampaignRetry(
       cdpPort: options.cdpPort,
       cdpHost: options.cdpHost,
       allowRemote: options.allowRemote,
+      accountId: options.accountId,
     });
   } catch (error) {
     if (error instanceof CampaignNotFoundError) {
@@ -55,8 +52,6 @@ export async function handleCampaignRetry(
   if (options.json) {
     process.stdout.write(JSON.stringify(result, null, 2) + "\n");
   } else {
-    process.stdout.write(
-      `Campaign ${String(campaignId)}: ${String(result.personsReset)} persons reset for retry.\n`,
-    );
+    process.stdout.write(`Campaign ${String(campaignId)}: ${String(result.personsReset)} persons reset for retry.\n`);
   }
 }

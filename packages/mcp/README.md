@@ -1,15 +1,15 @@
-# @lhremote/mcp
+# @insoftex/lhremote-mcp
 
-MCP server for [lhremote](https://github.com/alexey-pelykh/lhremote) — LinkedHelper automation toolkit.
+MCP server for [lhremote](https://github.com/insoftex-company/insoftex-lhremote) — LinkedHelper automation toolkit.
 
-This package exposes the full LinkedHelper automation surface as a [Model Context Protocol](https://modelcontextprotocol.io) server. AI assistants (Claude, etc.) connect over stdio and use the 68 registered tools to control LinkedHelper.
+This package exposes the full LinkedHelper automation surface as a [Model Context Protocol](https://modelcontextprotocol.io) server. AI assistants (Claude, etc.) connect over stdio and use the registered tools to control LinkedHelper.
 
-Built on [`@lhremote/core`](../core).
+Built on [`@insoftex/lhremote-core`](../core).
 
 ## Installation
 
 ```bash
-npm install @lhremote/mcp
+npm install @insoftex/lhremote-mcp
 ```
 
 ## Usage with Claude Desktop
@@ -21,7 +21,7 @@ Add to `claude_desktop_config.json`:
   "mcpServers": {
     "lhremote": {
       "command": "npx",
-      "args": ["lhremote", "mcp"]
+      "args": ["@insoftex/lhremote", "mcp"]
     }
   }
 }
@@ -30,7 +30,7 @@ Add to `claude_desktop_config.json`:
 ## Programmatic Usage
 
 ```typescript
-import { createServer } from "@lhremote/mcp";
+import { createServer } from "@insoftex/lhremote-mcp";
 
 const server = createServer();
 // server is a fully configured McpServer with all tools registered
@@ -39,37 +39,116 @@ const server = createServer();
 Or start the stdio transport directly:
 
 ```typescript
-import { runStdioServer } from "@lhremote/mcp/stdio";
+import { runStdioServer } from "@insoftex/lhremote-mcp/stdio";
 
 await runStdioServer();
 ```
 
 ## Registered Tools
 
-| Category | Tools |
-|----------|-------|
-| App Management | `find-app`, `launch-app`, `quit-app` |
-| Account & Instance | `list-accounts`, `start-instance`, `stop-instance`, `check-status` |
-| Campaigns | `campaign-list`, `campaign-create`, `campaign-get`, `campaign-export`, `campaign-update`, `campaign-delete`, `campaign-erase`, `campaign-start`, `campaign-stop` |
-| Campaign Status | `campaign-status`, `campaign-statistics`, `campaign-retry` |
-| Campaign Actions | `campaign-add-action`, `campaign-remove-action`, `campaign-update-action`, `campaign-reorder-actions`, `campaign-move-next` |
-| Campaign Targeting | `campaign-exclude-list`, `campaign-exclude-add`, `campaign-exclude-remove`, `campaign-list-people`, `campaign-remove-people`, `import-people-from-urls`, `collect-people` |
-| Collections | `list-collections`, `create-collection`, `delete-collection`, `add-people-to-collection`, `remove-people-from-collection`, `import-people-from-collection` |
-| LinkedIn Actions | `visit-profile`, `endorse-skills`, `enrich-profile`, `follow-person`, `like-person-posts`, `message-person`, `send-invite`, `send-inmail`, `remove-connection` |
-| Feed & Posts | `get-feed`, `get-post`, `get-post-stats`, `get-post-engagers`, `get-profile-activity`, `search-posts`, `comment-on-post`, `react-to-post` |
-| LinkedIn Search & Reference | `build-linkedin-url`, `resolve-linkedin-entity`, `list-linkedin-reference-data` |
-| Profiles & Messaging | `query-profile`, `query-profiles`, `query-profiles-bulk`, `query-messages`, `check-replies`, `scrape-messaging-history` |
-| Utilities | `describe-actions`, `get-errors`, `dismiss-errors`, `get-action-budget`, `get-throttle-status` |
+<!-- GENERATED:MCP_TOOLS_START -->
+The table below is generated from [`packages/mcp/src/tools/`](src/tools).
 
-See the [root README](https://github.com/alexey-pelykh/lhremote#mcp-tools) for parameter details on each tool.
+| Tool |
+|---|
+| `add-people-to-collection` |
+| `build-linkedin-url` |
+| `campaign-add-action` |
+| `campaign-clone-action` |
+| `campaign-create` |
+| `campaign-delete` |
+| `campaign-erase` |
+| `campaign-exclude-add` |
+| `campaign-exclude-list` |
+| `campaign-exclude-remove` |
+| `campaign-export` |
+| `campaign-get` |
+| `campaign-import-from-source-url` |
+| `campaign-list` |
+| `campaign-list-organizations` |
+| `campaign-list-people` |
+| `campaign-move-next` |
+| `campaign-remove-action` |
+| `campaign-remove-people` |
+| `campaign-reorder-actions` |
+| `campaign-retry` |
+| `campaign-start` |
+| `campaign-statistics` |
+| `campaign-status` |
+| `campaign-stop` |
+| `campaign-update` |
+| `campaign-update-action` |
+| `campaign-validate-action-settings` |
+| `cancel-operation` |
+| `check-replies` |
+| `check-status` |
+| `collect-people` |
+| `comment-on-post` |
+| `create-collection` |
+| `delete-collection` |
+| `describe-actions` |
+| `dismiss-errors` |
+| `dismiss-feed-post` |
+| `endorse-skills` |
+| `enrich-profile` |
+| `ensure-instances` |
+| `find-app` |
+| `follow-person` |
+| `get-action-budget` |
+| `get-errors` |
+| `get-feed` |
+| `get-operation` |
+| `get-post` |
+| `get-post-engagers` |
+| `get-post-stats` |
+| `get-profile-activity` |
+| `get-throttle-status` |
+| `hide-feed-author` |
+| `hide-feed-author-profile` |
+| `import-organizations-from-urls` |
+| `import-people-from-collection` |
+| `import-people-from-urls` |
+| `launch-app` |
+| `like-person-posts` |
+| `list-accounts` |
+| `list-collections` |
+| `list-linkedin-reference-data` |
+| `list-operations` |
+| `list-orphans` |
+| `list-workspaces` |
+| `message-person` |
+| `query-messages` |
+| `query-profile` |
+| `query-profiles` |
+| `query-profiles-bulk` |
+| `quit-app` |
+| `react-to-comment` |
+| `react-to-post` |
+| `reap-orphans` |
+| `remove-connection` |
+| `remove-people-from-collection` |
+| `resolve-linkedin-entity` |
+| `restart-instance` |
+| `scrape-messaging-history` |
+| `search-posts` |
+| `send-inmail` |
+| `send-invite` |
+| `start-instance` |
+| `stop-instance` |
+| `unfollow-from-feed` |
+| `unfollow-profile` |
+| `visit-profile` |
+<!-- GENERATED:MCP_TOOLS_END -->
+
+See the [root README](https://github.com/insoftex-company/insoftex-lhremote#mcp-tools) for parameter details on each tool, and the [MCP Agent Capabilities guide](../../docs/mcp-agent-capabilities.md) for recommended agent workflows.
 
 ## Exports
 
 | Export | Description |
 |--------|-------------|
 | `createServer()` | Create a configured `McpServer` with all tools registered |
-| `runStdioServer()` | Start the MCP server on stdio (from `@lhremote/mcp/stdio`) |
+| `runStdioServer()` | Start the MCP server on stdio (from `@insoftex/lhremote-mcp/stdio`) |
 
 ## License
 
-[AGPL-3.0-only](https://github.com/alexey-pelykh/lhremote/blob/main/LICENSE)
+[AGPL-3.0-only](https://github.com/insoftex-company/insoftex-lhremote/blob/main/LICENSE)

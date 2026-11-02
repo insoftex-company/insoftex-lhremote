@@ -32,6 +32,7 @@ const {
   buildProfileUrl,
   captureCompanyLoadFailure,
   captureProfileLoadFailure,
+  extractCompanyId,
   extractFollowableTarget,
   extractPublicId,
   LINKEDIN_COMPANY_RE,
@@ -140,6 +141,67 @@ describe("extractPublicId", () => {
     expect(() => extractPublicId("https://www.linkedin.com/in/foo%ZZ/")).toThrow(
       "Invalid LinkedIn profile URL",
     );
+  });
+});
+
+describe("extractCompanyId", () => {
+  it("extracts the slug from a standard company URL", () => {
+    expect(extractCompanyId("https://www.linkedin.com/company/acme-robotics/")).toBe(
+      "acme-robotics",
+    );
+  });
+
+  it("extracts a numeric company ID", () => {
+    expect(extractCompanyId("https://www.linkedin.com/company/27109959")).toBe(
+      "27109959",
+    );
+  });
+
+  it("URL-decodes percent-encoded slugs", () => {
+    expect(extractCompanyId("https://www.linkedin.com/company/caf%C3%A9/")).toBe(
+      "café",
+    );
+  });
+
+  it("strips query and fragment", () => {
+    expect(
+      extractCompanyId("https://www.linkedin.com/company/acme/?foo=bar#baz"),
+    ).toBe("acme");
+  });
+
+  it("strips trailing sub-pages (e.g. /about/)", () => {
+    expect(extractCompanyId("https://www.linkedin.com/company/acme/about/")).toBe(
+      "acme",
+    );
+  });
+
+  it("accepts locale subdomains (e.g. fr.linkedin.com)", () => {
+    expect(extractCompanyId("https://fr.linkedin.com/company/acme/")).toBe("acme");
+  });
+
+  it.each([
+    // Non-company LinkedIn paths — extractCompanyId is company-only.
+    ["https://www.linkedin.com/in/jane-doe/"],
+    ["https://www.linkedin.com/school/mit/"],
+    ["https://www.linkedin.com/showcase/acme-cloud/"],
+    ["https://www.linkedin.com/feed/"],
+    // Non-LinkedIn hosts
+    ["https://example.com/company/acme/"],
+    ["https://linkedin.com.evil.com/company/acme/"],
+    // Embedded company link in query of a non-LinkedIn URL — must NOT match
+    ["https://example.com/?next=https://www.linkedin.com/company/acme/"],
+    // Malformed / unparseable
+    ["not-a-url"],
+    [""],
+    ["/company/acme/"], // no scheme
+  ])("throws on invalid URL %s", (url) => {
+    expect(() => extractCompanyId(url)).toThrow("Invalid LinkedIn company URL");
+  });
+
+  it("converts URIError from malformed percent-encoding into the validation error", () => {
+    expect(() =>
+      extractCompanyId("https://www.linkedin.com/company/foo%ZZ/"),
+    ).toThrow("Invalid LinkedIn company URL");
   });
 });
 

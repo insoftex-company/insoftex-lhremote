@@ -15,6 +15,10 @@ vi.mock("../db/index.js", () => ({
   ProfileRepository: vi.fn(),
 }));
 
+vi.mock("../services/ephemeral-campaign.js", () => ({
+  EphemeralCampaignService: vi.fn(),
+}));
+
 vi.mock("./wait-for-logged-in-state.js", () => ({
   gateOnLoggedInState: vi.fn().mockResolvedValue(undefined),
   waitForLoggedInState: vi.fn().mockResolvedValue(undefined),
@@ -27,6 +31,8 @@ import type { InstanceDatabaseContext } from "../services/instance-context.js";
 import { resolveAccount } from "../services/account-resolution.js";
 import { withInstanceDatabase } from "../services/instance-context.js";
 import { ProfileRepository } from "../db/index.js";
+import { EphemeralCampaignService } from "../services/ephemeral-campaign.js";
+import { CampaignExecutionError } from "../services/errors.js";
 import { visitProfile } from "./visit-profile.js";
 
 const MOCK_PROFILE = {
@@ -53,7 +59,8 @@ const MOCK_PROFILE = {
   emails: [],
 };
 
-const mockInstance = { executeAction: vi.fn().mockResolvedValue(undefined) };
+const mockExecute = vi.fn();
+const mockInstance = {};
 
 function setupMocks() {
   vi.mocked(resolveAccount).mockResolvedValue(1);
@@ -70,14 +77,18 @@ function setupMocks() {
   vi.mocked(ProfileRepository).mockImplementation(function () {
     return {
       findById: vi.fn().mockReturnValue(MOCK_PROFILE),
-      findByPublicId: vi.fn().mockReturnValue(MOCK_PROFILE),
     } as unknown as ProfileRepository;
+  });
+
+  vi.mocked(EphemeralCampaignService).mockImplementation(function () {
+    return { execute: mockExecute } as unknown as EphemeralCampaignService;
   });
 }
 
 describe("visitProfile", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    mockExecute.mockResolvedValue({ success: true, personId: 100, results: [] });
   });
 
   afterEach(() => {
@@ -99,10 +110,7 @@ describe("visitProfile", () => {
   it("returns success with profile after visiting by personId", async () => {
     setupMocks();
 
-    const result = await visitProfile({
-      personId: 100,
-      cdpPort: 9222,
-    });
+    const result = await visitProfile({ personId: 100, cdpPort: 9222 });
 
     expect(result.success).toBe(true);
     expect(vi.mocked(waitForLoggedInState)).toHaveBeenCalled();
@@ -110,21 +118,15 @@ describe("visitProfile", () => {
     expect(result.profile).toBe(MOCK_PROFILE);
   });
 
-  it("calls instance.executeAction with VisitAndExtract and personIds", async () => {
+  it("calls EphemeralCampaignService.execute with VisitAndExtract and personId", async () => {
     setupMocks();
 
-    await visitProfile({
-      personId: 100,
-      cdpPort: 9222,
-    });
+    await visitProfile({ personId: 100, cdpPort: 9222 });
 
-    expect(mockInstance.executeAction).toHaveBeenCalledWith(
-      "VisitAndExtract",
-      { personIds: [100] },
-    );
+    expect(mockExecute).toHaveBeenCalledWith("VisitAndExtract", 100, undefined, {});
   });
 
-  it("resolves person from LinkedIn URL and visits", async () => {
+  it("calls EphemeralCampaignService.execute with URL when url is provided", async () => {
     setupMocks();
 
     await visitProfile({
@@ -132,12 +134,11 @@ describe("visitProfile", () => {
       cdpPort: 9222,
     });
 
-    const mockRepo = vi.mocked(ProfileRepository).mock.results[0]
-      ?.value as { findByPublicId: ReturnType<typeof vi.fn>; findById: ReturnType<typeof vi.fn> };
-    expect(mockRepo.findByPublicId).toHaveBeenCalledWith("jane-doe-123");
-    expect(mockInstance.executeAction).toHaveBeenCalledWith(
+    expect(mockExecute).toHaveBeenCalledWith(
       "VisitAndExtract",
-      { personIds: [100] },
+      "https://www.linkedin.com/in/jane-doe-123",
+      undefined,
+      {},
     );
   });
 
@@ -149,74 +150,108 @@ describe("visitProfile", () => {
       cdpPort: 9222,
     });
 
-    const mockRepo = vi.mocked(ProfileRepository).mock.results[0]
-      ?.value as { findByPublicId: ReturnType<typeof vi.fn> };
-    expect(mockRepo.findByPublicId).toHaveBeenCalledWith("jane-doe-123");
-  });
-
-  it("throws on invalid LinkedIn URL", async () => {
-    setupMocks();
-
-    await expect(
-      visitProfile({ url: "https://example.com/not-linkedin", cdpPort: 9222 }),
-    ).rejects.toThrow("Invalid LinkedIn profile URL");
+    expect(mockExecute).toHaveBeenCalledWith(
+      "VisitAndExtract",
+      "https://www.linkedin.com/in/jane-doe-123/?locale=en_US",
+      undefined,
+      {},
+    );
   });
 
   it("passes extractCurrentOrganizations when provided", async () => {
     setupMocks();
 
-    await visitProfile({
-      personId: 100,
-      cdpPort: 9222,
-      extractCurrentOrganizations: true,
-    });
+    await visitProfile({ personId: 100, cdpPort: 9222, extractCurrentOrganizations: true });
 
-    expect(mockInstance.executeAction).toHaveBeenCalledWith(
+    expect(mockExecute).toHaveBeenCalledWith(
       "VisitAndExtract",
-      { personIds: [100], extractCurrentOrganizations: true },
+      100,
+      { extractCurrentOrganizations: true },
+      {},
     );
   });
 
   it("omits extractCurrentOrganizations when undefined", async () => {
     setupMocks();
 
-    await visitProfile({
-      personId: 100,
-      cdpPort: 9222,
-    });
+    await visitProfile({ personId: 100, cdpPort: 9222 });
 
-    expect(mockInstance.executeAction).toHaveBeenCalledWith(
+    expect(mockExecute).toHaveBeenCalledWith("VisitAndExtract", 100, undefined, {});
+  });
+
+  it("throws CampaignExecutionError when ephemeral action result is failure", async () => {
+    setupMocks();
+    mockExecute.mockResolvedValue({ success: false, personId: 100, results: [] });
+
+    await expect(
+      visitProfile({ personId: 100, cdpPort: 9222 }),
+    ).rejects.toThrow(CampaignExecutionError);
+
+    await expect(
+      visitProfile({ personId: 100, cdpPort: 9222 }),
+    ).rejects.toThrow("VisitAndExtract action did not complete successfully for person 100");
+  });
+
+  it("passes keepCampaign through to ephemeral.execute", async () => {
+    setupMocks();
+
+    await visitProfile({ personId: 100, cdpPort: 9222, keepCampaign: true });
+
+    expect(mockExecute).toHaveBeenCalledWith(
       "VisitAndExtract",
-      { personIds: [100] },
+      100,
+      undefined,
+      { keepCampaign: true },
     );
   });
 
-  it("queries profile with includePositions true", async () => {
+  it("passes timeout through to ephemeral.execute", async () => {
     setupMocks();
 
-    await visitProfile({
-      personId: 100,
-      cdpPort: 9222,
-    });
+    await visitProfile({ personId: 100, cdpPort: 9222, timeout: 60_000 });
+
+    expect(mockExecute).toHaveBeenCalledWith(
+      "VisitAndExtract",
+      100,
+      undefined,
+      { timeout: 60_000 },
+    );
+  });
+
+  it("queries profile with includePositions true using personId from execute result", async () => {
+    setupMocks();
+
+    await visitProfile({ personId: 100, cdpPort: 9222 });
 
     const mockRepo = vi.mocked(ProfileRepository).mock.results[0]
       ?.value as { findById: ReturnType<typeof vi.fn> };
     expect(mockRepo.findById).toHaveBeenCalledWith(100, { includePositions: true });
   });
 
-  it("passes instanceTimeout to withInstanceDatabase", async () => {
+  it("uses personId from execute result when URL target resolves a different ID", async () => {
     setupMocks();
+    mockExecute.mockResolvedValue({ success: true, personId: 42, results: [] });
 
     await visitProfile({
-      personId: 100,
+      url: "https://www.linkedin.com/in/jane-doe-123",
       cdpPort: 9222,
     });
+
+    const mockRepo = vi.mocked(ProfileRepository).mock.results[0]
+      ?.value as { findById: ReturnType<typeof vi.fn> };
+    expect(mockRepo.findById).toHaveBeenCalledWith(42, { includePositions: true });
+  });
+
+  it("passes instanceTimeout and db readOnly false to withInstanceDatabase", async () => {
+    setupMocks();
+
+    await visitProfile({ personId: 100, cdpPort: 9222 });
 
     expect(withInstanceDatabase).toHaveBeenCalledWith(
       9222,
       1,
       expect.any(Function),
-      { instanceTimeout: 120_000 },
+      { instanceTimeout: 120_000, db: { readOnly: false } },
     );
   });
 
@@ -239,10 +274,7 @@ describe("visitProfile", () => {
   it("omits undefined connection options", async () => {
     setupMocks();
 
-    await visitProfile({
-      personId: 100,
-      cdpPort: 9222,
-    });
+    await visitProfile({ personId: 100, cdpPort: 9222 });
 
     expect(resolveAccount).toHaveBeenCalledWith(9222, {});
   });
@@ -257,16 +289,38 @@ describe("visitProfile", () => {
 
   it("propagates withInstanceDatabase errors", async () => {
     vi.mocked(resolveAccount).mockResolvedValue(1);
-    vi.mocked(withInstanceDatabase).mockRejectedValue(
-      new Error("instance not running"),
-    );
+    vi.mocked(withInstanceDatabase).mockRejectedValue(new Error("instance not running"));
 
     await expect(
       visitProfile({ personId: 100, cdpPort: 9222 }),
     ).rejects.toThrow("instance not running");
   });
 
-  it("propagates ProfileRepository errors", async () => {
+  it("propagates EphemeralCampaignService.execute errors", async () => {
+    vi.mocked(resolveAccount).mockResolvedValue(1);
+    vi.mocked(withInstanceDatabase).mockImplementation(
+      async (_cdpPort, _accountId, callback) =>
+        callback({
+          accountId: 1,
+          instance: mockInstance,
+          db: {},
+        } as unknown as InstanceDatabaseContext),
+    );
+    vi.mocked(ProfileRepository).mockImplementation(function () {
+      return { findById: vi.fn() } as unknown as ProfileRepository;
+    });
+    vi.mocked(EphemeralCampaignService).mockImplementation(function () {
+      return {
+        execute: vi.fn().mockRejectedValue(new Error("VisitAndExtract failed")),
+      } as unknown as EphemeralCampaignService;
+    });
+
+    await expect(
+      visitProfile({ personId: 100, cdpPort: 9222 }),
+    ).rejects.toThrow("VisitAndExtract failed");
+  });
+
+  it("propagates ProfileRepository.findById errors", async () => {
     vi.mocked(resolveAccount).mockResolvedValue(1);
     vi.mocked(withInstanceDatabase).mockImplementation(
       async (_cdpPort, _accountId, callback) =>
@@ -282,6 +336,9 @@ describe("visitProfile", () => {
           throw new Error("profile not found");
         }),
       } as unknown as ProfileRepository;
+    });
+    vi.mocked(EphemeralCampaignService).mockImplementation(function () {
+      return { execute: mockExecute } as unknown as EphemeralCampaignService;
     });
 
     await expect(

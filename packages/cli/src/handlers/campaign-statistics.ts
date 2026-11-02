@@ -7,9 +7,9 @@ import {
   errorMessage,
   campaignStatistics,
   type CampaignStatisticsOutput,
-} from "@lhremote/core";
+} from "@insoftex/lhremote-core";
 
-/** Handle the {@link https://github.com/alexey-pelykh/lhremote#campaigns | campaign-statistics} CLI command. */
+/** Handle the {@link https://github.com/alexey-pelykh/lhremote#campaign-status--retry | campaign-statistics} CLI command. */
 export async function handleCampaignStatistics(
   campaignId: number,
   options: {
@@ -18,6 +18,7 @@ export async function handleCampaignStatistics(
     cdpPort?: number;
     cdpHost?: string;
     allowRemote?: boolean;
+    accountId?: number;
     json?: boolean;
   },
 ): Promise<void> {
@@ -30,14 +31,13 @@ export async function handleCampaignStatistics(
       cdpPort: options.cdpPort,
       cdpHost: options.cdpHost,
       allowRemote: options.allowRemote,
+      accountId: options.accountId,
     });
   } catch (error) {
     if (error instanceof CampaignNotFoundError) {
       process.stderr.write(`Campaign ${String(campaignId)} not found.\n`);
     } else if (error instanceof ActionNotFoundError) {
-      process.stderr.write(
-        `Action ${String(options.actionId)} not found in campaign ${String(campaignId)}.\n`,
-      );
+      process.stderr.write(`Action ${String(options.actionId)} not found in campaign ${String(campaignId)}.\n`);
     } else {
       const message = errorMessage(error);
       process.stderr.write(`${message}\n`);
@@ -52,24 +52,22 @@ export async function handleCampaignStatistics(
     process.stdout.write(`Campaign #${String(campaignId)} Statistics\n`);
     process.stdout.write(
       `Totals: ${String(result.totals.successful)} successful, ` +
-      `${String(result.totals.replied)} replied, ` +
-      `${String(result.totals.failed)} failed, ` +
-      `${String(result.totals.skipped)} skipped ` +
-      `(${String(result.totals.total)} total, ` +
-      `${String(result.totals.successRate)}% success rate)\n`,
+        `${String(result.totals.replied)} replied, ` +
+        `${String(result.totals.failed)} failed, ` +
+        `${String(result.totals.skipped)} skipped ` +
+        `(${String(result.totals.total)} total, ` +
+        `${String(result.totals.successRate)}% success rate)\n`,
     );
 
     for (const action of result.actions) {
-      process.stdout.write(
-        `\n  Action #${String(action.actionId)} — ${action.actionName} (${action.actionType})\n`,
-      );
+      process.stdout.write(`\n  Action #${String(action.actionId)} — ${action.actionName} (${action.actionType})\n`);
       process.stdout.write(
         `    ${String(action.successful)} successful, ` +
-        `${String(action.replied)} replied, ` +
-        `${String(action.failed)} failed, ` +
-        `${String(action.skipped)} skipped ` +
-        `(${String(action.total)} total, ` +
-        `${String(action.successRate)}% success rate)\n`,
+          `${String(action.replied)} replied, ` +
+          `${String(action.failed)} failed, ` +
+          `${String(action.skipped)} skipped ` +
+          `(${String(action.total)} total, ` +
+          `${String(action.successRate)}% success rate)\n`,
       );
 
       if (action.firstResultAt) {

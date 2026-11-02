@@ -40,10 +40,8 @@ export interface DismissErrorsOutput {
  * When the launcher is not available (e.g. connecting directly to an
  * instance), launcher popup dismissal is skipped gracefully.
  */
-export async function dismissErrors(
-  input: DismissErrorsInput,
-): Promise<DismissErrorsOutput> {
-  const cdpPort = await resolveInstancePort(input.cdpPort, input.cdpHost);
+export async function dismissErrors(input: DismissErrorsInput): Promise<DismissErrorsOutput> {
+  const cdpPort = await resolveInstancePort(input.cdpPort, input.cdpHost, undefined, input.accountId);
 
   const cdpOptions = buildCdpOptions(input);
 
@@ -82,9 +80,12 @@ export async function dismissErrors(
   // port — the launcher port does not host instance UI targets.
   // Discovery only works locally (process inspection), so skip for remote hosts.
   const isLocal = input.cdpHost === undefined || isLoopbackAddress(input.cdpHost);
-  const instancePort = connectedToLauncher && isLocal
-    ? await discoverInstancePort(cdpPort).catch(() => null)
-    : connectedToLauncher ? null : cdpPort;
+  const instancePort =
+    connectedToLauncher && isLocal
+      ? await discoverInstancePort(cdpPort).catch(() => null)
+      : connectedToLauncher
+        ? null
+        : cdpPort;
 
   if (instancePort !== null) {
     const instance = new InstanceService(instancePort, cdpOptions);

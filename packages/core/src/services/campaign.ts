@@ -10,6 +10,7 @@ import type {
   CampaignStatus,
   CampaignSummary,
   CampaignUpdateConfig,
+  ImportOrganizationsResult,
   ImportPeopleResult,
   RemovePeopleResult,
   RunnerState,
@@ -135,6 +136,14 @@ export class CampaignService {
     campaignId: number,
     linkedInUrls: string[],
   ): Promise<ImportPeopleResult> {
+    const campaign = this.campaignRepo.getCampaign(campaignId);
+    if (campaign.targetKind === "organizations") {
+      throw new CampaignExecutionError(
+        `Campaign ${String(campaignId)} is an organizations campaign — it accepts company URLs, not profile URLs. Use importOrganizationsFromUrls instead.`,
+        campaignId,
+      );
+    }
+
     const actions = this.campaignRepo.getCampaignActions(campaignId);
     if (actions.length === 0) {
       throw new CampaignExecutionError(
@@ -183,6 +192,91 @@ export class CampaignService {
       const message = errorMessage(error);
       throw new CampaignExecutionError(
         `Failed to import people into campaign ${String(campaignId)}: ${message}`,
+        campaignId,
+        { cause: error },
+      );
+    }
+  }
+
+  /**
+   * Import LinkedIn company URLs into an organizations campaign action's
+   * target list.
+   *
+   * Resolves the campaign's first action, then calls
+   * `source.organizations.actions.importOrganizationsFromUrls()` via CDP —
+   * the organizations mirror of `importPeopleFromUrls()`, with the same
+   * `(actionId, platform, urlsText, addToTarget)` signature and stats shape,
+   * except its stats report `inExcludeList` and may omit `failed` when zero
+   * (verified against LinkedHelper 2.x in production).
+   * The import is idempotent — re-importing an already-targeted organization
+   * is a no-op counted as `alreadyInQueue`.
+   *
+   * @throws {CampaignNotFoundError} if the campaign does not exist.
+   * @throws {CampaignExecutionError} if the campaign is not an organizations
+   *   campaign, has no actions, or the CDP call fails.
+   */
+  async importOrganizationsFromUrls(
+    campaignId: number,
+    companyUrls: string[],
+  ): Promise<ImportOrganizationsResult> {
+    const campaign = this.campaignRepo.getCampaign(campaignId);
+    if (campaign.targetKind !== "organizations") {
+      throw new CampaignExecutionError(
+        `Campaign ${String(campaignId)} is a ${campaign.targetKind} campaign — importOrganizationsFromUrls requires an organizations campaign (campaigns.type = 2).`,
+        campaignId,
+      );
+    }
+
+    const actions = this.campaignRepo.getCampaignActions(campaignId);
+    if (actions.length === 0) {
+      throw new CampaignExecutionError(
+        `Campaign ${String(campaignId)} has no actions`,
+        campaignId,
+      );
+    }
+
+    const firstAction = actions[0] as (typeof actions)[0];
+    const actionId = firstAction.id;
+    const urlsPayload = companyUrls.join("\n");
+
+    try {
+      const stats = await this.instance.evaluateUI<{
+        total: {
+          addToTarget: {
+            successful: number;
+            alreadyInQueue: number;
+            alreadyProcessed: number;
+            inExcludeList?: number;
+            failed?: number;
+          };
+        };
+      }>(
+        `(async function() {
+          const actions = window.mainWindowService.mainWindow.source.organizations.actions;
+          const [, stats] = await actions.importOrganizationsFromUrls(
+            ${String(actionId)},
+            0,
+            ${JSON.stringify(urlsPayload)},
+            true
+          );
+          return stats;
+        })()`,
+      );
+
+      const counts = stats.total.addToTarget;
+      return {
+        actionId,
+        successful: counts.successful,
+        alreadyInQueue: counts.alreadyInQueue,
+        alreadyProcessed: counts.alreadyProcessed,
+        inExcludeList: counts.inExcludeList ?? 0,
+        failed: counts.failed ?? 0,
+      };
+    } catch (error) {
+      if (error instanceof CampaignExecutionError) throw error;
+      const message = errorMessage(error);
+      throw new CampaignExecutionError(
+        `Failed to import organizations into campaign ${String(campaignId)}: ${message}`,
         campaignId,
         { cause: error },
       );

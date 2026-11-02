@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 // Copyright (C) 2026 Oleksii PELYKH
 
-import { type ChildProcess, spawn } from "node:child_process";
+import { type ChildProcess, execFile, spawn } from "node:child_process";
 import { accessSync } from "node:fs";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -9,12 +9,13 @@ import { AppLaunchError, AppNotFoundError, LinkedHelperUnreachableError } from "
 import { AppService } from "./app.js";
 
 vi.mock("node:child_process", () => ({
+  execFile: vi.fn(),
   spawn: vi.fn(),
 }));
 
 vi.mock("node:fs", () => ({
   accessSync: vi.fn(),
-  constants: { X_OK: 1 },
+  constants: { F_OK: 0, X_OK: 1 },
 }));
 
 vi.mock("../cdp/index.js", () => ({
@@ -30,6 +31,7 @@ import { discoverTargets, findApp } from "../cdp/index.js";
 import getPort from "get-port";
 
 const mockedSpawn = vi.mocked(spawn);
+const mockedExecFile = vi.mocked(execFile);
 const mockedAccessSync = vi.mocked(accessSync);
 const mockedDiscoverTargets = vi.mocked(discoverTargets);
 const mockedFindApp = vi.mocked(findApp);
@@ -69,8 +71,49 @@ function makeMockChild(): ChildProcess {
   return child;
 }
 
+// The file had no per-test mock lifecycle at all: `restoreAllMocks()` only
+// undoes `vi.spyOn` spies, so the `vi.mock()` module mocks below carried both
+// their CALL RECORDS and their implementations from one test into the next.
+// Three assertions read `expect(mockedSpawn).not.toHaveBeenCalled()`, and in
+// declaration order each was green for a different reason: the first because
+// no spawning test is declared ahead of it; the second because its own test
+// body calls `mockedSpawn.mockClear()` earlier in the same body, deliberately;
+// and the third only because that second test happens to be declared right
+// before it and leaves the records cleared.  Shuffle the order and the third
+// accident disappears and the first stops holding, which is both of the
+// failures this file showed.  `resetAllMocks()` drops records and
+// implementations both, and the per-describe hooks below run after this one.
+// Do not normalise this back to `clearAllMocks` (#846, #928).
+//
+// `discoverTargets` gets a not-running baseline for a specific reason: reset
+// leaves it returning `undefined`, `isRunning()` is
+// `try { await discoverTargets(...); return true } catch { return false }`, and
+// `await undefined` resolves — so an unconfigured mock would default to
+// "already running", which is the very branch the
+// `expect(mockedSpawn).not.toHaveBeenCalled()` assertions above exist to test.
+// A default that leans toward the passing branch is how those assertions
+// became accidental in the first place.  Defaulting to not-running instead
+// sends an unconfigured test down the launch path, where a missing `findApp`
+// throws loudly.
+//
+// `unstubAllGlobals()` is the other half, and it is not redundant: a
+// `vi.stubGlobal` is undone by neither reset nor restore, so the `process` and
+// `fetch` stubs set below otherwise stay installed for the rest of the file —
+// including over the Tier-1 network guard that `vitest.setup.ts` installs,
+// which CLAUDE.md § Testing calls enforced rather than merely documented.  A
+// displaced guard fails open and silently: a later test that would have been
+// failed loudly instead receives whatever the leftover stub returns.  No test
+// depends on inheriting a stub today — every test that reads `process` or
+// `fetch` sets its own, whether in a per-describe hook or in its own body
+// (#928).
+beforeEach(() => {
+  vi.resetAllMocks();
+  mockedDiscoverTargets.mockRejectedValue(new Error("not running"));
+});
+
 afterEach(() => {
   vi.restoreAllMocks();
+  vi.unstubAllGlobals();
   delete process.env["LINKEDHELPER_PATH"];
 });
 
@@ -94,16 +137,18 @@ describe("AppService", () => {
 
       const result = AppService.findBinary();
 
-      expect(result).toBe(
-        "/Applications/linked-helper.app/Contents/MacOS/linked-helper",
-      );
+      expect(result).toBe("/Applications/linked-helper.app/Contents/MacOS/linked-helper");
     });
 
     it("returns the win32 path on Windows", () => {
       vi.stubGlobal("process", {
         ...process,
         platform: "win32",
-        env: { LOCALAPPDATA: "C:\\Users\\test\\AppData\\Local" },
+        env: {
+          LOCALAPPDATA: "C:\\Users\\test\\AppData\\Local",
+          PROGRAMFILES: "C:\\Program Files",
+          "PROGRAMFILES(X86)": "C:\\Program Files (x86)",
+        },
       });
       mockedAccessSync.mockReturnValue(undefined);
 
@@ -169,8 +214,18 @@ describe("AppService", () => {
 
   describe("launch", () => {
     beforeEach(() => {
+      vi.clearAllMocks();
       vi.stubGlobal("process", { ...process, platform: "darwin", env: {} });
       mockedFindApp.mockResolvedValue([]);
+      mockedExecFile.mockImplementation(((
+        _file: string,
+        _args: readonly string[],
+        _options: { windowsHide?: boolean },
+        callback: (error: Error | null, stdout: string, stderr: string) => void,
+      ) => {
+        callback(null, "", "");
+        return {} as ReturnType<typeof execFile>;
+      }) as typeof execFile);
     });
 
     it("skips launch if already running with explicit port", async () => {
@@ -195,7 +250,12 @@ describe("AppService", () => {
       expect(mockedSpawn).toHaveBeenCalledWith(
         "/Applications/linked-helper.app/Contents/MacOS/linked-helper",
         ["--remote-debugging-port=9222"],
-        { detached: true, stdio: "ignore", env: expect.objectContaining({ ELECTRON_RUN_AS_NODE: "" }) },
+        {
+          detached: true,
+          stdio: "ignore",
+          windowsHide: true,
+          env: expect.not.objectContaining({ ELECTRON_RUN_AS_NODE: expect.anything() }),
+        },
       );
       expect(child.unref).toHaveBeenCalled();
     });
@@ -211,11 +271,12 @@ describe("AppService", () => {
       await service.launch();
 
       expect(mockedGetPort).toHaveBeenCalled();
-      expect(mockedSpawn).toHaveBeenCalledWith(
-        expect.any(String),
-        ["--remote-debugging-port=54321"],
-        { detached: true, stdio: "ignore", env: expect.objectContaining({ ELECTRON_RUN_AS_NODE: "" }) },
-      );
+      expect(mockedSpawn).toHaveBeenCalledWith(expect.any(String), ["--remote-debugging-port=54321"], {
+        detached: true,
+        stdio: "ignore",
+        windowsHide: true,
+        env: expect.not.objectContaining({ ELECTRON_RUN_AS_NODE: expect.anything() }),
+      });
       expect(service.cdpPort).toBe(54321);
     });
 
@@ -263,17 +324,118 @@ describe("AppService", () => {
       mockedAccessSync.mockReturnValue(undefined);
 
       const child = makeMockChild();
-      (child.on as ReturnType<typeof vi.fn>).mockImplementation(
-        (event: string, handler: (err: Error) => void) => {
-          if (event === "error") {
-            queueMicrotask(() => handler(new Error("ENOENT")));
-          }
-          return child;
-        },
-      );
+      (child.on as ReturnType<typeof vi.fn>).mockImplementation((event: string, handler: (err: Error) => void) => {
+        if (event === "error") {
+          queueMicrotask(() => handler(new Error("ENOENT")));
+        }
+        return child;
+      });
       mockedSpawn.mockReturnValue(child);
 
       await expect(service.launch()).rejects.toThrow(AppLaunchError);
+    });
+
+    it("focuses an existing connectable launcher on Windows", async () => {
+      vi.stubGlobal("process", {
+        ...process,
+        platform: "win32",
+        env: {
+          LOCALAPPDATA: "C:\\Users\\test\\AppData\\Local",
+          PROGRAMFILES: "C:\\Program Files",
+          "PROGRAMFILES(X86)": "C:\\Program Files (x86)",
+        },
+      });
+      mockedFindApp.mockResolvedValue([
+        { pid: 111, cdpPort: 9222, connectable: true, role: "launcher" as const },
+        { pid: 222, cdpPort: null, connectable: false, role: "instance" as const },
+      ]);
+
+      const service = new AppService(undefined, FAST_OPTIONS);
+      await service.launch();
+
+      expect(mockedSpawn).not.toHaveBeenCalled();
+      expect(service.cdpPort).toBe(9222);
+      expect(mockedExecFile).toHaveBeenCalledWith(
+        "powershell.exe",
+        expect.arrayContaining([
+          "-NoProfile",
+          "-ExecutionPolicy",
+          "Bypass",
+          "-Command",
+          expect.stringContaining("111,222"),
+        ]),
+        { windowsHide: true },
+        expect.any(Function),
+      );
+    });
+
+    it("restores and focuses LinkedHelper windows on Windows by default", async () => {
+      vi.stubGlobal("process", {
+        ...process,
+        platform: "win32",
+        env: {
+          LOCALAPPDATA: "C:\\Users\\test\\AppData\\Local",
+          PROGRAMFILES: "C:\\Program Files",
+          "PROGRAMFILES(X86)": "C:\\Program Files (x86)",
+        },
+      });
+      mockedDiscoverTargets.mockRejectedValue(new Error("not running"));
+      mockedAccessSync.mockReturnValue(undefined);
+      mockedFindApp.mockResolvedValueOnce([]).mockResolvedValueOnce([
+        { pid: 111, cdpPort: 9222, connectable: true, role: "launcher" as const },
+        { pid: 222, cdpPort: null, connectable: false, role: "instance" as const },
+      ]);
+
+      mockedExecFile.mockImplementation(((
+        _file: string,
+        _args: readonly string[],
+        _options: { windowsHide?: boolean },
+        callback: (error: Error | null, stdout: string, stderr: string) => void,
+      ) => {
+        callback(null, "LinkedHelper\n", "");
+        return {} as ReturnType<typeof execFile>;
+      }) as typeof execFile);
+
+      const child = makeMockChild();
+      mockedSpawn.mockReturnValue(child);
+
+      const service = new AppService(9222, FAST_OPTIONS);
+      await service.launch();
+
+      expect(mockedExecFile).toHaveBeenCalledWith(
+        "powershell.exe",
+        expect.arrayContaining([
+          "-NoProfile",
+          "-ExecutionPolicy",
+          "Bypass",
+          "-Command",
+          expect.stringContaining("111,222"),
+        ]),
+        { windowsHide: true },
+        expect.any(Function),
+      );
+    });
+
+    it("does not try to focus windows when visibility is disabled", async () => {
+      vi.stubGlobal("process", {
+        ...process,
+        platform: "win32",
+        env: {
+          LOCALAPPDATA: "C:\\Users\\test\\AppData\\Local",
+          PROGRAMFILES: "C:\\Program Files",
+          "PROGRAMFILES(X86)": "C:\\Program Files (x86)",
+        },
+      });
+      mockedDiscoverTargets.mockRejectedValue(new Error("not running"));
+      mockedAccessSync.mockReturnValue(undefined);
+
+      const child = makeMockChild();
+      mockedSpawn.mockReturnValue(child);
+
+      const service = new AppService(9222, { ...FAST_OPTIONS, visible: false });
+      await service.launch();
+
+      expect(mockedExecFile).not.toHaveBeenCalled();
     });
   });
 
@@ -281,11 +443,9 @@ describe("AppService", () => {
     let mockedProcessKill: ReturnType<typeof vi.fn>;
 
     beforeEach(() => {
-      mockedProcessKill = vi.fn().mockImplementation(
-        (_pid: number, signal: string | number) => {
-          if (signal === 0) throw new Error("ESRCH");
-        },
-      );
+      mockedProcessKill = vi.fn().mockImplementation((_pid: number, signal: string | number) => {
+        if (signal === 0) throw new Error("ESRCH");
+      });
       vi.stubGlobal("process", {
         ...process,
         platform: "darwin",
@@ -316,9 +476,7 @@ describe("AppService", () => {
     });
 
     it("kills unreachable processes before relaunching", async () => {
-      mockedFindApp.mockResolvedValue([
-        { pid: 333, cdpPort: null, connectable: false, role: "launcher" as const },
-      ]);
+      mockedFindApp.mockResolvedValue([{ pid: 333, cdpPort: null, connectable: false, role: "launcher" as const }]);
       mockedAccessSync.mockReturnValue(undefined);
       mockedGetPort.mockResolvedValue(54321);
 
@@ -333,9 +491,7 @@ describe("AppService", () => {
     });
 
     it("kills processes even when explicit port is already running", async () => {
-      mockedFindApp.mockResolvedValue([
-        { pid: 444, cdpPort: 9222, connectable: true, role: "launcher" as const },
-      ]);
+      mockedFindApp.mockResolvedValue([{ pid: 444, cdpPort: 9222, connectable: true, role: "launcher" as const }]);
       mockedAccessSync.mockReturnValue(undefined);
 
       const child = makeMockChild();
@@ -380,42 +536,48 @@ describe("AppService", () => {
     });
 
     it("escalates to SIGKILL when process does not exit after SIGTERM", async () => {
+      // try/finally, not a trailing useRealTimers(): an assertion failing
+      // below would otherwise leave the fake clock installed for every test
+      // that runs after this one, and `shouldAdvanceTime` keeps most of them
+      // alive — so the cascade is intermittent and lands on the wrong test
+      // (#928).
       vi.useFakeTimers({ shouldAdvanceTime: true });
+      try {
+        const service = new AppService(9222, FAST_OPTIONS);
+        mockedDiscoverTargets.mockRejectedValue(new Error("not running"));
+        mockedAccessSync.mockReturnValue(undefined);
 
-      const service = new AppService(9222, FAST_OPTIONS);
-      mockedDiscoverTargets.mockRejectedValue(new Error("not running"));
-      mockedAccessSync.mockReturnValue(undefined);
+        const child = makeMockChild();
+        const emitExit = (child as unknown as { _emitExit: (code: number) => void })._emitExit;
 
-      const child = makeMockChild();
-      const emitExit = (child as unknown as { _emitExit: (code: number) => void })._emitExit;
+        let killCount = 0;
+        (child.kill as ReturnType<typeof vi.fn>).mockImplementation(() => {
+          killCount++;
+          // Only exit on SIGKILL (second kill call)
+          if (killCount === 2) {
+            queueMicrotask(() => emitExit(137));
+          }
+        });
+        mockedSpawn.mockReturnValue(child);
 
-      let killCount = 0;
-      (child.kill as ReturnType<typeof vi.fn>).mockImplementation(() => {
-        killCount++;
-        // Only exit on SIGKILL (second kill call)
-        if (killCount === 2) {
-          queueMicrotask(() => emitExit(137));
-        }
-      });
-      mockedSpawn.mockReturnValue(child);
+        const launchPromise = service.launch();
+        await vi.advanceTimersByTimeAsync(2_100);
+        await launchPromise;
 
-      await service.launch();
+        const quitPromise = service.quit();
+        // Advance past the graceful timeout
+        await vi.advanceTimersByTimeAsync(16_000);
+        await quitPromise;
 
-      const quitPromise = service.quit();
-      // Advance past the graceful timeout
-      await vi.advanceTimersByTimeAsync(11_000);
-      await quitPromise;
-
-      expect(child.kill).toHaveBeenCalledWith("SIGTERM");
-      expect(child.kill).toHaveBeenCalledWith("SIGKILL");
-
-      vi.useRealTimers();
+        expect(child.kill).toHaveBeenCalledWith("SIGTERM");
+        expect(child.kill).toHaveBeenCalledWith("SIGKILL");
+      } finally {
+        vi.useRealTimers();
+      }
     });
 
     it("does not close an externally-detected instance", async () => {
-      mockedFindApp.mockResolvedValue([
-        { pid: 555, cdpPort: 9222, connectable: true, role: "launcher" as const },
-      ]);
+      mockedFindApp.mockResolvedValue([{ pid: 555, cdpPort: 9222, connectable: true, role: "launcher" as const }]);
 
       const service = new AppService(undefined, FAST_OPTIONS);
       await service.launch();
@@ -461,9 +623,64 @@ describe("AppService", () => {
 
       await service.quit();
 
-      expect(mockFetch).toHaveBeenCalledWith(
-        "http://127.0.0.1:9222/json/close/T1",
-      );
+      expect(mockFetch).toHaveBeenCalledWith("http://127.0.0.1:9222/json/close/T1");
+    });
+
+    it("closes the browser-level CDP target when no page targets exist", async () => {
+      const service = new AppService(9222);
+      mockedDiscoverTargets.mockResolvedValue([]);
+
+      const mockFetch = vi.fn().mockResolvedValue({
+        ok: true,
+        json: vi.fn().mockResolvedValue({
+          webSocketDebuggerUrl: "ws://127.0.0.1:9222/devtools/browser/abc",
+        }),
+      });
+      vi.stubGlobal("fetch", mockFetch);
+
+      type Listener = (event?: unknown) => void;
+      class MockWebSocket {
+        static instances: MockWebSocket[] = [];
+        readonly sent: string[] = [];
+        private readonly listeners = new Map<string, Set<Listener>>();
+
+        constructor(readonly url: string) {
+          MockWebSocket.instances.push(this);
+          queueMicrotask(() => this.emit("open"));
+        }
+
+        addEventListener(event: string, listener: Listener): void {
+          if (!this.listeners.has(event)) this.listeners.set(event, new Set());
+          (this.listeners.get(event) as Set<Listener>).add(listener);
+        }
+
+        removeEventListener(event: string, listener: Listener): void {
+          this.listeners.get(event)?.delete(listener);
+        }
+
+        send(data: string): void {
+          this.sent.push(data);
+          queueMicrotask(() => this.emit("message", { data: JSON.stringify({ id: 1, result: {} }) }));
+        }
+
+        close(): void {
+          // no-op
+        }
+
+        private emit(event: string, payload?: unknown): void {
+          for (const listener of this.listeners.get(event) ?? []) {
+            listener(payload);
+          }
+        }
+      }
+
+      vi.stubGlobal("WebSocket", MockWebSocket);
+
+      await service.quit();
+
+      expect(mockFetch).toHaveBeenCalledWith("http://127.0.0.1:9222/json/version");
+      expect(MockWebSocket.instances[0]?.url).toBe("ws://127.0.0.1:9222/devtools/browser/abc");
+      expect(MockWebSocket.instances[0]?.sent).toEqual([JSON.stringify({ id: 1, method: "Browser.close" })]);
     });
 
     it("does not throw when CDP close fails", async () => {

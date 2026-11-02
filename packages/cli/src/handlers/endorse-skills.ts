@@ -8,9 +8,9 @@ import {
   CampaignExecutionError,
   CampaignTimeoutError,
   withLoggedInStateRetryAtPort,
-} from "@lhremote/core";
+} from "@insoftex/lhremote-core";
 
-/** Handle the {@link https://github.com/alexey-pelykh/lhremote#endorse-skills | endorse-skills} CLI command. */
+/** Handle the {@link https://github.com/insoftex-company/insoftex-lhremote#endorse-skills | endorse-skills} CLI command. */
 export async function handleEndorseSkills(options: {
   personId?: number;
   url?: string;
@@ -41,18 +41,19 @@ export async function handleEndorseSkills(options: {
       options.allowRemote ?? false,
       () =>
         endorseSkills({
-      personId: options.personId,
-      url: options.url,
-      skillNames: options.skillNames,
-      limit: options.limit,
-      skipIfNotEndorsable: options.skipIfNotEndorsable,
-      keepCampaign: options.keepCampaign,
-      timeout: options.timeout,
-      cdpPort: options.cdpPort,
-      cdpHost: options.cdpHost,
-      allowRemote: options.allowRemote,
-      accountId: options.accountId,
-      }),
+          personId: options.personId,
+          url: options.url,
+          skillNames: options.skillNames,
+          limit: options.limit,
+          skipIfNotEndorsable: options.skipIfNotEndorsable,
+          keepCampaign: options.keepCampaign,
+          timeout: options.timeout,
+          cdpPort: options.cdpPort,
+          cdpHost: options.cdpHost,
+          allowRemote: options.allowRemote,
+          accountId: options.accountId,
+        }),
+      { accountId: options.accountId },
     );
   } catch (error) {
     if (error instanceof CampaignExecutionError || error instanceof CampaignTimeoutError) {

@@ -4,6 +4,389 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+### Insoftex integration (2026-11-01)
+
+- Imported upstream through `e162cd2` while preserving Windows discovery, launcher recovery, async lifecycle tools, and organization campaigns.
+- Bound explicit account selections to verified instance CDP ports, including DOM actions and retry recovery; ambiguous or mismatched selections are refused.
+- Propagated lifecycle cancellation and retained single-writer ownership until cancelled work finishes unwinding.
+- Serialized launcher sessions at the service boundary and acquired batch-start locks in queue-before-gate order.
+- Corrected orphan scan composition, observed the readiness grace window, and revalidated candidates before confirmed termination.
+- Made Windows packaging compatible with pnpm 11's non-injected workspace through legacy deployment.
+- Corrected CI coverage argument forwarding and preserved the fork's generated command references.
+
+See `docs/reviews/2026-11-01-upstream-integration.md` for the Claude review handoff, test evidence, compatibility changes, and remaining Windows/live validation.
+
+### Added
+
+- `@insoftex/lhremote-cli` publishes a `./run` subpath exporting `runProgram` and `runProgramBin` (#963). `runProgramBin` is the bin runner both CLI entrypoints now use: it takes a thunk rather than a built program, so the program's import and its construction both happen inside the runner's own `try`. The subpath exists because that package's `exports["."]` resolves to the program graph the bins are deliberately deferring, so reaching the runner through it would defeat the fix; `lhremote` re-exports it under its own `./run.js`, which is what keeps the two `cli.ts` files byte-identical while each loads its own program.
+
+### Changed
+
+- **BREAKING (runtime behavior)** — `get-post` and `get-post-engagers` now fail loudly on a corroborated-empty extraction instead of returning an empty success (#834). When the page reports a positive `commentCount` (or the reactions modal a positive total) and the scrape yields no rows, the operation raises `ExtractionFailedError`: the CLI exits `1` and MCP returns `isError: true`, where both previously returned `comments: []` / `engagers: []` alongside a success status. Calls that were silently losing data to stale selectors will now surface as errors — this is the point of the change, but it is a live behavior flip for existing callers and scripts that treat an empty list as a valid answer.
+- **BREAKING (runtime behavior)** — `get-post-engagers` now also fails loudly when the reactions modal cannot be READ at all, independently of any count (#840). If no registered DOM adapter resolves the open modal it raises `DOMVariantUnsupportedError`, and if more than one claims it, `DOMVariantAmbiguousError` — where it previously coalesced "nothing read the region" with "the region held nobody" and returned `engagers: []` alongside a success status. This is a second, separate flip from the one above: it fires before the reaction total is consulted, so it does not need a contradicting count — an unreadable modal raises whatever the total reads. It is **not** reachable on a post with genuinely no reactions: such a post renders no reactions affordance, so the call returns an empty list before any modal is opened.
+- **BREAKING (runtime behavior)** — `get-post-stats` now refuses a post-detail page no DOM adapter can read, instead of returning zeroes alongside a success status (#857). Binding the engagement-count read to the adapter registry makes selection's other two outcomes reachable here for the first time: no adapter claiming the page raises `DOMVariantUnsupportedError`, two or more claiming it raises `DOMVariantAmbiguousError`. The CLI exits `1` and MCP returns `isError: true` where both previously returned `reactionCount: 0, commentCount: 0, shareCount: 0`. Narrower than the two flips above, because the readiness gate already refused a persistently unclaimed page before the counts were ever read — what is new is a page that changes between the readiness poll and the extraction.
+- **BREAKING (runtime behavior)** — `get-post` now refuses a post-detail page whose engagement-counts row rendered but read as all zeroes, instead of returning it alongside a success status (#951). The CLI exits `1` and MCP returns `isError: true`, the same surfaces the flips above already reach on this error class. It publishes the same three counters `get-post-stats` does, off the same extraction record, and until now ignored the flag saying whether the row they came from resolved at all — so an unreadable row produced `commentCount: 0`, which then corroborated an empty `comments: []` and returned. The container tier `get-post-stats` gained in #852 now runs here too, and runs BEFORE the cardinal check: a count read out of that row is only worth consulting once the row has been vouched for, and the diagnosis names `engagementCounts` against `countsRoot=rendered` so the repair points at the counter patterns rather than at the comment selectors. It fires whatever `commentCount` was asked for — that input skips comment loading, not counter reading, and the returned `post` carries the counters either way. Two shapes are newly loud: an all-zero read beside a resolved row, and an all-zero read beside comments that were actually scraped, which the cardinal check is structurally unable to see. Unreachable on the `sdui` dialect, whose adapter declares no counts anchor (#950).
+- Legitimately empty results are deliberately unaffected by any of these flips: a post with zero comments, a post with zero reactions, and an image-only or link-only post with no body text all continue to return normally. Emptiness is rejected on exactly two grounds — a count read from the same page contradicts it, or no adapter could read the region it came from — and never merely for being empty.
+
+### Fixed
+
+- Both CLI bins — `lhremote` and `lhremote-cli` — printed a raw ESM crash dump instead of a diagnosed message when anything in their own import graph threw at module scope (#963). Each evaluated its whole program graph before any `try` existed, so a throw anywhere under it escaped into the loader: `@insoftex/lhremote-mcp`'s `require("../package.json")`, the MCP SDK, `zod`, `commander`, `@insoftex/lhremote-core`. The program is now loaded through a thunk invoked inside the runner's `try`, and the error formatter itself is reached by dynamic import rather than statically, so what is printed is solely what `errorMessage` renders, followed by exit `1`. Measured on the built bins with that `require("../package.json")` forced to fail: 24 lines of dump before, three after — the after-count belongs to the error, since Node renders `MODULE_NOT_FOUND` with its own require stack, and what the fix decides is that nothing else is printed alongside it. #959 had already closed this for the `lhremote-mcp` bin; `npx lhremote mcp` is the invocation the README, `packages/mcp`'s README and `.mcp.json` all give an MCP client, none of which mentions `lhremote-mcp`. `lhremote mcp`'s failure output is now byte-identical to `lhremote-mcp`'s.
+- `lhremote --version` failed outright whenever the MCP server graph could not be evaluated, having no reason to load it at all (#963). The `mcp` subcommand's server import moved from module scope into the subcommand's action, so building the program no longer evaluates it: under the same forced fault, `--version` now prints `0.1.0` and exits `0` where it previously wrote 24 lines to stderr and exited `1`.
+- `get-post-engagers` returned `engagers: []` with `total: 0` on **every** post served the legacy markup, no matter how many reactions it had (#840, closing the engagers half of #823). It located the reactions affordance by matching the text `"N reactions"`, but legacy renders the control's text as the bare count and puts the words in `aria-label` only — so the modal was never opened at all. The reactions modal is now bound to the DOM-variant adapter registry with a `legacy` and an `sdui` adapter, and the trigger is matched on its accessible name. Two consequences for callers: a page no registered adapter can read now raises instead of returning an empty list — recorded as its own **BREAKING (runtime behavior)** entry under *Changed* above, because it is a behavior flip and not only a fix — and a reactions-modal readiness timeout raises a typed error naming the modal instead of a generic `Error`. A post with genuinely no reactions still returns normally with an empty list.
+- `get-post-stats` reported engagement counts parsed out of `document.body.textContent`, which is wrong three independent ways and silent in all three (#857, closing the last post-detail instance of #824's count-concatenation class). Under `textContent` adjacent element text nodes concatenate with **no separator**, so a counts row rendering `2` beside `41 comments` flattened to `241 comments` and the comment pattern captured `241` for a post with 41 comments — measured live. LinkedIn also renders a reaction count as a bare number with the word only on the control's `aria-label`, so a text-only read found no reactions at all and returned `0` for a post with two; and with no scope at all, the first `"<N> comments"`-shaped run **anywhere** on the page won, chrome and a comment's own counter included. The operation now evaluates the same registry-generated post-detail extraction script `get-post` does, which reads each counter from the element that renders it. The readiness seam tracked as #852 is untouched and stays open: a page whose counts region never rendered still returns zeroes.
+- The reactions-modal total read required the tab label `"All (2)"` with parentheses and returned `0` against legacy's `"All 2"`, so a modal that had opened could still report a zero total next to engagers on screen. Parentheses are now optional, and the count is preferentially read from the trigger's own accessible name before the modal opens.
+
+### Fixed
+
+- **`find-app` no longer reports a bogus, shifting CDP port for a freshly-spawned instance** — When
+  Windows WMI's `Win32_Process.CommandLine` briefly comes back `null` for a process right after it
+  spawns (a known WMI quirk), process discovery now retries the scan once, after a short delay
+  (`LHREMOTE_CMDLINE_RETRY_DELAY_MS`, default 500 ms), instead of immediately falling back to
+  probing every TCP port the process holds and reporting whichever one happened to come back
+  first as "the" CDP port. That fallback also no longer reports an unconfirmed port at all when no
+  cmdline hint is available and nothing answers as CDP — it reports `cdpPort: null` — since the
+  same PID could otherwise appear to have a different CDP port across successive `find-app` calls.
+
+- **Write-path account resolution (`import-people-from-urls` and friends) no longer reports a
+  running account as "instance is not running"** — `scanRunningInstances()` and `scanOrphans()`
+  (`process-inspector.ts`) had their own, separately-implemented copy of the process scan that
+  `find-app` uses, and it hadn't received the `cmdline: null` retry above: a freshly-spawned
+  instance whose `CommandLine` WMI hadn't populated yet would resolve as `accountId: null` instead
+  of its real account id, so `resolveInstancePort` (`instance-context.ts`) — which matches running
+  instances by account id — could never find it and threw `InstanceNotRunningError` for an account
+  that was, in fact, running. The scan-and-retry logic used by `find-app` is now shared
+  (`gather-lh-processes.ts`) between both code paths so this class of bug can't drift out of sync
+  between them again. `scanOrphans()`'s CDP-port fallback was aligned the same way as `find-app`'s
+  (`cdpPort: null` instead of an unconfirmed guess) to avoid the same failure mode there.
+
+## [0.24.0] — 2026-07-01
+
+### Added
+
+- **Campaign target verification by LinkedIn URL** — `campaign-list-people` now supports
+  `--urls` and `--urls-file` on the CLI, with matching MCP support underneath.  The operation
+  parses LinkedIn profile URLs into public IDs, filters campaign people against those IDs,
+  returns matched entries plus unresolved URLs, and is covered by unit and end-to-end tests.
+  ADR-010 documents the decision and tradeoffs.
+
+- **Regression coverage for launcher and campaign edits** — Added a multi-instance detection
+  regression test for the "launcher CDP down" case and an end-to-end test that verifies campaign
+  action reordering still behaves correctly after edits.
+
+- **Broader visit-profile end-to-end coverage** — Added tests for URL-based profile visits and
+  for failure handling when a bad `personId` is supplied, including verification that the
+  instance remains connectable after the failed action.
+
+### Fixed
+
+- **Launcher CDP port discovery is more reliable when the launcher is degraded** — Instance and
+  app discovery now better distinguish real instance endpoints from launcher or non-instance CDP
+  targets when multiple processes are present or the launcher CDP is unavailable.  Status and
+  discovery flows now classify running instances more accurately in that failure mode.
+
+- **`visit-profile` no longer reports false success on failed ephemeral execution** — When the
+  ephemeral campaign service returns `success: false`, the operation now throws a
+  `CampaignExecutionError` instead of returning stale profile data as though the action succeeded.
+
+- **Ephemeral cleanup clears leftover LinkedHelper dialogs** — After `safeStop()`,
+  `EphemeralCampaignService.cleanup()` now performs a best-effort popup-dismiss sweep so action
+  failure dialogs do not poison the next ephemeral run.
+
+- **`visit-profile` API surface now matches sibling ephemeral action tools** — `keepCampaign`
+  and `timeout` are now accepted and forwarded consistently through core and MCP layers, with
+  tests covering the passthrough behavior.
+
+### Changed
+
+- **Version surface advanced to `0.24.0`** — The workspace package manifests, package-specific
+  manifests, plugin/server metadata, and staging dist manifest now advertise the same feature
+  release version.
+
+## [0.23.2] — 2026-06-23
+
+### Fixed
+
+- **Launcher-CDP contention eliminated** — All launcher CDP sessions now pass through a single
+  in-process async gate (`withLauncherCDPGate`) so that at most one session is open at any
+  moment.  `list-accounts`, `start-instance`, `stop-instance`, `ensure-instances`, and the
+  stop/start phases of `restart-instance` each acquire the gate before connecting and release it
+  immediately after disconnecting.  Concurrent in-process tools no longer collide at the CDP level.
+
+- **Restart hold window shrunk from minutes to seconds (F2)** — `restart-instance` previously
+  held the launcher CDP connection for the entire operation (~2 m 15 s), blocking all other
+  launcher-dependent tools.  The connection is now opened only for the individual stop RPC and
+  start RPC, and released immediately after each.  The PID-exit wait and connectable-poll run
+  with no launcher connection held.  A clean uncontended restart now completes in well under 15 s.
+
+- **Contention-resilient acquisition (F3)** — `LauncherService.reconnect()` previously passed
+  the full remaining budget as the per-iteration `resolveAppPort` timeout, allowing one stalled
+  port scan to consume the entire 60 s budget.  Each iteration now caps the resolve timeout at
+  5 s so the retry loop remains responsive across up to 12 attempts within the budget.  Under
+  external-client contention (e.g. a concurrent CLI session), `restart-instance` backs off and
+  retries rather than hard-failing.
+
+- **Reconnect loop now retries when launcher port is temporarily absent** — When the launcher
+  briefly drops its CDP port after processing a write op (stop/start), `resolveAppPort` inside
+  `LauncherService.reconnect()` threw `LinkedHelperUnreachableError`, which propagated
+  immediately out of the retry loop — burning only one 5 s scan instead of the full 60 s budget.
+  The loop now catches `LinkedHelperUnreachableError` from `resolveAppPort`, pauses 500 ms,
+  and retries within the remaining budget.  `LinkedHelperNotRunningError` (launcher process gone)
+  still propagates immediately.  Only the F3 cap-related fix was shipped in 0.23.2 initially;
+  this completes the intent of that fix.
+
+- **Integration test suites skip gracefully when Playwright Chromium is absent** — The four
+  CDP/DOM integration test suites previously threw at the suite level when the Chromium binary was
+  not installed, causing `pnpm test` to exit non-zero.  They now use `describe.skipIf` so the
+  suite is skipped rather than failed.  CI still installs Chromium via `playwright install`, so
+  integration coverage is unaffected there.
+
+- **Granular restart progress (F4)** — `restart-instance` now emits a progress message at every
+  sub-step: `scanning-instances` → `acquiring-launcher (stop)` → `stopping <accountId>` →
+  `waiting-for-exit` → `acquiring-launcher (start)` → `starting` → `waiting-for-connectable`
+  → `verifying` → `verified` (or `verified=false`).  A ~2 min gap between progress messages
+  is no longer possible.
+
+## [0.23.1] — 2026-06-23
+
+### Fixed
+
+- **Long-running server could not acquire launcher CDP after prior ops** — `CDPClient` had a
+  fire-and-forget auto-reconnect that ran after any unexpected WebSocket close.  When
+  `LauncherService.reconnect()` replaced the old `CDPClient` with a fresh one, the orphaned old
+  client's background reconnect would eventually succeed (after the new connection was properly
+  disconnected in the operation's `finally` block), grabbing the launcher's CDP target
+  indefinitely.  All subsequent `acquireLauncherWithRecovery` calls saw
+  `webSocketDebuggerUrl: null` ("another debugger may be attached") and busy-looped in
+  `reconnect()` for the full 60-second budget before failing with "LinkedHelper is running but
+  CDP is not reachable."  Fresh CLI processes worked because they had no orphaned
+  `CDPClient`s.  Fix: removed `CDPClient` auto-reconnect entirely — `LauncherService` and
+  `withLauncherRecovery` manage all reconnection explicitly.  Also added a 500 ms pause
+  between `reconnect()` loop iterations to prevent busy-looping when the target is
+  momentarily taken.
+
+## [0.23.0] — 2026-06-23
+
+### Added
+
+- **Async operation model (T2)**: Long-running tools (`restart-instance`, `ensure-instances`,
+  `start-instance`, `stop-instance`, `launch-app`, `quit-app`) now use a 2-second grace window.
+  If the operation completes within 2 s it returns synchronously; otherwise it returns
+  `{ status: "in_progress", operationId }` immediately and continues in the background.
+  Three new MCP tools manage async operations:
+  - `get-operation` — poll a running or completed operation by ID
+  - `cancel-operation` — request cancellation; ongoing work is aborted via `AbortSignal`
+  - `list-operations` — enumerate active and recently completed operations (10-min TTL)
+
+- **MCP progress & cancellation (T4)**: All async operation work functions receive a merged
+  `AbortSignal` that is triggered by either operation cancellation or the MCP
+  `notifications/cancelled` message for the originating request.
+
+- **Flap-tolerant launcher acquisition (T3)**: `acquireLauncherWithRecovery` now accepts and
+  threads an `AbortSignal` through all recovery and wait functions.  `AbortSignal` also added
+  to `resolveAppPort`, `waitForPidExit`, `waitForConnectable`, and `LauncherService.reconnect`.
+
+### Changed
+
+- **Non-blocking startup (T1)**: MCP `initialize` / `tools/list` perform zero I/O — all tool
+  registrations are synchronous.  Launcher connections are established lazily on the first
+  tool call, not at registration time.
+
+- Single-writer semantics: tools that mutate launcher state check `getActiveWriteOp()` at
+  entry and reject concurrent mutating calls with a clear error.
+
+## [0.22.2] — 2026-06-22
+
+### Fixed
+
+- **`restart-instance` survives the launcher CDP drop it triggers (root cause fix)**: Three
+  composable defects caused `restart-instance` (and siblings) to fail with the legacy
+  `LinkedHelperUnreachableError` string even though the instance restarted successfully.
+  All three are now closed:
+
+  - **F1 — Launcher-independent restart verification**: `restartInstance` steps 4–6 now
+    decouple "issue the start command" (needs launcher CDP briefly) from "verify the result"
+    (must not need the launcher).  After the start command is issued, verification falls
+    through to `waitForConnectable`, which uses `scanRunningInstances` / pure OS process
+    inspection — no launcher CDP required.  The op can return `restarted:true, verified:true`
+    while the launcher is still flapping.  Previously a `{status:"timeout"}` from
+    `startInstanceWithRecovery` (caused by `discoverInstancePort` failing after the launcher
+    port-hopped) produced an immediate early return with `verified:false`, even though the
+    instance was running and connectable.  `RestartInstanceResult` gains an optional `note`
+    field for the rare case where the launcher never recovered and process inspection is the
+    sole information source.  The same process-inspection fallback is applied to
+    `start-instance` (MCP tool) and `ensure-instances` (Phase 2).
+
+  - **F2 — Resolve+connect+reconnect as one recoverable unit**: `acquireLauncherWithRecovery`
+    previously called `resolveLauncherPort` (with its full 30 s retry budget) **outside** the
+    `try { connect() } catch { reconnect() }` block, so a `LinkedHelperUnreachableError` thrown
+    during port resolution bypassed recovery entirely.  The fast-path resolve call now uses
+    `retryTimeout=0` (single scan, immediate fail) inside the function; any
+    `LinkedHelperUnreachableError` from either resolve or connect is handled identically: fall
+    to `reconnect()`, which re-discovers the launcher's current port fresh on each attempt
+    (never pinned to a stale port like 49238) and retries with back-off up to the full budget.
+    `LinkedHelperNotRunningError` still propagates immediately.
+
+  - **F3 — Longer recovery budget**: `DEFAULT_LAUNCHER_RECOVERY_TIMEOUT_MS` raised from 30 s
+    to **60 s** (also honoured by `LHREMOTE_LAUNCHER_RECOVERY_TIMEOUT_MS`), covering the
+    observed worst-case port-hop window.  `reconnect()` passes this budget directly to
+    `resolveAppPort` so the per-iteration discovery window matches the overall cap.
+
+## [0.22.1] — 2026-06-22
+
+### Fixed
+
+- **Launcher write ops no longer fail instantly on a CDP blip (Bug 1)**: `restart-instance`,
+  `start-instance`, `stop-instance`, `ensure-instances`, and `list-accounts` previously
+  performed a single raw `connect()` call before entering the queue; if the launcher
+  dropped CDP during that window the operation failed immediately with the legacy
+  "Relaunch LinkedHelper with --remote-debugging-port" error instead of recovering.
+  All five tools now call `acquireLauncherWithRecovery`, which re-discovers the
+  launcher's current port via process inspection and retries the connection with the
+  same 30 s cap as the existing operation-level `withLauncherRecovery`.  Callers use
+  `launcher.currentPort` (new getter on `LauncherService`) to get the live port after
+  potential recovery, so downstream ops (`discoverInstancePort`, settle barriers) always
+  reference the right port.  The legacy error now only surfaces when recovery genuinely
+  fails past the cap.
+
+- **Non-ASCII / emoji names no longer mangled to `????` in `check-status` (Bug 2)**:
+  `gather-raw-processes.ts` now prepends
+  `[Console]::OutputEncoding = $OutputEncoding = [System.Text.Encoding]::UTF8;`
+  to the PowerShell `Win32_Process` query.  Windows PowerShell 5.x defaults to OEM
+  encoding; without this, multi-byte characters (e.g. the 🇺🇦 emoji in account names)
+  were replaced with `?` before Node.js read them.  `list-accounts` (DB-sourced) was
+  unaffected; this fix aligns `check-status` to show the same names.
+
+## [0.22.0] — 2026-06-22
+
+### Added
+
+- **`restart-instance` MCP tool and CLI command (T3)**: Recycles a single stuck
+  instance — stop → wait for PID exit → start → wait until connectable →
+  verify `--app-id` match on a distinct port. Idempotent: no-op when already
+  healthy unless `force:true`. Only the target account's process is touched;
+  all other instances keep running. Returns
+  `{ accountId, restarted, oldPid, newPid, cdpPort, verified, launcherRecovered }`.
+- **Launcher operation queue (T1)**: All write/lifecycle operations
+  (`start-instance`, `stop-instance`, `restart-instance`, `launch-app`,
+  `quit-app`, and each internal start within `ensure-instances`) are serialised
+  through a single in-process async mutex. After each op, a settle barrier waits
+  for the launcher CDP to be reachable again and (for starts) the target instance
+  to become connectable, before releasing the queue for the next operation. Converts
+  "rapid starts → launcher drop → cascade" into "op → settle → op".
+- **Instance readiness model (T2)**: `InstanceReadinessTracker` tracks per-PID
+  state across successive scans; distinguishes `connectable | starting | degraded |
+  stuck`. `waitForConnectable(accountId, opts)` polls until the account's instance
+  is connectable on a real distinct port (or timeout), with optional cheap
+  `isCdpPort` re-probe when a known port is supplied. `check-status` now includes
+  a `readiness` field per instance.
+- **Process inspection cache (T6)**: `gatherRawProcesses` results are cached for
+  ~1 500 ms (configurable via `LHREMOTE_INSPECTION_CACHE_TTL_MS`) to avoid
+  redundant Win32_Process WMI queries during poll loops. Cache is invalidated
+  immediately after every lifecycle op via `invalidateProcessCache()`.
+- **`waitForPidExit(pid, timeoutMs?)` (T5)**: Polls until a PID fully exits using
+  signal-0 probing; used by `restart-instance` and the hardened `stop-instance`.
+- **`docs/instance-stability.md`**: Explains the launcher-queue + readiness model,
+  grace-window/transient-vs-stuck semantics, all config knobs with defaults and
+  rationale, and the read-vs-write reliability boundary.
+
+### Changed
+
+- **`start-instance` (T5)**: Routes through the launcher queue; the settle barrier
+  waits for the launcher to recover and the instance to become connectable before
+  the next queued op can start. Verification uses `waitForConnectable` so a
+  phantom/duplicate port is only declared `verified:false` after the full
+  connectable timeout.
+- **`stop-instance` (T5)**: Routes through the launcher queue; waits for the
+  instance port to disappear via `waitForInstanceShutdown` before returning.
+- **`ensure-instances` (T4)**: Each internal start is serialised through the
+  launcher queue with a settle barrier between accounts (no more cascade).
+  Verification uses parallel `waitForConnectable` in Phase 2 so accounts that
+  take longer to settle are not mis-reported as `verified:false`. An unlicensed
+  account with no process ever appearing is now reported as `status:"failed"` with
+  a clear reason rather than a phantom success.
+- **`check-status`**: `instances[]` entries now include `readiness:
+  "connectable"|"starting"|"degraded"|"stuck"` alongside existing fields.
+
+### Configuration (T7)
+
+All new timings ship with sane defaults and are overridable via environment variables:
+
+| Env var | Default | Meaning |
+|---------|---------|---------|
+| `LHREMOTE_GRACE_WINDOW_MS` | 30 000 | Grace window before a non-connectable instance is considered `stuck` |
+| `LHREMOTE_CONNECTABLE_TIMEOUT_MS` | 45 000 | `waitForConnectable` overall timeout |
+| `LHREMOTE_CONNECTABLE_INTERVAL_MS` | 1 500 | Poll interval inside `waitForConnectable` |
+| `LHREMOTE_SETTLE_BARRIER_TIMEOUT_MS` | 30 000 | Queue settle barrier timeout |
+| `LHREMOTE_INSPECTION_CACHE_TTL_MS` | 1 500 | Process inspection cache TTL |
+| `LHREMOTE_LAUNCHER_RECOVERY_TIMEOUT_MS` | 30 000 | (existing) Launcher recovery cap |
+
+## [0.21.0] — 2026-06-21
+
+Baseline: upstream 0.20.1. This fork branches above upstream to eliminate the
+`0.3.x < 0.20.1` semver confusion. All changes below are relative to upstream
+0.20.1.
+
+### Added
+
+- **Launcher CDP auto-recovery (F3)**: before any launcher-dependent operation
+  (`list-accounts`, `start-instance`, `stop-instance`, `list-workspaces`, …)
+  the service detects an unreachable CDP endpoint and automatically re-discovers
+  the launcher's current debugging port (dynamic; never assumed to be 9222) then
+  reconnects with exponential backoff up to a configurable cap (default 30 s).
+  Results include a `launcherRecovered: boolean` field so callers know a
+  recovery took place.
+- `LauncherService.reconnect(options?)` — explicit reconnect with port
+  re-discovery and bounded backoff; cap configurable via `timeoutMs` option or
+  `LHREMOTE_LAUNCHER_RECOVERY_TIMEOUT_MS` env var.
+- `withLauncherRecovery(launcher, op, options?)` utility exported from core —
+  runs an operation, catches launcher-CDP errors, calls `reconnect()` once, and
+  retries; returns `{ result, launcherRecovered }`.
+- Self-contained ESM bundle (`dist-bundle/lhremote-mcp.mjs`) and matching
+  `.mcpb` package (`dist-mcpb/lhremote-0.21.0.mcpb`) for durable Claude
+  Desktop extension deployment that does not depend on workspace symlinks.
+- `docs/packaging.md` — how to rebuild the bundle and `.mcpb`, install steps,
+  and the invariant that the shipped manifest must point at the bundled path.
+
+### Fixed
+
+- **Instance visibility (R1–R5)** (backport from 0.3.1): `check-status`
+  `instances[]` now reflects OS-process-inspected running processes only
+  (Win32_Process on Windows), not the full 7-account launcher roster.
+  `instances[].cdpPort` / `connectable` carry live-probe values. Identity
+  parsed from `--app-id`/`--user-li-id`/`--user-li` only; `--lh-account`
+  (license-owner decoy) is ignored. Instances array remains correct when
+  launcher CDP is unreachable.
+- **Name-resolution** (backport from 0.3.1): `find-app` role classification
+  uses `--type=` presence for helper-child detection and `resources\out\` path
+  for instance main processes; `helperChildCount` added per entry.
+
+### Security
+
+- Command-line secrets (`--app-credentials`, `--upstream-proxy`, `--sentry` DSN,
+  `socks5://` proxy URLs, encrypted passwords) are never captured, stored, or
+  surfaced in any tool output, log, or auto-recovery path.
+
+## [0.3.1] — 2026-06-21
+
+### Fixed
+
+- `check-status` `instances[]` now reflects only genuinely running processes from OS process inspection (Win32_Process on Windows), not all 7 configured accounts from the launcher roster (R1)
+- `instances[].cdpPort` and `instances[].connectable` now carry real values from live process probing instead of always being `null` (R2)
+- Instance identity (`accountId`, `name`, `email`) is parsed from `--app-id`/`--user-li-id`/`--user-li` only — `--lh-account` (license-owner decoy, identical across all instances) is now explicitly ignored (R3)
+- `instances[]` remains correct when the launcher CDP is unreachable; `launcher.reachable` is a separate flag (R4)
+- `find-app` role classification: `--type=` present → `helper-child` (excluded by default); `resources\out\` path → `instance`; otherwise `launcher`; added `helperChildCount` per entry (R5)
+
+### Added
+
+- `gather-raw-processes` shared utility — abstracts OS process listing with cmdlines (Win32_Process via PowerShell on Windows; ps-list `cmd` on other platforms)
+- `FindAppOptions.includeHelpers` — opt-in to show helper-child processes in `find-app` output (CLI `--verbose` flag)
+- `StatusReport.instances` — authoritative process-inspection-based array (same data as `runningInstances`, which is retained for backward compatibility)
+- `docs/instance-visibility.md` — process taxonomy, cmdline identity fields, `--lh-account` trap, redaction requirements
+
+### Security
+
+- Command line secrets (`--app-credentials`, `--upstream-proxy`, `--sentry` DSN) are never captured, stored, or returned in any tool output or log
+
 ## [0.9.0] — 2026-04-01
 
 ### Added
@@ -12,7 +395,7 @@ All notable changes to this project will be documented in this file.
 - Smart port resolution with direct instance connection — auto-discovers instance CDP port without manual configuration
 - Dialog dismissal on LauncherService (`dismissInstanceDialog`, `stopInstanceWithDialogDismissal`)
 - `connectUiOnly()` on InstanceService for partial-start resilience
-- `CDPClient` export from `@lhremote/core`
+- `CDPClient` export from `@insoftex/lhremote-core`
 
 ### Changed
 

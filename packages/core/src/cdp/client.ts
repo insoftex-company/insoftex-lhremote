@@ -3,7 +3,6 @@
 
 import type { Protocol } from "devtools-protocol";
 import type { CdpTarget } from "../types/cdp.js";
-import { delay } from "../utils/delay.js";
 import { isLoopbackAddress } from "../utils/loopback.js";
 import {
   CDPConnectionError,
@@ -14,12 +13,6 @@ import { discoverTargets } from "./discovery.js";
 
 /** Default timeout for CDP requests (ms). */
 const DEFAULT_TIMEOUT = 30_000;
-
-/** Maximum reconnection attempts before giving up. */
-const MAX_RECONNECT_ATTEMPTS = 5;
-
-/** Base delay for exponential backoff (ms). */
-const RECONNECT_BASE_DELAY = 500;
 
 interface PendingRequest {
   resolve: (value: unknown) => void;
@@ -36,7 +29,9 @@ type EventListener = (params: unknown) => void;
  * - Request/response correlation via incrementing message IDs
  * - Event subscription
  * - Convenience helpers for `Runtime.evaluate` and `Page.navigate`
- * - Automatic reconnection with exponential backoff
+ *
+ * Reconnection is intentionally NOT handled here — callers (e.g. LauncherService)
+ * are responsible for creating a fresh CDPClient when the connection is lost.
  */
 export class CDPClient {
   private readonly port: number;
@@ -49,8 +44,6 @@ export class CDPClient {
   private readonly listeners = new Map<string, Set<EventListener>>();
 
   private connected = false;
-  private targetId: string | null = null;
-  private reconnecting = false;
 
   constructor(
     port: number,
@@ -285,7 +278,6 @@ export class CDPClient {
       );
     }
 
-    this.targetId = target.id;
     return target.webSocketDebuggerUrl;
   }
 
@@ -313,14 +305,11 @@ export class CDPClient {
       });
 
       ws.addEventListener("close", () => {
-        const wasConnected = this.connected;
         this.connected = false;
         this.rejectAllPending(new CDPConnectionError("WebSocket closed"));
         if (!settled) {
           settled = true;
           reject(new CDPConnectionError(`WebSocket closed before opening to ${url}`));
-        } else if (wasConnected) {
-          void this.attemptReconnect();
         }
       });
 
@@ -366,36 +355,6 @@ export class CDPClient {
     if (msg.method) {
       this.emitEvent(msg.method, msg.params);
     }
-  }
-
-  /**
-   * Attempt to reconnect with exponential backoff.
-   *
-   * Called fire-and-forget from the WebSocket close handler.  When all
-   * {@link MAX_RECONNECT_ATTEMPTS} are exhausted a `"reconnect-exhausted"`
-   * event is emitted so callers can react to permanent connection loss.
-   */
-  private async attemptReconnect(): Promise<void> {
-    if (this.reconnecting || !this.targetId) {
-      return;
-    }
-    this.reconnecting = true;
-
-    for (let attempt = 0; attempt < MAX_RECONNECT_ATTEMPTS; attempt++) {
-      const backoff = RECONNECT_BASE_DELAY * 2 ** attempt;
-      await delay(backoff);
-
-      try {
-        await this.connect(this.targetId ?? undefined);
-        this.reconnecting = false;
-        return;
-      } catch {
-        // continue to next attempt
-      }
-    }
-
-    this.reconnecting = false;
-    this.emitEvent("reconnect-exhausted", { attempts: MAX_RECONNECT_ATTEMPTS });
   }
 
   /**

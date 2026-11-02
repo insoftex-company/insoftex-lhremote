@@ -2,11 +2,15 @@
 // Copyright (C) 2026 Oleksii PELYKH
 
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
-import { LauncherService, resolveLauncherPort } from "@lhremote/core";
+import {
+  acquireLauncherWithRecovery,
+  withLauncherCDPGate,
+  withLauncherRecovery,
+} from "@insoftex/lhremote-core";
 import { z } from "zod";
 import { buildCdpOptions, cdpConnectionSchema, mcpCatchAll, mcpSuccess } from "../helpers.js";
 
-/** Register the {@link https://github.com/alexey-pelykh/lhremote#list-accounts | list-accounts} MCP tool. */
+/** Register the {@link https://github.com/insoftex-company/insoftex-lhremote#list-accounts | list-accounts} MCP tool. */
 export function registerListAccounts(server: McpServer): void {
   server.tool(
     "list-accounts",
@@ -22,26 +26,27 @@ export function registerListAccounts(server: McpServer): void {
     },
     async ({ cdpPort, cdpHost, allowRemote, accountId, includeAllWorkspaces }) => {
       try {
-        const port = await resolveLauncherPort(cdpPort, cdpHost);
-        const launcher = new LauncherService(port, buildCdpOptions({ cdpHost, allowRemote, accountId }));
+        const listOptions = includeAllWorkspaces === true
+          ? { includeAllWorkspaces: true }
+          : undefined;
 
-        try {
-          await launcher.connect();
-        } catch (error) {
-          return mcpCatchAll(error, "Failed to connect to LinkedHelper");
-        }
+        const accounts = await withLauncherCDPGate(async () => {
+          const { launcher } = await acquireLauncherWithRecovery(
+            cdpPort,
+            buildCdpOptions({ cdpHost, allowRemote, accountId }),
+          );
+          try {
+            const { result } = await withLauncherRecovery(
+              launcher,
+              () => launcher.listAccounts(listOptions),
+            );
+            return result;
+          } finally {
+            launcher.disconnect();
+          }
+        });
 
-        try {
-          const options = includeAllWorkspaces === true
-            ? { includeAllWorkspaces: true }
-            : undefined;
-          const accounts = await launcher.listAccounts(options);
-          return mcpSuccess(JSON.stringify(accounts, null, 2));
-        } catch (error) {
-          return mcpCatchAll(error, "Failed to list accounts");
-        } finally {
-          launcher.disconnect();
-        }
+        return mcpSuccess(JSON.stringify(accounts, null, 2));
       } catch (error) {
         return mcpCatchAll(error, "Failed to list accounts");
       }

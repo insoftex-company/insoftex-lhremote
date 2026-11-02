@@ -9,12 +9,15 @@ import type {
   CampaignActionUpdateConfig,
   Campaign,
   CampaignAction,
+  CampaignOrganizationEntry,
   CampaignPersonEntry,
   CampaignPersonState,
   CampaignState,
   CampaignSummary,
+  CampaignTargetKind,
   CampaignUpdateConfig,
   GetResultsOptions,
+  ListCampaignOrganizationsOptions,
   ListCampaignPeopleOptions,
   ListCampaignsOptions,
 } from "../../types/index.js";
@@ -32,6 +35,7 @@ interface CampaignRow {
   id: number;
   name: string;
   description: string | null;
+  type: number;
   is_paused: number | null;
   is_archived: number | null;
   is_valid: number | null;
@@ -81,6 +85,16 @@ interface CampaignPersonRow {
   total: number;
 }
 
+interface CampaignOrganizationRow {
+  organization_id: number;
+  name: string | null;
+  public_id: string | null;
+  company_id: string | null;
+  state: number;
+  action_id: number;
+  total: number;
+}
+
 const PERSON_STATE_MAP: Record<number, CampaignPersonState> = {
   1: "queued",
   2: "processed",
@@ -104,6 +118,13 @@ function deriveCampaignState(
   if (isValid === 0) return "invalid";
   if (isPaused === 1) return "paused";
   return "active";
+}
+
+/** Maps the `campaigns.type` column to a {@link CampaignTargetKind}. */
+function deriveTargetKind(type: number): CampaignTargetKind {
+  if (type === 1) return "people";
+  if (type === 2) return "organizations";
+  return "unknown";
 }
 
 /**
@@ -136,6 +157,10 @@ export class CampaignRepository {
     queueTarget: PreparedStatement;
     insertTarget: PreparedStatement;
     countTarget: PreparedStatement;
+    getLastCampaignVersion: PreparedStatement;
+    insertCampaignVersion: PreparedStatement;
+    insertCampaignVersionAction: PreparedStatement | null;
+    copyCampaignVersionActions: PreparedStatement | null;
     deleteResultFlagsByCampaign: PreparedStatement;
     deleteResultMessagesByCampaign: PreparedStatement;
     deleteResultsByCampaign: PreparedStatement;
@@ -158,7 +183,7 @@ export class CampaignRepository {
     const { db } = client;
 
     this.stmtListCampaigns = db.prepare(
-      `SELECT c.id, c.name, c.description, c.is_paused, c.is_archived,
+      `SELECT c.id, c.name, c.description, c.type, c.is_paused, c.is_archived,
               c.is_valid, c.li_account_id, c.created_at,
               (SELECT COUNT(*) FROM actions a WHERE a.campaign_id = c.id) AS action_count
        FROM campaigns c
@@ -167,7 +192,7 @@ export class CampaignRepository {
     );
 
     this.stmtListAllCampaigns = db.prepare(
-      `SELECT c.id, c.name, c.description, c.is_paused, c.is_archived,
+      `SELECT c.id, c.name, c.description, c.type, c.is_paused, c.is_archived,
               c.is_valid, c.li_account_id, c.created_at,
               (SELECT COUNT(*) FROM actions a WHERE a.campaign_id = c.id) AS action_count
        FROM campaigns c
@@ -175,23 +200,50 @@ export class CampaignRepository {
     );
 
     this.stmtGetCampaign = db.prepare(
-      `SELECT id, name, description, is_paused, is_archived, is_valid,
+      `SELECT id, name, description, type, is_paused, is_archived, is_valid,
               li_account_id, created_at
        FROM campaigns WHERE id = ?`,
     );
 
-    this.stmtGetCampaignActions = db.prepare(
-      `SELECT a.id, a.campaign_id, a.name, a.description,
-              ac.id AS config_id, ac.actionType AS action_type,
-              ac.actionSettings AS action_settings, ac.coolDown AS cool_down,
-              ac.maxActionResultsPerIteration AS max_action_results_per_iteration,
-              ac.isDraft AS is_draft, av.id AS version_id
-       FROM actions a
-       JOIN action_versions av ON av.action_id = a.id
-       JOIN action_configs ac ON av.config_id = ac.id
-       WHERE a.campaign_id = ?
-       ORDER BY a.id`,
-    );
+    // Use the latest action_version per action (MAX id) to avoid the
+    // two-row duplication that createCampaign and addAction both produce.
+    // In real LH databases (which have campaign_version_actions), also
+    // order by the position in the last campaign version so post-reorder
+    // calls to getCampaignActions reflect the reordered chain.
+    // Fall back to ORDER BY a.id when the view does not exist (test fixture).
+    try {
+      this.stmtGetCampaignActions = db.prepare(
+        `SELECT a.id, a.campaign_id, a.name, a.description,
+                ac.id AS config_id, ac.actionType AS action_type,
+                ac.actionSettings AS action_settings, ac.coolDown AS cool_down,
+                ac.maxActionResultsPerIteration AS max_action_results_per_iteration,
+                ac.isDraft AS is_draft,
+                (SELECT MAX(av2.id) FROM action_versions av2 WHERE av2.action_id = a.id) AS version_id
+         FROM actions a
+         JOIN action_versions av ON av.id = (SELECT MAX(av2.id) FROM action_versions av2 WHERE av2.action_id = a.id)
+         JOIN action_configs ac ON av.config_id = ac.id
+         LEFT JOIN campaign_version_actions cva
+           ON cva.action_id = a.id
+           AND cva.version_id = (SELECT MAX(id) FROM campaign_versions WHERE campaign_id = a.campaign_id)
+         WHERE a.campaign_id = ?
+         ORDER BY CASE WHEN cva.id IS NOT NULL THEN cva.id ELSE 9999999999 + a.id END, a.id`,
+      );
+    } catch {
+      // campaign_version_actions does not exist in older schemas / test fixtures.
+      this.stmtGetCampaignActions = db.prepare(
+        `SELECT a.id, a.campaign_id, a.name, a.description,
+                ac.id AS config_id, ac.actionType AS action_type,
+                ac.actionSettings AS action_settings, ac.coolDown AS cool_down,
+                ac.maxActionResultsPerIteration AS max_action_results_per_iteration,
+                ac.isDraft AS is_draft,
+                (SELECT MAX(av2.id) FROM action_versions av2 WHERE av2.action_id = a.id) AS version_id
+         FROM actions a
+         JOIN action_versions av ON av.id = (SELECT MAX(av2.id) FROM action_versions av2 WHERE av2.action_id = a.id)
+         JOIN action_configs ac ON av.config_id = ac.id
+         WHERE a.campaign_id = ?
+         ORDER BY a.id`,
+      );
+    }
 
     this.stmtGetResults = db.prepare(
       `SELECT ar.id, ar.action_version_id, ar.person_id, ar.result,
@@ -226,6 +278,7 @@ export class CampaignRepository {
       name: r.name,
       description: r.description,
       state: deriveCampaignState(r.is_paused, r.is_archived, r.is_valid),
+      targetKind: deriveTargetKind(r.type),
       liAccountId: r.li_account_id,
       actionCount: r.action_count,
       createdAt: r.created_at,
@@ -246,6 +299,7 @@ export class CampaignRepository {
       name: row.name,
       description: row.description,
       state: deriveCampaignState(row.is_paused, row.is_archived, row.is_valid),
+      targetKind: deriveTargetKind(row.type),
       liAccountId: row.li_account_id,
       isPaused: row.is_paused === 1,
       isArchived: row.is_archived === 1,
@@ -347,7 +401,7 @@ export class CampaignRepository {
     // Verify campaign exists
     this.getCampaign(campaignId);
 
-    const { actionId, status, limit = 20, offset = 0 } = options;
+    const { actionId, status, publicIds, limit = 20, offset = 0 } = options;
 
     // If actionId is provided, verify it belongs to this campaign
     if (actionId !== undefined) {
@@ -373,15 +427,36 @@ export class CampaignRepository {
       }
     }
 
+    if (publicIds !== undefined && publicIds.length > 0) {
+      // pei is LEFT JOINed below — this condition naturally excludes rows
+      // with no matching 'public' external ID, since NULL IN (...) is not true.
+      conditions.push(`pei.external_id IN (${publicIds.map(() => "?").join(", ")})`);
+      params.push(...publicIds);
+    }
+
     const where = conditions.join(" AND ");
 
+    // GROUP BY collapses the fan-out from person_external_ids: a person can
+    // have several 'public' rows (a permanent URN-style id plus one or more
+    // vanity slugs from LinkedIn profile-URL history), and action_target_people
+    // has been observed with duplicate rows for the same (person_id, action_id)
+    // in real LinkedHelper databases. Either source multiplies this JOIN into
+    // several rows per targeted person. Without collapsing, `LIMIT` counts raw
+    // joined rows rather than distinct people — callers that size the limit to
+    // an expected person count (e.g. campaign-list-people's URL-verification
+    // mode, see ADR-010) can then have later people silently pushed past the
+    // window, making already-present people wrongly report as not found.
+    // MIN/MAX are arbitrary-but-deterministic picks across a duplicate group;
+    // when publicIds is set, MIN(pei.external_id) is guaranteed to still be
+    // one of the requested IDs, since the WHERE clause already restricts
+    // pei.external_id to that set.
     const sql = `
       SELECT
         atp.person_id,
         COALESCE(mp.first_name, '') AS first_name,
         mp.last_name,
-        pei.external_id AS public_id,
-        atp.state,
+        MIN(pei.external_id) AS public_id,
+        MAX(atp.state) AS state,
         atp.action_id,
         COUNT(*) OVER() AS total
       FROM action_target_people atp
@@ -390,6 +465,7 @@ export class CampaignRepository {
       LEFT JOIN person_external_ids pei
         ON atp.person_id = pei.person_id AND pei.type_group = 'public'
       WHERE ${where}
+      GROUP BY atp.person_id, atp.action_id
       ORDER BY atp.person_id
       LIMIT ? OFFSET ?`;
 
@@ -411,6 +487,167 @@ export class CampaignRepository {
     }));
 
     return { people, total };
+  }
+
+  /**
+   * List organizations assigned to a campaign, with optional filtering and
+   * pagination. The organization analogue of {@link listPeople}, reading
+   * `action_target_organizations` instead of `action_target_people`.
+   *
+   * `companyIds` filtering matches case-insensitively against both the
+   * public slug and the numeric company ID (`organization_external_ids`
+   * rows with `type_group` of `'public'` or `'company'`), since LinkedIn
+   * company URLs come in both shapes.
+   *
+   * @throws {CampaignNotFoundError} if no campaign exists with the given ID.
+   * @throws {ActionNotFoundError} if actionId is specified but doesn't belong to the campaign.
+   */
+  listOrganizations(
+    campaignId: number,
+    options: ListCampaignOrganizationsOptions = {},
+  ): { organizations: CampaignOrganizationEntry[]; total: number } {
+    // Verify campaign exists
+    this.getCampaign(campaignId);
+
+    const { actionId, status, companyIds, limit = 20, offset = 0 } = options;
+
+    // If actionId is provided, verify it belongs to this campaign
+    if (actionId !== undefined) {
+      const actions = this.getCampaignActions(campaignId);
+      if (!actions.some((a) => a.id === actionId)) {
+        throw new ActionNotFoundError(actionId, campaignId);
+      }
+    }
+
+    const conditions: string[] = ["a.campaign_id = ?"];
+    const params: (number | string)[] = [campaignId];
+
+    if (actionId !== undefined) {
+      conditions.push("ato.action_id = ?");
+      params.push(actionId);
+    }
+
+    if (status !== undefined) {
+      const stateNum = PERSON_STATE_REVERSE[status];
+      if (stateNum !== undefined) {
+        conditions.push("ato.state = ?");
+        params.push(stateNum);
+      }
+    }
+
+    if (companyIds !== undefined && companyIds.length > 0) {
+      // Both joins are LEFT JOINs — NULL IN (...) is not true, so rows
+      // with neither a matching slug nor a matching company ID drop out.
+      const upper = companyIds.map((id) => id.toUpperCase());
+      const placeholders = upper.map(() => "?").join(", ");
+      conditions.push(
+        `(oei_pub.external_id_uppercase IN (${placeholders})
+          OR oei_co.external_id_uppercase IN (${placeholders}))`,
+      );
+      params.push(...upper, ...upper);
+    }
+
+    const where = conditions.join(" AND ");
+
+    // GROUP BY collapses the fan-out from organization_external_ids — an org
+    // can have multiple 'public' rows (renamed vanity slugs) and this joins
+    // two copies of that table (oei_pub, oei_co), so without collapsing a
+    // single org can multiply into several rows here, same class of bug as
+    // listPeople above. MIN/MAX are arbitrary-but-deterministic picks; note
+    // that when companyIds is used to filter, the picked public_id/company_id
+    // here is for display only — if a caller's batch submits two different
+    // ids that both belong to the same org (e.g. its old slug and its
+    // current one, after a rename), all of that org's matching rows survive
+    // the WHERE and get grouped together, but MIN() then only surfaces one
+    // of the submitted ids, not both. Callers needing an authoritative
+    // "which submitted companyIds matched" answer should use
+    // {@link matchedCompanyIds} instead of this method's output.
+    const sql = `
+      SELECT
+        ato.organization_id,
+        omp.name,
+        MIN(oei_pub.external_id) AS public_id,
+        MIN(oei_co.external_id) AS company_id,
+        MAX(ato.state) AS state,
+        ato.action_id,
+        COUNT(*) OVER() AS total
+      FROM action_target_organizations ato
+      JOIN actions a ON ato.action_id = a.id
+      LEFT JOIN organization_mini_profile omp ON ato.organization_id = omp.organization_id
+      LEFT JOIN organization_external_ids oei_pub
+        ON ato.organization_id = oei_pub.organization_id AND oei_pub.type_group = 'public'
+      LEFT JOIN organization_external_ids oei_co
+        ON ato.organization_id = oei_co.organization_id AND oei_co.type_group = 'company'
+      WHERE ${where}
+      GROUP BY ato.organization_id, ato.action_id
+      ORDER BY ato.organization_id
+      LIMIT ? OFFSET ?`;
+
+    const rows = this.client.db.prepare(sql).all(
+      ...params,
+      limit,
+      offset,
+    ) as unknown as CampaignOrganizationRow[];
+
+    const total = rows.length > 0 ? (rows[0] as CampaignOrganizationRow).total : 0;
+
+    const organizations: CampaignOrganizationEntry[] = rows.map((r) => ({
+      organizationId: r.organization_id,
+      name: r.name,
+      publicId: r.public_id,
+      companyId: r.company_id,
+      status: PERSON_STATE_MAP[r.state] ?? "queued",
+      currentActionId: r.action_id,
+    }));
+
+    return { organizations, total };
+  }
+
+  /**
+   * Returns the subset of `upperCompanyIds` (already uppercased) that match
+   * an organization on the campaign's target list, checking both the public
+   * slug and the numeric company ID independently.
+   *
+   * Unlike {@link listOrganizations}'s `companyIds` filter, this is not
+   * paginated and does not fan out: `UNION`+`DISTINCT` bounds the result to
+   * at most `upperCompanyIds.length` rows regardless of how many aliases an
+   * organization has, so it can't silently drop a match the way a `LIMIT`
+   * sized to the submitted batch could. Use this (not `listOrganizations`'s
+   * `publicId`/`companyId` output) to authoritatively answer "which of these
+   * submitted company URLs actually landed on the target list" — see
+   * ADR-010's people-side equivalent for why the display query alone isn't
+   * safe for that.
+   *
+   * @throws {CampaignNotFoundError} if no campaign exists with the given ID.
+   */
+  matchedCompanyIds(campaignId: number, upperCompanyIds: string[]): Set<string> {
+    this.getCampaign(campaignId);
+
+    if (upperCompanyIds.length === 0) return new Set();
+
+    const placeholders = upperCompanyIds.map(() => "?").join(", ");
+    const sql = `
+      SELECT oei_pub.external_id_uppercase AS matched_id
+      FROM action_target_organizations ato
+      JOIN actions a ON ato.action_id = a.id
+      JOIN organization_external_ids oei_pub
+        ON oei_pub.organization_id = ato.organization_id AND oei_pub.type_group = 'public'
+      WHERE a.campaign_id = ? AND oei_pub.external_id_uppercase IN (${placeholders})
+      UNION
+      SELECT oei_co.external_id_uppercase
+      FROM action_target_organizations ato
+      JOIN actions a ON ato.action_id = a.id
+      JOIN organization_external_ids oei_co
+        ON oei_co.organization_id = ato.organization_id AND oei_co.type_group = 'company'
+      WHERE a.campaign_id = ? AND oei_co.external_id_uppercase IN (${placeholders})`;
+
+    const rows = this.client.db
+      .prepare(sql)
+      .all(campaignId, ...upperCompanyIds, campaignId, ...upperCompanyIds) as unknown as {
+      matched_id: string;
+    }[];
+
+    return new Set(rows.map((r) => r.matched_id));
   }
 
   /**
@@ -607,6 +844,34 @@ export class CampaignRepository {
         `INSERT INTO collections (li_account_id, name, created_at, updated_at)
          VALUES (?, NULL, datetime('now'), datetime('now'))`,
       ),
+      getLastCampaignVersion: db.prepare(
+        `SELECT id, exclude_list_id FROM campaign_versions WHERE campaign_id = ? ORDER BY id DESC LIMIT 1`,
+      ),
+      insertCampaignVersion: db.prepare(
+        `INSERT INTO campaign_versions (campaign_id, exclude_list_id) VALUES (?, ?)`,
+      ),
+      insertCampaignVersionAction: (() => {
+        try {
+          return db.prepare(
+            `INSERT INTO campaign_version_actions (version_id, action_id) VALUES (?, ?)`,
+          );
+        } catch {
+          return null;
+        }
+      })(),
+      copyCampaignVersionActions: (() => {
+        try {
+          return db.prepare(
+            `INSERT INTO campaign_version_actions (version_id, action_id)
+             SELECT CAST(? AS INTEGER), action_id
+             FROM campaign_version_actions
+             WHERE version_id = ?
+             ORDER BY id`,
+          );
+        } catch {
+          return null;
+        }
+      })(),
       insertCollectionPeopleVersion: db.prepare(
         `INSERT INTO collection_people_versions
            (collection_id, version_operation_status, additional_data, created_at, updated_at)
@@ -841,10 +1106,13 @@ export class CampaignRepository {
       );
       const actionId = (getLastId.get() as { id: number }).id;
 
-      // 3. Insert two action_versions (matching createCampaign pattern)
+      // 3. Insert two action_versions (matching createCampaign pattern).
+      //    Both rows receive the same config and the same exclude_list_id
+      //    (set in step 4).  The MAX id (second row) is what getCampaignActions
+      //    reports via its MAX(av2.id) subquery, so we capture that as versionId.
       stmts.insertActionVersion.run(actionId, configId);
-      const versionId1 = (getLastId.get() as { id: number }).id;
       stmts.insertActionVersion.run(actionId, configId);
+      const versionId = (getLastId.get() as { id: number }).id;
 
       // 4. Create exclude list chain for the new action
       stmts.insertCollection.run(liAccountId);
@@ -854,6 +1122,29 @@ export class CampaignRepository {
       const cpvId = (getLastId.get() as { id: number }).id;
 
       stmts.setActionVersionExcludeList.run(cpvId, actionId);
+
+      // 5. Sync campaign_versions / campaign_version_actions so that LH's
+      //    moveActionInCampaignChain can find this action.  LH reads the
+      //    "last campaign version" from campaign_actions (a VIEW over
+      //    campaign_last_versions → campaign_version_actions); writing
+      //    directly to the actions table does not update that view, so
+      //    reorder would fail with "Action #N not found in last campaign
+      //    version".  We create a fresh version that copies the previous
+      //    version's action list and appends the new action at the end.
+      if (stmts.insertCampaignVersionAction !== null) {
+        const lastVersion = stmts.getLastCampaignVersion.get(campaignId) as
+          | { id: number; exclude_list_id: number | null }
+          | undefined;
+
+        stmts.insertCampaignVersion.run(campaignId, lastVersion?.exclude_list_id ?? null);
+        const newVersionId = (getLastId.get() as { id: number }).id;
+
+        if (lastVersion && stmts.copyCampaignVersionActions !== null) {
+          stmts.copyCampaignVersionActions.run(newVersionId, lastVersion.id);
+        }
+
+        stmts.insertCampaignVersionAction.run(newVersionId, actionId);
+      }
 
       db.exec("COMMIT");
 
@@ -873,7 +1164,7 @@ export class CampaignRepository {
         name: actionConfig.name,
         description: actionConfig.description ?? null,
         config,
-        versionId: versionId1,
+        versionId,
       };
     } catch (e) {
       db.exec("ROLLBACK");

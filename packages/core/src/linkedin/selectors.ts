@@ -26,6 +26,26 @@
 /** Individual feed post wrapper (listitem inside the main feed). */
 export const FEED_POST_CONTAINER = '[data-testid="mainFeed"] [role="listitem"]';
 
+/**
+ * Three-dot control-menu button inside a feed post.
+ *
+ * Opens the per-post overflow menu carrying "Not interested",
+ * "Hide posts by {Name}" and "Unfollow {Name}".  Callers query it
+ * document-wide and index into the resulting NodeList to address a
+ * specific feed position, so the match set defines the index space.
+ *
+ * **Kept independent of {@link FEED_POST_CONTAINER}, not derived from
+ * it**: that constant matches a bare `[role="listitem"]`, so composing
+ * this selector from it would widen the match set — and since callers
+ * index positionally, a wider set silently shifts which post an action
+ * targets.  Whether a non-`div` `[role="listitem"]` actually occurs
+ * under `mainFeed` is unverified against the live DOM; the narrower
+ * `div[role="listitem"]` is carried over verbatim from the call sites
+ * this constant replaced, so the match set is unchanged.
+ */
+export const FEED_POST_MENU_BUTTON =
+  '[data-testid="mainFeed"] div[role="listitem"] button[aria-label^="Open control menu for post"]';
+
 // ── Comment input fields ──────────────────────────────────────────
 
 /**
@@ -39,8 +59,7 @@ export const FEED_POST_CONTAINER = '[data-testid="mainFeed"] [role="listitem"]';
  * Both variants share `role="textbox"` and the `aria-label` prefix
  * "Text editor for creating", so a single selector covers both.
  */
-export const COMMENT_INPUT =
-  '[role="textbox"][aria-label^="Text editor for creating"]';
+export const COMMENT_INPUT = '[role="textbox"][aria-label^="Text editor for creating"]';
 
 // ── Reaction buttons ──────────────────────────────────────────────
 
@@ -51,8 +70,7 @@ export const COMMENT_INPUT =
  * - Post page: `button.react-button__trigger` (BEM class, various
  *   aria-labels like "Unreact Like", "React Like to X's comment").
  */
-export const REACTION_TRIGGER =
-  'button[aria-label^="Reaction button state"], button.react-button__trigger';
+export const REACTION_TRIGGER = 'button[aria-label^="Reaction button state"], button.react-button__trigger';
 
 /**
  * Like reaction button (appears after hovering {@link REACTION_TRIGGER}).
@@ -66,28 +84,22 @@ export const REACTION_TRIGGER =
  * - Post page: `button[aria-label="React Like"]`
  *   (inside `.reactions-menu`)
  */
-export const REACTION_LIKE =
-  'button[aria-label="Like"], button[aria-label="React Like"]';
+export const REACTION_LIKE = 'button[aria-label="Like"], button[aria-label="React Like"]';
 
 /** Celebrate reaction button (appears after hovering trigger). */
-export const REACTION_CELEBRATE =
-  'button[aria-label="Celebrate"], button[aria-label="React Celebrate"]';
+export const REACTION_CELEBRATE = 'button[aria-label="Celebrate"], button[aria-label="React Celebrate"]';
 
 /** Support reaction button (appears after hovering trigger). */
-export const REACTION_SUPPORT =
-  'button[aria-label="Support"], button[aria-label="React Support"]';
+export const REACTION_SUPPORT = 'button[aria-label="Support"], button[aria-label="React Support"]';
 
 /** Love reaction button (appears after hovering trigger). */
-export const REACTION_LOVE =
-  'button[aria-label="Love"], button[aria-label="React Love"]';
+export const REACTION_LOVE = 'button[aria-label="Love"], button[aria-label="React Love"]';
 
 /** Insightful reaction button (appears after hovering trigger). */
-export const REACTION_INSIGHTFUL =
-  'button[aria-label="Insightful"], button[aria-label="React Insightful"]';
+export const REACTION_INSIGHTFUL = 'button[aria-label="Insightful"], button[aria-label="React Insightful"]';
 
 /** Funny reaction button (appears after hovering trigger). */
-export const REACTION_FUNNY =
-  'button[aria-label="Funny"], button[aria-label="React Funny"]';
+export const REACTION_FUNNY = 'button[aria-label="Funny"], button[aria-label="React Funny"]';
 
 // ── Comment reply ────────────────────────────────────────────────
 
@@ -123,8 +135,7 @@ export const COMMENT_REPLY_BUTTON = 'button[aria-label^="Reply to "]';
  * Both branches are wrapped in `:is(...)` so the article scope applies
  * to BOTH branches.
  */
-export const COMMENT_REACTION_TRIGGER =
-  'button:is([aria-label^="React Like to "], [aria-label^="Unreact "])';
+export const COMMENT_REACTION_TRIGGER = 'button:is([aria-label^="React Like to "], [aria-label^="Unreact "])';
 
 /**
  * Popup-opening button inside a comment `article`.
@@ -142,8 +153,7 @@ export const COMMENT_REACTION_TRIGGER =
  * exists alongside the post-level reaction trigger.  Always scope to
  * the comment article to avoid cross-scope matches.
  */
-export const COMMENT_REACTIONS_MENU =
-  'button[aria-label="Open reactions menu"]';
+export const COMMENT_REACTIONS_MENU = 'button[aria-label="Open reactions menu"]';
 
 // ── React-stack post detail (LinkedIn 2026-05 SDUI rewrite) ──────
 
@@ -169,8 +179,7 @@ export const COMMENT_REACTIONS_MENU =
  * See `research/linkedin/post-detail-body-dom-react-sdui-20260507.md` and
  * lhremote issue #800.
  */
-export const POST_DETAIL_CONTAINER =
-  '[componentkey^="expanded"][componentkey$="FeedType_FEED_DETAIL"]';
+export const POST_DETAIL_CONTAINER = '[componentkey^="expanded"][componentkey$="FeedType_FEED_DETAIL"]';
 
 /**
  * Fallback scope: SDUI screen wrapper for the post-detail page.
@@ -182,8 +191,7 @@ export const POST_DETAIL_CONTAINER =
  * exclude `[data-component-type="LazyColumn"]` and
  * `[componentkey^="replaceableComment_"]` when used as a post-author scope.
  */
-export const POST_DETAIL_SDUI_SCREEN =
-  '[data-sdui-screen="com.linkedin.sdui.flagshipnav.feed.UpdateDetail"]';
+export const POST_DETAIL_SDUI_SCREEN = '[data-sdui-screen="com.linkedin.sdui.flagshipnav.feed.UpdateDetail"]';
 
 /**
  * Post body text leaf — primary selector.
@@ -197,8 +205,7 @@ export const POST_DETAIL_SDUI_SCREEN =
  * at ~25 characters).  Use {@link POST_DETAIL_BODY_COMMENTARY_WRAPPER} as
  * the fallback when this selector returns null.
  */
-export const POST_DETAIL_BODY_TEXT_LEAF =
-  '[data-testid="expandable-text-box"]';
+export const POST_DETAIL_BODY_TEXT_LEAF = '[data-testid="expandable-text-box"]';
 
 /**
  * Post body wrapper — fallback selector.
@@ -208,8 +215,7 @@ export const POST_DETAIL_BODY_TEXT_LEAF =
  * additional whitespace from the wrapper's own structure, but is
  * still scoped to the post body only.
  */
-export const POST_DETAIL_BODY_COMMENTARY_WRAPPER =
-  '[componentkey^="feed-commentary_"]';
+export const POST_DETAIL_BODY_COMMENTARY_WRAPPER = '[componentkey^="feed-commentary_"]';
 
 /**
  * Post-level reactions menu opener (NEW marker post-2026-05 rewrite).
@@ -224,8 +230,7 @@ export const POST_DETAIL_BODY_COMMENTARY_WRAPPER =
  * {@link COMMENT_REACTIONS_MENU} — they share the same selector but
  * different scopes.
  */
-export const POST_REACTIONS_MENU =
-  'button[aria-label="Open reactions menu"]';
+export const POST_REACTIONS_MENU = 'button[aria-label="Open reactions menu"]';
 
 /**
  * Selects ANY comment article on the post-detail page.
@@ -329,8 +334,7 @@ export function denormalizeCommentUrnToLegacy(urn: string): string {
  * is rendered inside a `.editor-typeahead-fetch` wrapper.  The listbox
  * itself uses `role="listbox"` with class `basic-typeahead__triggered-content`.
  */
-export const MENTION_TYPEAHEAD =
-  '.editor-typeahead-fetch .basic-typeahead__triggered-content[role="listbox"]';
+export const MENTION_TYPEAHEAD = '.editor-typeahead-fetch .basic-typeahead__triggered-content[role="listbox"]';
 
 /**
  * Individual mention option inside the typeahead popup.
@@ -338,8 +342,7 @@ export const MENTION_TYPEAHEAD =
  * Each option has `role="option"` and toggles `aria-selected` on
  * keyboard navigation (ArrowDown / ArrowUp).
  */
-export const MENTION_OPTION =
-  '.basic-typeahead__selectable.editor-typeahead__typeahead-item[role="option"]';
+export const MENTION_OPTION = '.basic-typeahead__selectable.editor-typeahead__typeahead-item[role="option"]';
 
 // ── Send / submit buttons ─────────────────────────────────────────
 
@@ -350,8 +353,7 @@ export const MENTION_OPTION =
  *   after typing).
  * - Post page: BEM class `comments-comment-box__submit-button`.
  */
-export const COMMENT_SUBMIT_BUTTON =
-  'button[type="submit"], button[class*="comments-comment-box__submit-button"]';
+export const COMMENT_SUBMIT_BUTTON = 'button[type="submit"], button[class*="comments-comment-box__submit-button"]';
 
 /**
  * Aggregated registry of all selectors, keyed by name.
@@ -361,6 +363,7 @@ export const COMMENT_SUBMIT_BUTTON =
  */
 export const SELECTORS = {
   FEED_POST_CONTAINER,
+  FEED_POST_MENU_BUTTON,
   COMMENT_INPUT,
   COMMENT_REPLY_BUTTON,
   COMMENT_REACTION_TRIGGER,

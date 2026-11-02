@@ -64,6 +64,7 @@ const MOCK_CAMPAIGN: Campaign = {
   name: "Test Campaign",
   description: "Test description",
   state: "paused",
+  targetKind: "people",
   liAccountId: 1,
   isPaused: true,
   isArchived: false,
@@ -95,6 +96,7 @@ const MOCK_SUMMARIES: CampaignSummary[] = [
     name: "Test Campaign",
     description: "Test description",
     state: "paused",
+    targetKind: "people",
     liAccountId: 1,
     actionCount: 1,
     createdAt: "2025-01-15T00:00:00Z",
@@ -316,6 +318,171 @@ describe("CampaignService", () => {
       mockEvaluateUI.mockRejectedValueOnce(new Error("CDP error"));
 
       await expect(service.delete(1)).rejects.toThrow(CampaignExecutionError);
+    });
+  });
+
+  describe("importPeopleFromUrls", () => {
+    it("rejects organizations campaigns with a clear error", async () => {
+      mockGetCampaign.mockReturnValue({
+        ...MOCK_CAMPAIGN,
+        targetKind: "organizations",
+      });
+
+      await expect(
+        service.importPeopleFromUrls(1, ["https://linkedin.com/in/alice"]),
+      ).rejects.toThrow(/organizations campaign.*importOrganizationsFromUrls/);
+      expect(mockEvaluateUI).not.toHaveBeenCalled();
+    });
+
+    it("imports into people campaigns via the people IPC", async () => {
+      mockGetCampaign.mockReturnValue(MOCK_CAMPAIGN);
+      mockGetCampaignActions.mockReturnValue(MOCK_ACTIONS);
+      mockEvaluateUI.mockResolvedValueOnce({
+        total: {
+          addToTarget: {
+            successful: 2,
+            alreadyInQueue: 0,
+            alreadyProcessed: 0,
+            failed: 0,
+          },
+        },
+      });
+
+      const result = await service.importPeopleFromUrls(1, [
+        "https://linkedin.com/in/alice",
+      ]);
+
+      expect(result).toEqual({
+        actionId: 10,
+        successful: 2,
+        alreadyInQueue: 0,
+        alreadyProcessed: 0,
+        failed: 0,
+      });
+      const expression = mockEvaluateUI.mock.calls[0]?.[0] as string;
+      expect(expression).toContain("source.people.actions");
+      expect(expression).toContain("importPeopleFromUrls");
+    });
+  });
+
+  describe("importOrganizationsFromUrls", () => {
+    const ORG_CAMPAIGN: Campaign = {
+      ...MOCK_CAMPAIGN,
+      id: 4,
+      targetKind: "organizations",
+    };
+
+    const ORG_ACTIONS: CampaignAction[] = [
+      {
+        id: 20,
+        campaignId: 4,
+        name: "Extract Organizations",
+        description: null,
+        config: {
+          id: 200,
+          actionType: "OrganizationsExtractor",
+          actionSettings: {},
+          coolDown: 60000,
+          maxActionResultsPerIteration: 10,
+          isDraft: false,
+        },
+        versionId: 2000,
+      },
+    ];
+
+    it("rejects people campaigns with a clear error", async () => {
+      mockGetCampaign.mockReturnValue(MOCK_CAMPAIGN);
+
+      await expect(
+        service.importOrganizationsFromUrls(1, [
+          "https://linkedin.com/company/acme",
+        ]),
+      ).rejects.toThrow(/people campaign.*organizations campaign/);
+      expect(mockEvaluateUI).not.toHaveBeenCalled();
+    });
+
+    it("throws when the campaign has no actions", async () => {
+      mockGetCampaign.mockReturnValue(ORG_CAMPAIGN);
+      mockGetCampaignActions.mockReturnValue([]);
+
+      await expect(
+        service.importOrganizationsFromUrls(4, [
+          "https://linkedin.com/company/acme",
+        ]),
+      ).rejects.toThrow(CampaignExecutionError);
+    });
+
+    it("imports via the organizations IPC using the first action", async () => {
+      mockGetCampaign.mockReturnValue(ORG_CAMPAIGN);
+      mockGetCampaignActions.mockReturnValue(ORG_ACTIONS);
+      mockEvaluateUI.mockResolvedValueOnce({
+        total: {
+          addToTarget: {
+            successful: 1,
+            alreadyInQueue: 1,
+            alreadyProcessed: 0,
+            inExcludeList: 0,
+          },
+        },
+      });
+
+      const result = await service.importOrganizationsFromUrls(4, [
+        "https://linkedin.com/company/acme",
+        "https://linkedin.com/company/globex",
+      ]);
+
+      expect(result).toEqual({
+        actionId: 20,
+        successful: 1,
+        alreadyInQueue: 1,
+        alreadyProcessed: 0,
+        inExcludeList: 0,
+        failed: 0,
+      });
+
+      const expression = mockEvaluateUI.mock.calls[0]?.[0] as string;
+      expect(expression).toContain("source.organizations.actions");
+      expect(expression).toContain("importOrganizationsFromUrls");
+      expect(expression).toContain("20");
+      expect(expression).toContain(
+        JSON.stringify(
+          "https://linkedin.com/company/acme\nhttps://linkedin.com/company/globex",
+        ),
+      );
+    });
+
+    it("defaults missing inExcludeList and failed counters to zero", async () => {
+      mockGetCampaign.mockReturnValue(ORG_CAMPAIGN);
+      mockGetCampaignActions.mockReturnValue(ORG_ACTIONS);
+      // Real LH 2.x omits `failed` entirely — see production verification.
+      mockEvaluateUI.mockResolvedValueOnce({
+        total: {
+          addToTarget: {
+            successful: 0,
+            alreadyInQueue: 1,
+            alreadyProcessed: 0,
+          },
+        },
+      });
+
+      const result = await service.importOrganizationsFromUrls(4, [
+        "https://linkedin.com/company/acme",
+      ]);
+
+      expect(result.inExcludeList).toBe(0);
+      expect(result.failed).toBe(0);
+    });
+
+    it("wraps CDP failures in CampaignExecutionError", async () => {
+      mockGetCampaign.mockReturnValue(ORG_CAMPAIGN);
+      mockGetCampaignActions.mockReturnValue(ORG_ACTIONS);
+      mockEvaluateUI.mockRejectedValueOnce(new Error("CDP timeout"));
+
+      await expect(
+        service.importOrganizationsFromUrls(4, [
+          "https://linkedin.com/company/acme",
+        ]),
+      ).rejects.toThrow(CampaignExecutionError);
     });
   });
 

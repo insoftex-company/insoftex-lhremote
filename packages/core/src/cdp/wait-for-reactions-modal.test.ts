@@ -37,9 +37,96 @@ vi.mock("../utils/delay.js", () => ({
   delay: vi.fn().mockResolvedValue(undefined),
 }));
 
-const { captureReactionsModalFailure, waitForReactionsModal } = await import(
-  "./wait-for-reactions-modal.js"
-);
+const { captureReactionsModalFailure, waitForReactionsModal } = await import("./wait-for-reactions-modal.js");
+const { adaptersFor, buildReadinessPredicateSource, formatVariantProbes } = await import("../linkedin/dom-variant.js");
+const { DOMVariantAmbiguousError, DOMVariantUnsupportedError, ExtractionTimeoutError } =
+  await import("../services/errors.js");
+
+/** No detect probe was taken — the shape every pre-#840 case implied. */
+const NO_DETECTION = { detection: null } as const;
+
+/**
+ * A `Runtime.evaluate` double that answers by SCRIPT SHAPE rather than by call
+ * position, because the deadline path now evaluates three different scripts in
+ * a row (readiness predicate, detect probe, diagnostic probe) and a positional
+ * mock would silently mis-assign them the moment one is added.
+ */
+function evaluateBy(answers: { readiness?: boolean; detection?: unknown; probe?: unknown }) {
+  return vi.fn(async (script: string) => {
+    if (script.includes("dialogCount")) return answers.probe ?? DIAGNOSTIC_PROBE;
+    if (script.includes("probes[a.variant]")) return answers.detection ?? null;
+    return answers.readiness ?? false;
+  });
+}
+
+const DIAGNOSTIC_PROBE = {
+  href: "https://www.linkedin.com/feed/update/urn:li:activity:1/",
+  dialogCount: 0,
+  dialogHasInLinks: false,
+  dialogChildElementCount: 0,
+  bodyTextSnippet: "",
+  reactionsButtonAriaLabels: [],
+  reactionsCountText: null,
+  htmlDialogCount: 0,
+  ariaModalCount: 0,
+  hasReactionsTab: false,
+  reactionsTabAncestorChain: [],
+  resolvedModalAncestorTag: null,
+};
+
+/** A classification probe's result, as the shifting double below answers it. */
+interface DetectReading {
+  matched: readonly string[];
+  probes: Readonly<Record<string, number>>;
+}
+
+/**
+ * The reading a SECOND detect read would return — a modal that re-rendered
+ * under the gate.  Production must never be holding this.
+ *
+ * This gate's production comment states that one read feeds both the error's
+ * `cause` and the diagnostic bundle, "so the two can never disagree about what
+ * was on the page".  {@link evaluateBy} above cannot grade that claim: it
+ * answers every detect read with the same object, so cause-agrees-with-bundle
+ * holds for one read and equally for five, and the invariant is unobservable
+ * through it (#896).  A modal is the surface where the re-render is least
+ * hypothetical — it is mounted and torn down by the page itself.
+ *
+ * Deliberately incompatible with every `first` reading pinned below, on all
+ * three axes a second read could corrupt: a different `matched` (so the BRANCH
+ * would move), a different arity of it (so the error's own message would
+ * move), and different counts (so the `cause` and the bundle would move
+ * independently of each other).
+ */
+const RE_RENDERED: DetectReading = {
+  matched: ["legacy"],
+  probes: { sdui: 99, legacy: 99 },
+};
+
+/**
+ * {@link evaluateBy}'s non-idempotent sibling: answers the FIRST detect read
+ * with `first` and every later one with {@link RE_RENDERED}.
+ *
+ * Same script-shape dispatch and the same reason for it — the deadline path
+ * evaluates three different scripts in a row and a positional mock would
+ * silently mis-assign them.
+ */
+function shiftingDetect(first: DetectReading) {
+  let reads = 0;
+  return vi.fn(async (script: string) => {
+    if (script.includes("dialogCount")) return DIAGNOSTIC_PROBE;
+    if (script.includes("probes[a.variant]")) {
+      reads += 1;
+      return reads === 1 ? first : RE_RENDERED;
+    }
+    return false;
+  });
+}
+
+/** How many times a {@link shiftingDetect} double was asked to classify. */
+function detectReads(evaluate: ReturnType<typeof shiftingDetect>): number {
+  return evaluate.mock.calls.filter(([script]) => script.includes("probes[a.variant]")).length;
+}
 
 describe("waitForReactionsModal", () => {
   beforeEach(() => {
@@ -59,11 +146,7 @@ describe("waitForReactionsModal", () => {
   });
 
   it("polls until readiness predicate matches", async () => {
-    const evaluate = vi
-      .fn()
-      .mockResolvedValueOnce(false)
-      .mockResolvedValueOnce(false)
-      .mockResolvedValueOnce(true);
+    const evaluate = vi.fn().mockResolvedValueOnce(false).mockResolvedValueOnce(false).mockResolvedValueOnce(true);
     const client = {
       evaluate,
       send: vi.fn(),
@@ -74,7 +157,7 @@ describe("waitForReactionsModal", () => {
     expect(evaluate).toHaveBeenCalledTimes(3);
   });
 
-  it("polls with the resolver fallback chain (validated canonical wrappers + tab-anchor walk)", async () => {
+  it("polls the predicate generated from the reactions-modal registry", async () => {
     const evaluate = vi.fn().mockResolvedValueOnce(true);
     const client = {
       evaluate,
@@ -83,95 +166,155 @@ describe("waitForReactionsModal", () => {
 
     await waitForReactionsModal(client);
 
-    const script = String(evaluate.mock.calls[0]?.[0] ?? "");
-    // Resolver helper signature must appear (shared with the scrape /
-    // scroll / total scripts in get-post-engagers.ts).
-    expect(script).toContain("__getReactionsModal");
-    // Stage 1 wrappers — sequential, ordered.  The selector list is
-    // emitted as a JSON array literal so the resolver can iterate and
-    // return on first match (preserving documented precedence).  The
-    // assertions below use the JSON-source form (backslash-escaped
-    // quotes) because that is the literal text the resolver script
-    // contains; the JS engine resolves the escapes at evaluation time
-    // back to `aria-modal="true"` etc.
-    expect(script).toContain('"dialog"');
-    expect(script).toContain('"[aria-modal=\\"true\\"]"');
-    expect(script).toContain('"[role=\\"dialog\\"]"');
-    // Sequential per-selector iteration — not a single comma-joined
-    // `querySelector`, which would return the first match in document
-    // order rather than the first match in selector-precedence order.
-    expect(script).toContain("for (let i = 0;");
-    expect(script).toContain("wrapperSelectors[i]");
-    // Per-selector iteration over ALL matches (not just the first
-    // match) — without this, an unrelated <dialog> / [aria-modal] /
-    // [role=dialog] earlier in the DOM would shadow the engager modal
-    // and the predicate would poll until timeout while the real
-    // modal is open.
-    expect(script).toContain("querySelectorAll");
-    expect(script).toContain("for (let j = 0;");
-    // Per-candidate validation — only accept a candidate if it
-    // contains the "All reactions" tab OR an engager link.  The
-    // predicate's "is this actually the engager modal?" gate.
-    expect(script).toContain('aria-label$=" All reactions"');
-    expect(script).toContain('a[href*="/in/"]');
-    // Stage 2 fallback — tab-anchor walk reached only when no
-    // canonical wrapper validated.  The tab aria-label stayed stable
-    // across the 2026-05 refresh; the ancestor walk locates the modal
-    // wrapper that no longer carries any of the canonical roles.
-    expect(script).toContain("ancestor.parentElement");
+    // Byte-identical to what the registry emits, which is the assertion that
+    // matters: a predicate merely *resembling* the generated one is exactly
+    // the second copy ADR-011 § Decision 1 exists to prevent.
+    expect(String(evaluate.mock.calls[0]?.[0] ?? "")).toBe(
+      buildReadinessPredicateSource(adaptersFor("reactions-modal")),
+    );
   });
 
-  it("throws the reactions-modal timeout error when readiness predicate never matches before the deadline", async () => {
-    const evaluate = vi.fn().mockResolvedValue(false);
+  it("no longer requires an engager link, so a genuinely empty modal is ready", async () => {
+    // The predicate this replaced asked whether at least one engager profile
+    // link had appeared.  That is a ROW-tier question and it cannot go green on
+    // a modal holding nobody, so a zero-reaction post timed out on a modal that
+    // had opened perfectly.  Readiness now stops at the container tier and the
+    // cardinal tier decides what an empty list means (#840).
+    const script = buildReadinessPredicateSource(adaptersFor("reactions-modal"));
+    expect(script).not.toContain('a[href*="/in/"]');
+  });
+
+  it("raises a typed timeout when exactly one adapter claims the page but never renders", async () => {
+    // The dialect is known and the modal simply never appeared — which is a
+    // different repair from "register an adapter", so it is a different class.
     const client = {
-      evaluate,
-      send: vi.fn(),
+      evaluate: evaluateBy({
+        detection: { matched: ["legacy"], probes: { sdui: 0, legacy: 1 } },
+      }),
+      send: vi.fn().mockResolvedValue({ data: "aGVsbG8=" }),
     } as unknown as CDPClient;
 
     // Tiny timeout: with `delay` mocked to resolve immediately, the loop
     // exits within microseconds because `Date.now()` advances naturally
     // between iterations.
-    await expect(waitForReactionsModal(client, 1)).rejects.toThrow(
-      "Timed out waiting for reactions modal to appear",
-    );
+    await expect(waitForReactionsModal(client, 1)).rejects.toThrow(ExtractionTimeoutError);
   });
 
-  it("on timeout, attempts diagnostic capture before re-throwing (gated on LHREMOTE_CAPTURE_DIAGNOSTICS)", async () => {
+  it("raises unsupported when no adapter claims the page at the deadline", async () => {
+    const client = {
+      evaluate: evaluateBy({
+        detection: { matched: [], probes: { sdui: 0, legacy: 0 } },
+      }),
+      send: vi.fn().mockResolvedValue({ data: "aGVsbG8=" }),
+    } as unknown as CDPClient;
+
+    await expect(waitForReactionsModal(client, 1)).rejects.toThrow(DOMVariantUnsupportedError);
+  });
+
+  it("attaches the detect probe counts as the unsupported error's cause", async () => {
+    // The class and its own wording come from `errors.ts`; the per-adapter
+    // probe counts come from HERE, and nothing else asserts them.  Deleting
+    // `{ cause: … }` from the branch above leaves the class-only test green
+    // while silently dropping the diagnosis that reaches CLI stderr and the
+    // MCP tool response text.
+    //
+    // The WHOLE message is pinned rather than a substring of it, because what
+    // a cause may hold is a privacy boundary: `errorMessage` renders it with
+    // no gate in front of it, and `error-message.ts` keeps page content in the
+    // `LHREMOTE_CAPTURE_DIAGNOSTICS`-gated bundle instead — noting that this
+    // is "a property of the producers, not something checked here".  This is a
+    // producer.  A `toContain` would accept a message that appended a scrape.
+    //
+    // The probe half is derived THROUGH `formatVariantProbes` rather than
+    // written as a look-alike literal, so a change to that rendering cannot
+    // strand a stale expectation here.  The formatter itself is separately
+    // pinned against literals in `dom-variant.test.ts`; the subject here is
+    // only whether production attaches a cause carrying it.
+    const detection = { matched: [], probes: { sdui: 0, legacy: 0 } };
+    const client = {
+      evaluate: evaluateBy({ detection }),
+      send: vi.fn().mockResolvedValue({ data: "aGVsbG8=" }),
+    } as unknown as CDPClient;
+
+    const error = await waitForReactionsModal(client, 1).then(
+      () => null,
+      (thrown: unknown) => thrown,
+    );
+
+    expect(error).toBeInstanceOf(DOMVariantUnsupportedError);
+    // `as Error` rather than the concrete subclass, unlike the sibling gates'
+    // tests: this file reaches its error classes through `await import`, so
+    // they are values here and not types and the narrower cast is unavailable.
+    // `cause` is declared on `Error` anyway, and the subclass identity is
+    // already pinned on the line above.
+    const cause = (error as Error).cause;
+    expect(cause).toBeInstanceOf(Error);
+    expect((cause as Error).message).toBe(`detect probes — ${formatVariantProbes(detection)}`);
+  });
+
+  it("raises ambiguous when two adapters claim the page at the deadline", async () => {
+    const client = {
+      evaluate: evaluateBy({
+        detection: { matched: ["sdui", "legacy"], probes: { sdui: 1, legacy: 1 } },
+      }),
+      send: vi.fn().mockResolvedValue({ data: "aGVsbG8=" }),
+    } as unknown as CDPClient;
+
+    await expect(waitForReactionsModal(client, 1)).rejects.toThrow(DOMVariantAmbiguousError);
+  });
+
+  it("attaches the detect probe counts as the ambiguous error's cause", async () => {
+    // A second, separate `{ cause: … }` site, so a separate pin: deleting
+    // either one alone has to be caught, which one test spanning both branches
+    // could not do.  The two counts differ on purpose — a symmetric
+    // expectation would also be satisfied by a cause built from some other
+    // symmetric detection.  Whole-message pin, derived probe text and `as
+    // Error` for the reasons the sibling test above states.
+    const detection = {
+      matched: ["sdui", "legacy"],
+      probes: { sdui: 3, legacy: 7 },
+    };
+    const client = {
+      evaluate: evaluateBy({ detection }),
+      send: vi.fn().mockResolvedValue({ data: "aGVsbG8=" }),
+    } as unknown as CDPClient;
+
+    const error = await waitForReactionsModal(client, 1).then(
+      () => null,
+      (thrown: unknown) => thrown,
+    );
+
+    expect(error).toBeInstanceOf(DOMVariantAmbiguousError);
+    const cause = (error as Error).cause;
+    expect(cause).toBeInstanceOf(Error);
+    expect((cause as Error).message).toBe(`detect probes — ${formatVariantProbes(detection)}`);
+  });
+
+  it("falls back to the ordinary timeout when the classification probe is malformed", async () => {
+    // A probe that did not run usefully is NOT the claim "no adapter matched".
+    // Reading it as one would blame LinkedIn for a broken instrument.
+    const client = {
+      evaluate: evaluateBy({ detection: { matched: "not-an-array" } }),
+      send: vi.fn().mockResolvedValue({ data: "aGVsbG8=" }),
+    } as unknown as CDPClient;
+
+    await expect(waitForReactionsModal(client, 1)).rejects.toThrow(ExtractionTimeoutError);
+  });
+
+  it("on failure, attempts diagnostic capture before re-throwing (gated on LHREMOTE_CAPTURE_DIAGNOSTICS)", async () => {
     const originalEnv = process.env.LHREMOTE_CAPTURE_DIAGNOSTICS;
     process.env.LHREMOTE_CAPTURE_DIAGNOSTICS = "1";
 
-    // Readiness probe (`evaluate(<readiness predicate>)`) always returns
-    // false; diagnostic probe (`evaluate(<diagnostics object>)`) returns
-    // a probe-shaped object.  We disambiguate by inspecting the script
-    // text — the diagnostic script contains "dialogCount".
-    const evaluate = vi.fn(async (script: string) => {
-      if (script.includes("dialogCount")) {
-        return {
-          href: "https://www.linkedin.com/feed/update/urn:li:activity:1/",
-          dialogCount: 0,
-          dialogHasInLinks: false,
-          dialogChildElementCount: 0,
-          bodyTextSnippet: "",
-          reactionsButtonAriaLabels: [],
-          reactionsCountText: null,
-          htmlDialogCount: 0,
-          ariaModalCount: 0,
-          hasReactionsTab: false,
-          reactionsTabAncestorChain: [],
-          resolvedModalAncestorTag: null,
-        };
-      }
-      return false;
+    const evaluate = evaluateBy({
+      detection: { matched: [], probes: { sdui: 0, legacy: 0 } },
     });
     const send = vi.fn().mockResolvedValue({ data: "aGVsbG8=" });
     const client = { evaluate, send } as unknown as CDPClient;
 
     try {
-      await expect(waitForReactionsModal(client, 1)).rejects.toThrow(
-        "Timed out waiting for reactions modal to appear",
-      );
-      // The diagnostic probe runs at least once before the timeout
-      // re-throws (env=1), and `Page.captureScreenshot` is requested.
+      await expect(waitForReactionsModal(client, 1)).rejects.toThrow(DOMVariantUnsupportedError);
+      // The diagnostic probe runs before the error re-throws (env=1), and
+      // `Page.captureScreenshot` is requested.
       expect(send).toHaveBeenCalledWith("Page.captureScreenshot", {
         format: "png",
         captureBeyondViewport: true,
@@ -184,9 +327,128 @@ describe("waitForReactionsModal", () => {
       }
     }
   });
+
+  it("one read feeds both the unsupported error's cause and the bundle (#896)", async () => {
+    const originalEnv = process.env.LHREMOTE_CAPTURE_DIAGNOSTICS;
+    process.env.LHREMOTE_CAPTURE_DIAGNOSTICS = "1";
+    const { writeFile } = await import("node:fs/promises");
+    vi.mocked(writeFile).mockClear();
+    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => undefined);
+
+    // The double SHIFTS after the first read (see {@link RE_RENDERED}), so
+    // what is graded is that the cause and the bundle came from the SAME
+    // reading — not merely that two reads happened to agree.
+    const first: DetectReading = { matched: [], probes: { sdui: 0, legacy: 0 } };
+    const evaluate = shiftingDetect(first);
+    const client = {
+      evaluate,
+      send: vi.fn().mockResolvedValue({ data: "aGVsbG8=" }),
+    } as unknown as CDPClient;
+
+    try {
+      const error = await waitForReactionsModal(client, 1).then(
+        () => null,
+        (thrown: unknown) => thrown,
+      );
+      expect(error).toBeInstanceOf(DOMVariantUnsupportedError);
+
+      // The `cause` half of the pair, derived from the FIRST reading.  `as
+      // Error` rather than the concrete subclass for the reason the cause
+      // tests above state: this file reaches its error classes through
+      // `await import`, so they are values here and not types.
+      expect(((error as Error).cause as Error).message).toBe(`detect probes — ${formatVariantProbes(first)}`);
+
+      const jsonCall = vi.mocked(writeFile).mock.calls.find((call) => String(call[0]).endsWith(".json"));
+      expect(jsonCall).toBeDefined();
+      const bundle = JSON.parse(String(jsonCall?.[1])) as {
+        trigger?: unknown;
+        variantDetection?: unknown;
+      };
+      expect(bundle.trigger).toBe("readiness-timeout");
+      // The bundle half.  `toEqual` rather than `toMatchObject`: a partial
+      // match would accept a `variantDetection` that had GAINED a probe key,
+      // which is exactly what a re-read of a shifted page produces.
+      expect(bundle.variantDetection).toEqual(first);
+
+      // And the count, which is what makes the two agreements above mean "one
+      // read" rather than "two reads that happened to agree".
+      expect(detectReads(evaluate)).toBe(1);
+    } finally {
+      warnSpy.mockRestore();
+      if (originalEnv === undefined) {
+        delete process.env.LHREMOTE_CAPTURE_DIAGNOSTICS;
+      } else {
+        process.env.LHREMOTE_CAPTURE_DIAGNOSTICS = originalEnv;
+      }
+    }
+  });
+
+  it("one read feeds both the ambiguous error's cause and the bundle (#896)", async () => {
+    // The second `{ cause: … }` site on this gate, and the branch the sibling
+    // above cannot reach.  A separate case rather than a loop over both: the
+    // ambiguous branch ALSO builds the error's own message out of
+    // `detection.matched`, so a second read corrupts three things here and two
+    // there, and a shared body would have to weaken to their intersection.
+    const originalEnv = process.env.LHREMOTE_CAPTURE_DIAGNOSTICS;
+    process.env.LHREMOTE_CAPTURE_DIAGNOSTICS = "1";
+    const { writeFile } = await import("node:fs/promises");
+    vi.mocked(writeFile).mockClear();
+    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => undefined);
+
+    const first: DetectReading = {
+      matched: ["sdui", "legacy"],
+      probes: { sdui: 3, legacy: 7 },
+    };
+    const evaluate = shiftingDetect(first);
+    const client = {
+      evaluate,
+      send: vi.fn().mockResolvedValue({ data: "aGVsbG8=" }),
+    } as unknown as CDPClient;
+
+    try {
+      const error = await waitForReactionsModal(client, 1).then(
+        () => null,
+        (thrown: unknown) => thrown,
+      );
+      expect(error).toBeInstanceOf(DOMVariantAmbiguousError);
+      // The message names the dialects the FIRST reading matched.  Asserted
+      // because it is the third consumer of that one read, and the one an
+      // operator sees without opening anything.
+      expect((error as Error).message).toContain("sdui, legacy");
+      expect(((error as Error).cause as Error).message).toBe(`detect probes — ${formatVariantProbes(first)}`);
+
+      const jsonCall = vi.mocked(writeFile).mock.calls.find((call) => String(call[0]).endsWith(".json"));
+      expect(jsonCall).toBeDefined();
+      const bundle = JSON.parse(String(jsonCall?.[1])) as {
+        trigger?: unknown;
+        variantDetection?: unknown;
+      };
+      expect(bundle.trigger).toBe("readiness-timeout");
+      expect(bundle.variantDetection).toEqual(first);
+
+      expect(detectReads(evaluate)).toBe(1);
+    } finally {
+      warnSpy.mockRestore();
+      if (originalEnv === undefined) {
+        delete process.env.LHREMOTE_CAPTURE_DIAGNOSTICS;
+      } else {
+        process.env.LHREMOTE_CAPTURE_DIAGNOSTICS = originalEnv;
+      }
+    }
+  });
 });
 
 describe("captureReactionsModalFailure", () => {
+  // The readiness-timeout context every case below implicitly used before
+  // #835 widened the capture to carry its trigger.  Pinned as a constant so
+  // these cases keep asserting the timeout capture's behaviour UNCHANGED, and
+  // the new extraction-failure trigger is exercised only where a test names
+  // it.
+  const TIMEOUT_CAPTURE = {
+    trigger: "readiness-timeout",
+    ...NO_DETECTION,
+  } as const;
+
   const originalEnv = process.env.LHREMOTE_CAPTURE_DIAGNOSTICS;
 
   beforeEach(() => {
@@ -214,10 +476,7 @@ describe("captureReactionsModalFailure", () => {
         htmlDialogCount: 0,
         ariaModalCount: 1,
         hasReactionsTab: true,
-        reactionsTabAncestorChain: [
-          "div role=tablist inLinks=0",
-          "div .artdeco-modal__content inLinks=24",
-        ],
+        reactionsTabAncestorChain: ["div role=tablist inLinks=0", "div .artdeco-modal__content inLinks=24"],
         resolvedModalAncestorTag: "div",
       }),
       send: vi.fn().mockResolvedValue({ data: "aGVsbG8=" }),
@@ -228,7 +487,7 @@ describe("captureReactionsModalFailure", () => {
     delete process.env.LHREMOTE_CAPTURE_DIAGNOSTICS;
     const client = makeClient();
 
-    await captureReactionsModalFailure(client);
+    await captureReactionsModalFailure(client, TIMEOUT_CAPTURE);
 
     expect(client.evaluate).not.toHaveBeenCalled();
     expect(client.send).not.toHaveBeenCalled();
@@ -238,7 +497,7 @@ describe("captureReactionsModalFailure", () => {
     process.env.LHREMOTE_CAPTURE_DIAGNOSTICS = "true";
     const client = makeClient();
 
-    await captureReactionsModalFailure(client);
+    await captureReactionsModalFailure(client, TIMEOUT_CAPTURE);
 
     expect(client.evaluate).not.toHaveBeenCalled();
     expect(client.send).not.toHaveBeenCalled();
@@ -248,7 +507,7 @@ describe("captureReactionsModalFailure", () => {
     process.env.LHREMOTE_CAPTURE_DIAGNOSTICS = "1";
     const client = makeClient();
 
-    await captureReactionsModalFailure(client);
+    await captureReactionsModalFailure(client, TIMEOUT_CAPTURE);
 
     expect(client.evaluate).toHaveBeenCalledTimes(1);
     expect(client.send).toHaveBeenCalledWith("Page.captureScreenshot", {
@@ -261,7 +520,7 @@ describe("captureReactionsModalFailure", () => {
     process.env.LHREMOTE_CAPTURE_DIAGNOSTICS = "1";
     const client = makeClient();
 
-    await captureReactionsModalFailure(client);
+    await captureReactionsModalFailure(client, TIMEOUT_CAPTURE);
 
     const script = String(vi.mocked(client.evaluate).mock.calls[0]?.[0] ?? "");
     // Original probe-shape fields (#773 Phase 1 issue body baseline).
@@ -282,7 +541,15 @@ describe("captureReactionsModalFailure", () => {
     // Selectors the predicate / resolver use must appear verbatim in
     // the probe so the diagnostic and the resolution rule stay aligned.
     expect(script).toContain('[role="dialog"]');
-    expect(script).toContain('a[href*="/in/"]');
+    // As a JSON string literal, not hand-quoted: every selector CONSTANT this
+    // module interpolates goes through the shared `jsString` helper (#875;
+    // a bare `JSON.stringify` per site before that), because a selector that
+    // grows a single quote or a backslash would otherwise emit a syntax error
+    // the capture's own `.catch` swallows — no json, no png, no warn line, at
+    // the one moment diagnostics matter (#840).  Asserted here as
+    // `JSON.stringify` deliberately: the expectation must state the form
+    // independently of the call the module made.
+    expect(script).toContain(JSON.stringify('a[href*="/in/"]'));
     // Resolver helper signature — probe re-uses RESOLVE_REACTIONS_MODAL_SCRIPT.
     expect(script).toContain("__getReactionsModal");
     // FIND_REACTIONS_SCRIPT regex shape — the probe re-uses it so a
@@ -298,7 +565,7 @@ describe("captureReactionsModalFailure", () => {
       send: vi.fn(),
     } as unknown as CDPClient;
 
-    await expect(captureReactionsModalFailure(client)).resolves.toBeUndefined();
+    await expect(captureReactionsModalFailure(client, TIMEOUT_CAPTURE)).resolves.toBeUndefined();
   });
 
   it("writes diagnostics with the wait-for-reactions-modal prefix and .json/.png extensions", async () => {
@@ -308,7 +575,7 @@ describe("captureReactionsModalFailure", () => {
     const writeFileMock = vi.mocked(writeFile);
     writeFileMock.mockClear();
 
-    await captureReactionsModalFailure(client);
+    await captureReactionsModalFailure(client, TIMEOUT_CAPTURE);
 
     expect(writeFileMock.mock.calls.length).toBeGreaterThanOrEqual(1);
     for (const call of writeFileMock.mock.calls) {
@@ -322,9 +589,7 @@ describe("captureReactionsModalFailure", () => {
       // Filename: wait-for-reactions-modal-{ISO}.{json|png}.  mkdtemp
       // adds randomness at the directory level, so the filename itself
       // no longer needs a random suffix.
-      expect(filename).toMatch(
-        /^wait-for-reactions-modal-[\w.-]+\.(json|png)$/,
-      );
+      expect(filename).toMatch(/^wait-for-reactions-modal-[\w.-]+\.(json|png)$/);
       // Path: ${tmpdir()}/lhremote-diagnostics-XXXXXX/{filename} — the
       // mkdtemp mock pads with a deterministic suffix in tests.  Use
       // [/\\] for the separator so the regex matches both POSIX and
@@ -342,23 +607,17 @@ describe("captureReactionsModalFailure", () => {
     mkdtempMock.mockClear();
 
     let invocation = 0;
-    mkdtempMock.mockImplementation(
-      async (prefix) => `${prefix}TEST${(++invocation).toString().padStart(6, "0")}`,
-    );
+    mkdtempMock.mockImplementation(async (prefix) => `${prefix}TEST${(++invocation).toString().padStart(6, "0")}`);
 
     const fixedNow = Date.UTC(2026, 0, 1, 0, 0, 0, 0);
     const nowSpy = vi.spyOn(Date, "now").mockReturnValue(fixedNow);
-    const isoSpy = vi.spyOn(Date.prototype, "toISOString").mockReturnValue(
-      new Date(fixedNow).toISOString(),
-    );
+    const isoSpy = vi.spyOn(Date.prototype, "toISOString").mockReturnValue(new Date(fixedNow).toISOString());
 
     try {
-      await captureReactionsModalFailure(makeClient());
-      await captureReactionsModalFailure(makeClient());
+      await captureReactionsModalFailure(makeClient(), TIMEOUT_CAPTURE);
+      await captureReactionsModalFailure(makeClient(), TIMEOUT_CAPTURE);
 
-      const jsonCalls = writeFileMock.mock.calls.filter((c) =>
-        String(c[0]).endsWith(".json"),
-      );
+      const jsonCalls = writeFileMock.mock.calls.filter((c) => String(c[0]).endsWith(".json"));
       expect(jsonCalls.length).toBeGreaterThanOrEqual(2);
       const paths = jsonCalls.map((c) => String(c[0]));
       const uniquePaths = new Set(paths);
@@ -392,7 +651,7 @@ describe("captureReactionsModalFailure", () => {
 
     const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => undefined);
     try {
-      await captureReactionsModalFailure(client);
+      await captureReactionsModalFailure(client, TIMEOUT_CAPTURE);
 
       expect(warnSpy).toHaveBeenCalledTimes(1);
       const message = String(warnSpy.mock.calls[0]?.[0] ?? "");
@@ -421,7 +680,7 @@ describe("captureReactionsModalFailure", () => {
       send: vi.fn(),
     } as unknown as CDPClient;
 
-    await captureReactionsModalFailure(client);
+    await captureReactionsModalFailure(client, TIMEOUT_CAPTURE);
 
     expect(client.evaluate).not.toHaveBeenCalled();
     expect(client.send).not.toHaveBeenCalled();
@@ -437,15 +696,11 @@ describe("captureReactionsModalFailure", () => {
     writeFileMock.mockClear();
     mkdtempMock.mockClear();
 
-    await captureReactionsModalFailure(client);
+    await captureReactionsModalFailure(client, TIMEOUT_CAPTURE);
 
-    expect(mkdtempMock).toHaveBeenCalledWith(
-      expect.stringMatching(/lhremote-diagnostics-$/),
-    );
+    expect(mkdtempMock).toHaveBeenCalledWith(expect.stringMatching(/lhremote-diagnostics-$/));
 
-    const jsonCall = writeFileMock.mock.calls.find((c) =>
-      String(c[0]).endsWith(".json"),
-    );
+    const jsonCall = writeFileMock.mock.calls.find((c) => String(c[0]).endsWith(".json"));
     expect(jsonCall).toBeDefined();
     expect(jsonCall?.[2]).toMatchObject({ mode: 0o600 });
   });
@@ -462,27 +717,23 @@ describe("captureReactionsModalFailure", () => {
     // Force the timer to win the race by making setTimeout fire on the
     // microtask queue (before the inner evaluate's setImmediate-scheduled
     // rejection lands).
-    const timeoutSpy = vi
-      .spyOn(globalThis, "setTimeout")
-      .mockImplementation(((cb: () => void) => {
-        Promise.resolve().then(cb);
-        return 0 as unknown as NodeJS.Timeout;
-      }) as typeof setTimeout);
+    const timeoutSpy = vi.spyOn(globalThis, "setTimeout").mockImplementation(((cb: () => void) => {
+      Promise.resolve().then(cb);
+      return 0 as unknown as NodeJS.Timeout;
+    }) as typeof setTimeout);
 
     try {
       const client = {
         evaluate: vi.fn(
           () =>
             new Promise<unknown>((_, reject) => {
-              setImmediate(() =>
-                reject(new Error("simulated late CDP rejection")),
-              );
+              setImmediate(() => reject(new Error("simulated late CDP rejection")));
             }),
         ),
         send: vi.fn(),
       } as unknown as CDPClient;
 
-      await captureReactionsModalFailure(client);
+      await captureReactionsModalFailure(client, TIMEOUT_CAPTURE);
 
       // Allow the late rejection to settle.
       await new Promise<void>((r) => setImmediate(r));
@@ -493,5 +744,232 @@ describe("captureReactionsModalFailure", () => {
       timeoutSpy.mockRestore();
       process.off("unhandledRejection", handler);
     }
+  });
+});
+
+// ───────────────────────────────────────────────────────────────────────────
+// #835 — the capture is no longer bound to a deadline, so the bundle carries
+// the trigger that fired it.  The claim that stood here alongside it — that
+// the reactions modal has no registry entry, so the bundle can carry no
+// per-adapter detect counts — was answered by #830 and is false as of #840:
+// the surface is registered and `variantDetection` is a real reading.  Every
+// case below passes `detection: null` deliberately, which records "no probe
+// was taken" rather than "nothing matched", and pins that these artifact
+// names and warn strings did not move.
+// ───────────────────────────────────────────────────────────────────────────
+
+describe("captureReactionsModalFailure — trigger (#835)", () => {
+  const originalEnv = process.env.LHREMOTE_CAPTURE_DIAGNOSTICS;
+
+  const PROBE = {
+    href: "https://www.linkedin.com/feed/update/urn:li:activity:1/",
+    dialogCount: 1,
+    dialogHasInLinks: true,
+    dialogChildElementCount: 4,
+    bodyTextSnippet: "2 reactions\n",
+    reactionsButtonAriaLabels: ["Open reactions menu"],
+    reactionsCountText: "2 reactions",
+    htmlDialogCount: 1,
+    ariaModalCount: 1,
+    hasReactionsTab: true,
+    reactionsTabAncestorChain: ["div role=dialog inLinks=0"],
+    resolvedModalAncestorTag: "div",
+  };
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    process.env.LHREMOTE_CAPTURE_DIAGNOSTICS = "1";
+  });
+
+  afterEach(() => {
+    if (originalEnv === undefined) {
+      delete process.env.LHREMOTE_CAPTURE_DIAGNOSTICS;
+    } else {
+      process.env.LHREMOTE_CAPTURE_DIAGNOSTICS = originalEnv;
+    }
+  });
+
+  function makeClient(): CDPClient {
+    return {
+      evaluate: vi.fn().mockResolvedValue(PROBE),
+      send: vi.fn().mockResolvedValue({ data: "aGVsbG8=" }),
+    } as unknown as CDPClient;
+  }
+
+  async function captureWith(
+    trigger: "readiness-timeout" | "extraction-failure",
+  ): Promise<{ bundle: Record<string, unknown>; path: string }> {
+    const { writeFile } = await import("node:fs/promises");
+    const writeFileMock = vi.mocked(writeFile);
+    writeFileMock.mockClear();
+
+    await captureReactionsModalFailure(makeClient(), {
+      trigger,
+      ...NO_DETECTION,
+    });
+
+    const jsonCall = writeFileMock.mock.calls.find((call) => String(call[0]).endsWith(".json"));
+    expect(jsonCall).toBeDefined();
+    return {
+      bundle: JSON.parse(String(jsonCall?.[1])) as Record<string, unknown>,
+      path: String(jsonCall?.[0]),
+    };
+  }
+
+  it("keeps the readiness-timeout artifact name and warn wording unchanged", async () => {
+    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => undefined);
+
+    const { bundle, path } = await captureWith("readiness-timeout");
+
+    // Regression pin: widening the trigger must not rename the artifact
+    // operators already know.
+    expect(path).toContain("wait-for-reactions-modal-");
+    expect(bundle).toMatchObject({
+      trigger: "readiness-timeout",
+      dialogCount: 1,
+    });
+    expect(String(warnSpy.mock.calls[0]?.[0] ?? "")).toContain("[waitForReactionsModal] timeout diagnostics written:");
+    warnSpy.mockRestore();
+  });
+
+  it("names the extraction-failure artifact and warn line for what failed", async () => {
+    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => undefined);
+
+    const { bundle, path } = await captureWith("extraction-failure");
+
+    // The modal opened and rendered engager links — the readiness gate went
+    // green.  Labelling this a timeout would misdirect the next reader.
+    expect(path).toContain("reactions-modal-extraction-failure-");
+    expect(bundle.trigger).toBe("extraction-failure");
+    const message = String(warnSpy.mock.calls[0]?.[0] ?? "");
+    expect(message).toContain("[reactionsModalExtraction]");
+    expect(message).toContain("extraction-failure diagnostics written:");
+    // Acceptance: the warn still carries the real artifact directory.
+    expect(message).toContain(path.replace(/\.json$/, ""));
+    warnSpy.mockRestore();
+  });
+
+  it("stays default-off on the extraction-failure trigger too", async () => {
+    delete process.env.LHREMOTE_CAPTURE_DIAGNOSTICS;
+    const client = makeClient();
+
+    await captureReactionsModalFailure(client, {
+      trigger: "extraction-failure",
+      ...NO_DETECTION,
+    });
+
+    // Widening the trigger must not widen the gate: the artifacts carry
+    // engager names and profile slugs on every trigger alike.
+    expect(client.evaluate).not.toHaveBeenCalled();
+    expect(client.send).not.toHaveBeenCalled();
+  });
+});
+
+// ───────────────────────────────────────────────────────────────────────────
+// The TS→JS seam in the diagnostic probe (#840)
+// ───────────────────────────────────────────────────────────────────────────
+//
+// The probe source is a JavaScript program inside a TypeScript template
+// literal, and nothing in the type system notices when that goes wrong.  A
+// hand-quoted `'${SELECTOR}'` compiles, lints, and emits either a syntax error
+// or a valid-but-DIFFERENT selector; round 1 fixed seven such sites in this
+// module, and nothing stopped an eighth from being written.
+//
+// The consequence is worse here than at any other site, because this source
+// runs only when something has ALREADY failed and the capture swallows its own
+// errors: a probe that does not parse produces no json, no png and no warn
+// line, at the one moment an operator is reading diagnostics.  `probe script
+// collects all documented fields` above pins the probe's SHAPE; this pins that
+// it is a program at all, and that the selectors reached it intact.
+describe("reactions-modal diagnostic probe — emitted-source integrity", () => {
+  const originalEnv = process.env.LHREMOTE_CAPTURE_DIAGNOSTICS;
+
+  /**
+   * The selectors this module INTERPOLATES into the probe.
+   *
+   * All three are module-private constants with no public accessor, so they
+   * are restated here rather than exported purely to be asserted on — which
+   * makes this an independent statement of what they are, not a tautology
+   * against the module's own values.
+   */
+  const REACTIONS_TAB_FALLBACK = 'button[aria-label$=" All reactions"]';
+  const ENGAGER_LINK = 'a[href*="/in/"]';
+  const WRAPPERS = ["dialog", '[aria-modal="true"]', '[role="dialog"]'];
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  afterEach(() => {
+    if (originalEnv === undefined) {
+      delete process.env.LHREMOTE_CAPTURE_DIAGNOSTICS;
+    } else {
+      process.env.LHREMOTE_CAPTURE_DIAGNOSTICS = originalEnv;
+    }
+  });
+
+  /** The probe source as the capture actually hands it to `Runtime.evaluate`. */
+  async function emittedProbeSource(): Promise<string> {
+    process.env.LHREMOTE_CAPTURE_DIAGNOSTICS = "1";
+    const client = {
+      evaluate: vi.fn().mockResolvedValue({}),
+      send: vi.fn().mockResolvedValue({ data: "aGVsbG8=" }),
+    } as unknown as CDPClient;
+    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => undefined);
+
+    await captureReactionsModalFailure(client, {
+      trigger: "readiness-timeout",
+      ...NO_DETECTION,
+    });
+
+    warnSpy.mockRestore();
+    const source = String(vi.mocked(client.evaluate).mock.calls[0]?.[0] ?? "");
+    // Cardinality, not just content: an empty source would satisfy every
+    // `not.toContain` below without a single assertion having graded anything.
+    expect(source.length).toBeGreaterThan(0);
+    return source;
+  }
+
+  it("parses as JavaScript", async () => {
+    const source = await emittedProbeSource();
+
+    // The failure this catches is invisible by construction: the capture's own
+    // `.catch` swallows an evaluate that throws, so a source that is not a
+    // program looks exactly like a page that had nothing to report.
+    expect(() => new Function(source)).not.toThrow();
+  });
+
+  it("carries the reactions-tab fallback selector in its JSON form", async () => {
+    const source = await emittedProbeSource();
+
+    // Pinned by nothing before this. The selector is the ONLY anchor recorded
+    // present on the 2026-05 engager modal, and both the resolver's stage-1
+    // gate and its stage-2 walk start from it, so a silent break here takes
+    // the whole diagnostic with it.
+    expect(source).toContain(JSON.stringify(REACTIONS_TAB_FALLBACK));
+  });
+
+  it("hand-quotes neither of the two per-selector interpolations", async () => {
+    const source = await emittedProbeSource();
+
+    // Deliberately the two CONSTANTS this module interpolates one at a time,
+    // and not the wrapper members: those go in as a whole array (pinned
+    // below), and the same three strings also appear in the probe as
+    // hand-written one-off selectors — the legacy `[role="dialog"]` probe and
+    // the `dialog` / `[aria-modal="true"]` shape counts. Those are literals in
+    // the emitted program rather than values crossing the seam, so a
+    // hand-quote rule over them would fail on correct code.
+    for (const selector of [REACTIONS_TAB_FALLBACK, ENGAGER_LINK]) {
+      expect(source, `hand-quoted ${selector}`).not.toContain(`'${selector}'`);
+    }
+  });
+
+  it("carries the wrapper precedence list as a JSON array literal", async () => {
+    const source = await emittedProbeSource();
+
+    // The list is interpolated whole rather than per entry, and its ORDER is
+    // the resolver's precedence rule — so the array literal, not the members,
+    // is the thing to pin.
+    expect(source).toContain(JSON.stringify(WRAPPERS));
   });
 });

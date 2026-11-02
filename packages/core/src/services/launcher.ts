@@ -1,8 +1,13 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 // Copyright (C) 2026 Oleksii PELYKH
 
-import { CDPClient, CDPConnectionError, findApp } from "../cdp/index.js";
+import { CDPClient, CDPConnectionError, findApp, resolveAppPort } from "../cdp/index.js";
+import { delay } from "../utils/delay.js";
+import { acquireLauncherCDPLease } from "../cdp/launcher-cdp-gate.js";
 import { DEFAULT_CDP_PORT } from "../constants.js";
+
+/** Default cap for launcher CDP recovery attempts in milliseconds. */
+export const DEFAULT_LAUNCHER_RECOVERY_TIMEOUT_MS = 60_000;
 import type {
   Account,
   InstanceIssue,
@@ -118,16 +123,14 @@ export class LauncherService {
       }
     }`;
 
-  private readonly port: number;
+  private releaseSession: (() => void) | undefined;
+  private port: number;
   private readonly host: string;
   private readonly allowRemote: boolean;
   private client: CDPClient | null = null;
   private nodeContextId: number | undefined;
 
-  constructor(
-    port: number = DEFAULT_CDP_PORT,
-    options?: { host?: string; allowRemote?: boolean },
-  ) {
+  constructor(port: number = DEFAULT_CDP_PORT, options?: { host?: string; allowRemote?: boolean }) {
     this.port = port;
     this.host = options?.host ?? "127.0.0.1";
     this.allowRemote = options?.allowRemote ?? false;
@@ -139,27 +142,140 @@ export class LauncherService {
    * @throws {LinkedHelperNotRunningError} if the launcher is not reachable.
    */
   async connect(): Promise<void> {
+    if (this.isConnected) return;
+    this.disconnect();
+    this.releaseSession = await acquireLauncherCDPLease();
     const client = new CDPClient(this.port, { host: this.host, allowRemote: this.allowRemote });
     try {
       await client.connect();
+      await this.bindLauncherClient(client, this.port);
     } catch (error) {
+      client.disconnect();
+      this.disconnect();
       if (error instanceof CDPConnectionError) {
         const apps = await findApp();
-        if (apps.length > 0) {
-          throw new LinkedHelperUnreachableError(apps);
-        }
+        if (apps.length > 0) throw new LinkedHelperUnreachableError(apps);
         throw new LinkedHelperNotRunningError(this.port);
       }
       throw error;
     }
+  }
 
+  /**
+   * Reconnect to the LinkedHelper launcher after a CDP drop.
+   *
+   * Disconnects the current client, re-discovers the launcher's active CDP
+   * port (the port is dynamic — do NOT assume 9222; the launcher re-binds
+   * after a restart), and re-establishes the connection with the new port.
+   *
+   * Retries every second until the port is reachable, up to `timeoutMs`
+   * (default {@link DEFAULT_LAUNCHER_RECOVERY_TIMEOUT_MS}).
+   * The cap is also configurable via `LHREMOTE_LAUNCHER_RECOVERY_TIMEOUT_MS`.
+   *
+   * @throws {LinkedHelperNotRunningError}  if no launcher process is found.
+   * @throws {LinkedHelperUnreachableError} if processes are found but remain
+   *   unreachable within the timeout.
+   */
+  async reconnect(options?: { timeoutMs?: number; signal?: AbortSignal }): Promise<void> {
+    this.disconnect();
+
+    this.releaseSession = await acquireLauncherCDPLease();
+    try {
+      const timeoutMs =
+        options?.timeoutMs ??
+        (process.env["LHREMOTE_LAUNCHER_RECOVERY_TIMEOUT_MS"]
+          ? Number(process.env["LHREMOTE_LAUNCHER_RECOVERY_TIMEOUT_MS"])
+          : DEFAULT_LAUNCHER_RECOVERY_TIMEOUT_MS);
+
+      const deadline = Date.now() + timeoutMs;
+
+      // Retry the resolve+connect cycle within the timeout budget.
+      // resolveAppPort itself throws LinkedHelperNotRunningError or
+      // LinkedHelperUnreachableError on failure — those propagate immediately.
+      // CDPConnectionError from connect() retries with a 500ms pause.  The
+      // two scenarios that produce CDPConnectionError here are:
+      //   (a) Port-hop: launcher moved to a new port between resolve and connect;
+      //       the next resolveAppPort call discovers the new port.
+      //   (b) Target momentarily taken by an external debugger session.
+      //   (c) Launcher briefly drops its CDP port after processing a write op
+      //       (e.g. stop/start); resolveAppPort returns LinkedHelperUnreachableError
+      //       during this window — caught below and retried within budget.
+      while (Date.now() < deadline) {
+        options?.signal?.throwIfAborted();
+        const remaining = deadline - Date.now();
+        if (remaining <= 0) break;
+
+        // Cap port-resolve time per iteration so a single stalled scan cannot
+        // consume the entire budget (e.g. during a launcher port-hop).
+        const resolveTimeout = Math.min(remaining, 5_000);
+        let newPort: number;
+        try {
+          newPort = await resolveAppPort("launcher", resolveTimeout, options?.signal);
+        } catch (err) {
+          if (err instanceof LinkedHelperUnreachableError) {
+            // Port temporarily absent — launcher is reconciling after a write op.
+            // Pause briefly and retry within the remaining budget.
+            await delay(500, options?.signal);
+            continue;
+          }
+          throw err; // LinkedHelperNotRunningError or unexpected — propagate immediately
+        }
+
+        const client = new CDPClient(newPort, { host: this.host, allowRemote: this.allowRemote });
+        try {
+          await client.connect();
+          await this.bindLauncherClient(client, newPort);
+          return; // success
+        } catch (error) {
+          client.disconnect();
+          if (error instanceof CDPConnectionError) {
+            // Two cases: port-hop race (launcher moved to a new port between
+            // resolve and connect) or target temporarily taken by another
+            // debugger session. Brief pause before retry avoids busy-looping.
+            await delay(500, options?.signal);
+            continue;
+          }
+          throw error;
+        }
+      }
+
+      // Budget exhausted via repeated port-hops without a stable landing port.
+      const apps = await findApp();
+      throw apps.length > 0 ? new LinkedHelperUnreachableError(apps) : new LinkedHelperNotRunningError(0);
+    } catch (error) {
+      this.disconnect();
+      throw error;
+    }
+  }
+
+  /**
+   * Disconnect from the launcher.
+   */
+  disconnect(): void {
+    this.client?.disconnect();
+    this.client = null;
+    this.nodeContextId = undefined;
+    this.releaseSession?.();
+    this.releaseSession = undefined;
+  }
+
+  /**
+   * Validate and activate a freshly-opened CDP client as the launcher connection.
+   *
+   * Resolves the Node.js execution context inside the client, verifies that
+   * the target exposes the LinkedHelper launcher's `electronStore`, and then
+   * stores the client and context ID on the service instance.
+   *
+   * @param client   - An already-connected {@link CDPClient}.
+   * @param portHint - The port used to connect (surfaced in error messages).
+   */
+  private async bindLauncherClient(client: CDPClient, portHint: number): Promise<void> {
     let nodeContextId: number | undefined;
     try {
       nodeContextId = await this.resolveNodeContextId(client);
     } catch {
       // No Node.js context — likely a LinkedIn page on the instance port.
-      client.disconnect();
-      throw new WrongPortError(this.port);
+      throw new WrongPortError(portHint);
     }
 
     // Validate that the target is the launcher (has electronStore),
@@ -175,21 +291,12 @@ export class LauncherService {
       nodeContextId,
     );
     if (!isLauncher) {
-      client.disconnect();
-      throw new WrongPortError(this.port);
+      throw new WrongPortError(portHint);
     }
 
+    this.port = portHint;
     this.client = client;
     this.nodeContextId = nodeContextId;
-  }
-
-  /**
-   * Disconnect from the launcher.
-   */
-  disconnect(): void {
-    this.client?.disconnect();
-    this.client = null;
-    this.nodeContextId = undefined;
   }
 
   /**
@@ -372,9 +479,7 @@ export class LauncherService {
    * @param options.includeAllWorkspaces If `true`, enumerate all
    *   workspaces and list accounts across them. Defaults to `false`.
    */
-  async listAccounts(options?: {
-    includeAllWorkspaces?: boolean;
-  }): Promise<Account[]> {
+  async listAccounts(options?: { includeAllWorkspaces?: boolean }): Promise<Account[]> {
     const client = this.ensureConnected();
 
     const includeAllWorkspaces = options?.includeAllWorkspaces ?? false;
@@ -626,11 +731,7 @@ export class LauncherService {
    * @param dialogId   The dialog issue ID (from {@link InstanceIssue}).
    * @param buttonId   The control button ID to click (from `DialogIssueData.options.controls[].id`).
    */
-  async dismissInstanceDialog(
-    liId: number,
-    dialogId: string,
-    buttonId: string,
-  ): Promise<void> {
+  async dismissInstanceDialog(liId: number, dialogId: string, buttonId: string): Promise<void> {
     const client = this.ensureConnected();
 
     await this.launcherEvaluate(
@@ -687,10 +788,7 @@ export class LauncherService {
    * to produce an aggregated health status.
    */
   async checkUIHealth(liId: number): Promise<UIHealthStatus> {
-    const [issues, popup] = await Promise.all([
-      this.getInstanceIssues(liId),
-      this.getPopupState(),
-    ]);
+    const [issues, popup] = await Promise.all([this.getInstanceIssues(liId), this.getPopupState()]);
 
     const healthy = issues.length === 0 && (popup === null || !popup.blocked);
 
@@ -702,6 +800,15 @@ export class LauncherService {
     return this.client !== null && this.client.isConnected;
   }
 
+  /**
+   * The launcher CDP port most recently established by {@link connect} or
+   * {@link reconnect}.  Use this after {@link reconnect} to get the
+   * (potentially-changed) current port rather than the original discovery result.
+   */
+  get currentPort(): number {
+    return this.port;
+  }
+
   private ensureConnected(): CDPClient {
     if (!this.client) {
       throw new ServiceError("LauncherService is not connected");
@@ -709,11 +816,7 @@ export class LauncherService {
     return this.client;
   }
 
-  private async launcherEvaluate<T = unknown>(
-    client: CDPClient,
-    expression: string,
-    awaitPromise = false,
-  ): Promise<T> {
+  private async launcherEvaluate<T = unknown>(client: CDPClient, expression: string, awaitPromise = false): Promise<T> {
     return client.evaluate<T>(expression, awaitPromise, this.nodeContextId);
   }
 
@@ -731,14 +834,10 @@ export class LauncherService {
    * @throws {NodeIntegrationUnavailableError} if no context provides
    *   `require()`.
    */
-  private async resolveNodeContextId(
-    client: CDPClient,
-  ): Promise<number | undefined> {
+  private async resolveNodeContextId(client: CDPClient): Promise<number | undefined> {
     // Try the default context first (backward-compatible path).
     try {
-      const hasRequire = await client.evaluate<boolean>(
-        "typeof require === 'function'",
-      );
+      const hasRequire = await client.evaluate<boolean>("typeof require === 'function'");
       if (hasRequire) return undefined;
     } catch {
       // Default context doesn't have require — probe other contexts.
@@ -769,11 +868,7 @@ export class LauncherService {
       for (const ctx of contexts) {
         if (ctx.auxData?.isDefault) continue;
         try {
-          const hasRequire = await client.evaluate<boolean>(
-            "typeof require === 'function'",
-            false,
-            ctx.id,
-          );
+          const hasRequire = await client.evaluate<boolean>("typeof require === 'function'", false, ctx.id);
           if (hasRequire) return ctx.id;
         } catch {
           // This context doesn't support require — try next.

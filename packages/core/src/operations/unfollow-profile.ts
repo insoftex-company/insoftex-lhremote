@@ -113,18 +113,15 @@ export interface UnfollowProfileOutput {
  *   name, and which kind of target (`"profile"` or `"company"`) was
  *   processed.
  */
-export async function unfollowProfile(
-  input: UnfollowProfileInput,
-): Promise<UnfollowProfileOutput> {
+export async function unfollowProfile(input: UnfollowProfileInput): Promise<UnfollowProfileOutput> {
   const target = extractFollowableTarget(input.profileUrl);
   // `targetSlug` is the URL segment regardless of target kind — the
   // member public ID for /in/ URLs or the company slug for /company/
   // URLs.  Used in error messages and on the output's `publicId` field
   // (which is documented to alias both kinds; see UnfollowProfileOutput).
-  const targetSlug =
-    target.kind === "profile" ? target.publicId : target.slug;
+  const targetSlug = target.kind === "profile" ? target.publicId : target.slug;
 
-  const cdpPort = await resolveInstancePort(input.cdpPort, input.cdpHost);
+  const cdpPort = await resolveInstancePort(input.cdpPort, input.cdpHost, undefined, input.accountId);
   const cdpHost = input.cdpHost ?? "127.0.0.1";
   const allowRemote = input.allowRemote ?? false;
 
@@ -138,14 +135,11 @@ export async function unfollowProfile(
   await gateOnLoggedInState(cdpPort, cdpHost, allowRemote, { timeout: 60_000 });
 
   const targets = await discoverTargets(cdpPort, cdpHost);
-  const linkedInTarget = targets.find(
-    (t) => t.type === "page" && t.url?.includes("linkedin.com"),
-  );
+  const linkedInTarget = targets.find((t) => t.type === "page" && t.url?.includes("linkedin.com"));
 
   if (!linkedInTarget) {
     throw new Error(
-      "No LinkedIn page found in LinkedHelper. " +
-        "Ensure LinkedHelper is running with an active LinkedIn session.",
+      "No LinkedIn page found in LinkedHelper. " + "Ensure LinkedHelper is running with an active LinkedIn session.",
     );
   }
 
@@ -225,12 +219,7 @@ export async function unfollowProfile(
     // dialog-render delays.
     const confirmedName = await retryInteraction(async () => {
       // Wait for the Following button and click it.
-      await waitForElement(
-        client,
-        PROFILE_FOLLOWING_BUTTON_SELECTOR,
-        { timeout: 10_000 },
-        mouse,
-      );
+      await waitForElement(client, PROFILE_FOLLOWING_BUTTON_SELECTOR, { timeout: 10_000 }, mouse);
 
       const clicked = await client.evaluate<boolean>(`(() => {
         const btn = document.querySelector(
@@ -242,9 +231,7 @@ export async function unfollowProfile(
       })()`);
 
       if (!clicked) {
-        throw new Error(
-          `Failed to click Following button for "${targetSlug}".`,
-        );
+        throw new Error(`Failed to click Following button for "${targetSlug}".`);
       }
 
       await gaussianDelay(700, 100, 500, 900);

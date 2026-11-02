@@ -3,8 +3,8 @@
 
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-vi.mock("@lhremote/core", async (importOriginal) => {
-  const actual = await importOriginal<typeof import("@lhremote/core")>();
+vi.mock("@insoftex/lhremote-core", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@insoftex/lhremote-core")>();
   return {
     ...actual,
     visitProfile: vi.fn(),
@@ -15,7 +15,9 @@ import {
   type Profile,
   AccountResolutionError,
   visitProfile,
-} from "@lhremote/core";
+} from "@insoftex/lhremote-core";
+
+import { describeEphemeralActionErrors } from "./testing/ephemeral-action-errors.js";
 
 import { registerVisitProfile } from "./visit-profile.js";
 import { describeInfrastructureErrors } from "./testing/infrastructure-errors.js";
@@ -223,6 +225,14 @@ describe("registerVisitProfile", () => {
   });
 
   describeInfrastructureErrors(
+    registerVisitProfile,
+    "visit-profile",
+    () => ({ personId: 100, cdpPort: 9222 }),
+    (error) => vi.mocked(visitProfile).mockRejectedValue(error),
+    "Failed to visit profile",
+  );
+
+  describeEphemeralActionErrors(
     registerVisitProfile,
     "visit-profile",
     () => ({ personId: 100, cdpPort: 9222 }),

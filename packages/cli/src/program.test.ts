@@ -109,7 +109,32 @@ describe("createProgram", () => {
     expect(commandNames).toContain("hide-feed-author");
     expect(commandNames).toContain("hide-feed-author-profile");
     expect(commandNames).toContain("unfollow-profile");
-    expect(commandNames).toHaveLength(74);
+    expect(commandNames).toContain("ensure-instances");
+    expect(commandNames).toContain("restart-instance");
+    expect(commandNames).toContain("list-orphans");
+    expect(commandNames).toContain("reap-orphans");
+    expect(commandNames).toContain("campaign-list-organizations");
+    expect(commandNames).toContain("import-organizations-from-urls");
+    expect(commandNames).toHaveLength(80);
+  });
+
+  describe("--account-id", () => {
+    // Account selection binds every direct DOM operation to the requested session.
+    // Budget checks are an additional consumer, not the boundary for exposing it.
+    it.each([
+      "react-to-post",
+      "comment-on-post",
+      "react-to-comment",
+      "unfollow-profile",
+      "get-post",
+      "get-post-stats",
+      "get-feed",
+      "search-posts",
+      "dismiss-errors",
+    ])("%s accepts --account-id", (name) => {
+      const cmd = createProgram().commands.find((c) => c.name() === name);
+      expect(cmd?.options.find((o) => o.long === "--account-id")).toBeDefined();
+    });
   });
 
   describe("launch-app", () => {
@@ -120,15 +145,31 @@ describe("createProgram", () => {
 
       expect(portOption).toBeUndefined();
     });
+
+    it("accepts --force option", () => {
+      const program = createProgram();
+      const cmd = program.commands.find((c) => c.name() === "launch-app");
+      const forceOption = cmd?.options.find((o) => o.long === "--force");
+
+      expect(forceOption).toBeDefined();
+    });
+
+    it("accepts --no-visible option", () => {
+      const program = createProgram();
+      const cmd = program.commands.find((c) => c.name() === "launch-app");
+      const visibleOption = cmd?.options.find((o) => o.long === "--no-visible");
+
+      expect(visibleOption).toBeDefined();
+    });
   });
 
   describe("quit-app", () => {
-    it("does not have --cdp-port option", () => {
+    it("accepts --cdp-port option", () => {
       const program = createProgram();
       const cmd = program.commands.find((c) => c.name() === "quit-app");
       const portOption = cmd?.options.find((o) => o.long === "--cdp-port");
 
-      expect(portOption).toBeUndefined();
+      expect(portOption).toBeDefined();
     });
   });
 
@@ -143,13 +184,13 @@ describe("createProgram", () => {
   });
 
   describe("start-instance", () => {
-    it("requires accountId argument", () => {
+    it("accepts an optional accountId argument", () => {
       const program = createProgram();
       const cmd = program.commands.find((c) => c.name() === "start-instance");
       const args = cmd?.registeredArguments;
 
       expect(args).toHaveLength(1);
-      expect(args?.[0]?.required).toBe(true);
+      expect(args?.[0]?.required).toBe(false);
     });
 
     it("rejects non-numeric accountId", async () => {
@@ -158,9 +199,7 @@ describe("createProgram", () => {
       const program = createProgram();
       program.exitOverride().configureOutput({ writeErr: () => {} });
 
-      await expect(
-        program.parseAsync(["node", "lhremote", "start-instance", "abc"]),
-      ).rejects.toThrow();
+      await expect(program.parseAsync(["node", "lhremote", "start-instance", "abc"])).rejects.toThrow();
     });
   });
 
@@ -171,9 +210,16 @@ describe("createProgram", () => {
 
       await expect(
         program.parseAsync([
-          "node", "lhremote", "campaign-add-action", "1",
-          "--name", "test", "--action-type", "VisitAndExtract",
-          "--max-results", "abc",
+          "node",
+          "lhremote",
+          "campaign-add-action",
+          "1",
+          "--name",
+          "test",
+          "--action-type",
+          "VisitAndExtract",
+          "--max-results",
+          "abc",
         ]),
       ).rejects.toThrow();
     });
@@ -184,9 +230,16 @@ describe("createProgram", () => {
 
       await expect(
         program.parseAsync([
-          "node", "lhremote", "campaign-add-action", "1",
-          "--name", "test", "--action-type", "VisitAndExtract",
-          "--max-results", "3.7",
+          "node",
+          "lhremote",
+          "campaign-add-action",
+          "1",
+          "--name",
+          "test",
+          "--action-type",
+          "VisitAndExtract",
+          "--max-results",
+          "3.7",
         ]),
       ).rejects.toThrow();
     });
@@ -197,9 +250,16 @@ describe("createProgram", () => {
 
       await expect(
         program.parseAsync([
-          "node", "lhremote", "campaign-add-action", "1",
-          "--name", "test", "--action-type", "VisitAndExtract",
-          "--max-results", "0",
+          "node",
+          "lhremote",
+          "campaign-add-action",
+          "1",
+          "--name",
+          "test",
+          "--action-type",
+          "VisitAndExtract",
+          "--max-results",
+          "0",
         ]),
       ).rejects.toThrow();
     });
@@ -210,11 +270,36 @@ describe("createProgram", () => {
 
       await expect(
         program.parseAsync([
-          "node", "lhremote", "campaign-add-action", "1",
-          "--name", "test", "--action-type", "VisitAndExtract",
-          "--max-results", "-2",
+          "node",
+          "lhremote",
+          "campaign-add-action",
+          "1",
+          "--name",
+          "test",
+          "--action-type",
+          "VisitAndExtract",
+          "--max-results",
+          "-2",
         ]),
       ).rejects.toThrow();
+    });
+  });
+
+  describe("campaign-list", () => {
+    it("accepts --account-id option", () => {
+      const program = createProgram();
+      const cmd = program.commands.find((c) => c.name() === "campaign-list");
+      const accountIdOption = cmd?.options.find((o) => o.long === "--account-id");
+
+      expect(accountIdOption).toBeDefined();
+    });
+
+    it("accepts --cdp-port option", () => {
+      const program = createProgram();
+      const cmd = program.commands.find((c) => c.name() === "campaign-list");
+      const portOption = cmd?.options.find((o) => o.long === "--cdp-port");
+
+      expect(portOption).toBeDefined();
     });
   });
 

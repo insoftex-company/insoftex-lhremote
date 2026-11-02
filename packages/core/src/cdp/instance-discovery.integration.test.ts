@@ -2,14 +2,16 @@
 // Copyright (C) 2026 Oleksii PELYKH
 
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { pidToPorts, portToPid } from "pid-port";
+import { portToPid } from "pid-port";
 import psList from "ps-list";
+import { listListeningTcpPorts } from "./list-listening-ports.js";
 import {
+  isChromiumAvailable,
   launchChromium,
   type ChromiumInstance,
 } from "./testing/launch-chromium.js";
 
-describe("instance-discovery packages (integration)", () => {
+describe.skipIf(!isChromiumAvailable)("instance-discovery packages (integration)", () => {
   let chromium: ChromiumInstance;
 
   beforeAll(async () => {
@@ -17,10 +19,11 @@ describe("instance-discovery packages (integration)", () => {
   }, 30_000);
 
   afterAll(async () => {
-    await chromium.close();
+    await chromium?.close();
   });
 
   it("portToPid should find the Chromium process by port", async () => {
+    expect(chromium).toBeDefined();
     const pid = await portToPid({ port: chromium.port, host: "*" });
 
     expect(pid).toEqual(expect.any(Number));
@@ -28,6 +31,7 @@ describe("instance-discovery packages (integration)", () => {
   });
 
   it("psList should include the Chromium process with correct ppid", async () => {
+    expect(chromium).toBeDefined();
     const processes = await psList();
     const chromiumProc = processes.find(
       (p) => p.pid === chromium.process.pid,
@@ -37,15 +41,16 @@ describe("instance-discovery packages (integration)", () => {
     expect(chromiumProc?.ppid).toEqual(expect.any(Number));
   });
 
-  it("pidToPorts should include the Chromium CDP port", async () => {
+  it("listListeningTcpPorts should include the Chromium CDP port", async () => {
+    expect(chromium).toBeDefined();
     const pid = await portToPid({ port: chromium.port, host: "*" });
     if (pid === undefined) {
       throw new Error("Expected portToPid to return a PID");
     }
 
-    const ports = await pidToPorts(pid);
+    const ports = await listListeningTcpPorts(pid);
 
-    expect(ports).toBeInstanceOf(Set);
-    expect(ports.has(chromium.port)).toBe(true);
+    expect(Array.isArray(ports)).toBe(true);
+    expect(ports).toContain(chromium.port);
   });
 });

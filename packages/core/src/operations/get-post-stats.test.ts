@@ -22,68 +22,55 @@ vi.mock("./navigate-away.js", () => ({
 
 import { discoverTargets } from "../cdp/discovery.js";
 import { CDPClient } from "../cdp/client.js";
+import { DOMVariantAmbiguousError, DOMVariantUnsupportedError, ExtractionFailedError } from "../services/errors.js";
 import {
-  extractPostUrn,
-  getPostStats,
-} from "./get-post-stats.js";
+  adaptersFor,
+  buildPostDetailExtractionSource,
+  unreadableAfterReadinessCause,
+} from "../linkedin/dom-variant.js";
+import { extractPostUrn, getPostStats } from "./get-post-stats.js";
 
 describe("extractPostUrn", () => {
   it("extracts URN from /feed/update/ URL with activity URN", () => {
-    expect(
-      extractPostUrn(
-        "https://www.linkedin.com/feed/update/urn:li:activity:7123456789012345678/",
-      ),
-    ).toBe("urn:li:activity:7123456789012345678");
-  });
-
-  it("extracts URN from /feed/update/ URL with ugcPost URN", () => {
-    expect(
-      extractPostUrn(
-        "https://www.linkedin.com/feed/update/urn:li:ugcPost:7123456789012345678/",
-      ),
-    ).toBe("urn:li:ugcPost:7123456789012345678");
-  });
-
-  it("extracts URN from /feed/update/ URL with share URN", () => {
-    expect(
-      extractPostUrn(
-        "https://www.linkedin.com/feed/update/urn:li:share:7123456789012345678/",
-      ),
-    ).toBe("urn:li:share:7123456789012345678");
-  });
-
-  it("extracts URN from /feed/update/ URL without trailing slash", () => {
-    expect(
-      extractPostUrn(
-        "https://www.linkedin.com/feed/update/urn:li:activity:7123456789012345678",
-      ),
-    ).toBe("urn:li:activity:7123456789012345678");
-  });
-
-  it("extracts activity URN from /posts/ URL", () => {
-    expect(
-      extractPostUrn(
-        "https://www.linkedin.com/posts/johndoe_activity-7123456789012345678-abcd/",
-      ),
-    ).toBe("urn:li:activity:7123456789012345678");
-  });
-
-  it("passes through raw URN input", () => {
-    expect(extractPostUrn("urn:li:activity:7123456789012345678")).toBe(
+    expect(extractPostUrn("https://www.linkedin.com/feed/update/urn:li:activity:7123456789012345678/")).toBe(
       "urn:li:activity:7123456789012345678",
     );
   });
 
-  it("passes through raw ugcPost URN", () => {
-    expect(extractPostUrn("urn:li:ugcPost:7123456789012345678")).toBe(
+  it("extracts URN from /feed/update/ URL with ugcPost URN", () => {
+    expect(extractPostUrn("https://www.linkedin.com/feed/update/urn:li:ugcPost:7123456789012345678/")).toBe(
       "urn:li:ugcPost:7123456789012345678",
     );
   });
 
-  it("throws on unrecognised input", () => {
-    expect(() => extractPostUrn("https://example.com/foo")).toThrow(
-      "Cannot extract post URN from",
+  it("extracts URN from /feed/update/ URL with share URN", () => {
+    expect(extractPostUrn("https://www.linkedin.com/feed/update/urn:li:share:7123456789012345678/")).toBe(
+      "urn:li:share:7123456789012345678",
     );
+  });
+
+  it("extracts URN from /feed/update/ URL without trailing slash", () => {
+    expect(extractPostUrn("https://www.linkedin.com/feed/update/urn:li:activity:7123456789012345678")).toBe(
+      "urn:li:activity:7123456789012345678",
+    );
+  });
+
+  it("extracts activity URN from /posts/ URL", () => {
+    expect(extractPostUrn("https://www.linkedin.com/posts/johndoe_activity-7123456789012345678-abcd/")).toBe(
+      "urn:li:activity:7123456789012345678",
+    );
+  });
+
+  it("passes through raw URN input", () => {
+    expect(extractPostUrn("urn:li:activity:7123456789012345678")).toBe("urn:li:activity:7123456789012345678");
+  });
+
+  it("passes through raw ugcPost URN", () => {
+    expect(extractPostUrn("urn:li:ugcPost:7123456789012345678")).toBe("urn:li:ugcPost:7123456789012345678");
+  });
+
+  it("throws on unrecognised input", () => {
+    expect(() => extractPostUrn("https://example.com/foo")).toThrow("Cannot extract post URN from");
   });
 
   it("throws on empty input", () => {
@@ -93,17 +80,19 @@ describe("extractPostUrn", () => {
 
 describe("getPostStats", () => {
   const CDP_PORT = 9222;
-  const POST_URL =
-    "https://www.linkedin.com/feed/update/urn:li:activity:1234567890/";
+  const POST_URL = "https://www.linkedin.com/feed/update/urn:li:activity:1234567890/";
 
-  function setupMocks(opts?: {
-    postStats?: unknown;
-    readySequence?: boolean[];
-  }) {
-    const {
-      postStats = { reactionCount: 42, commentCount: 5, shareCount: 3 },
-      readySequence = [true],
-    } = opts ?? {};
+  function setupMocks(opts?: { postStats?: unknown; readySequence?: boolean[] }) {
+    const { readySequence = [true] } = opts ?? {};
+
+    // `undefined` is a MEANINGFUL value for `postStats`, not an absent one:
+    // `CDPClient.evaluate` ends `return result.result?.value as T` and so
+    // resolves `undefined` whenever CDP omits `result`.  Presence of the key
+    // therefore decides, not its value — a `= default` destructure cannot
+    // express that, because it fires on an explicitly-passed `undefined` too
+    // and would silently substitute the happy record for the case under test.
+    const postStats =
+      opts && "postStats" in opts ? opts.postStats : { reactionCount: 42, commentCount: 5, shareCount: 3 };
 
     vi.mocked(discoverTargets).mockResolvedValue([
       {
@@ -141,12 +130,38 @@ describe("getPostStats", () => {
     return { evaluateMock, disconnect, navigate };
   }
 
+  /**
+   * The ambient `LHREMOTE_CAPTURE_DIAGNOSTICS`, read before any test in this
+   * file has had a chance to mutate it.
+   *
+   * Under the attached root config that snapshot is always the pinned-off
+   * value: since #925 `vitest.config.ts` wires `setupFiles: [vitest.setup.ts]`
+   * and the setup file deletes the variable at its own module scope, before
+   * this module is evaluated.  This guard is therefore live only when that
+   * config detaches — a package-level `vite.config.*` / `vitest.config.*`
+   * would stop it resolving for this package alone — which is the case it is
+   * now kept for.
+   */
+  const originalCaptureEnv = process.env.LHREMOTE_CAPTURE_DIAGNOSTICS;
+
   beforeEach(() => {
     vi.clearAllMocks();
+    // Both refusal branches below now reach the diagnostic capture (#890), and
+    // this file mocks no filesystem.  Under an ambient
+    // `LHREMOTE_CAPTURE_DIAGNOSTICS=1` — a plausible export while debugging
+    // diagnostics — those cases would create real temp directories and write
+    // real bundles from a Tier-1 unit run.  The capture path itself is graded
+    // in `get-post-stats-extraction-diagnostics.test.ts`, which does mock it.
+    delete process.env.LHREMOTE_CAPTURE_DIAGNOSTICS;
   });
 
   afterEach(() => {
     vi.restoreAllMocks();
+    if (originalCaptureEnv === undefined) {
+      delete process.env.LHREMOTE_CAPTURE_DIAGNOSTICS;
+    } else {
+      process.env.LHREMOTE_CAPTURE_DIAGNOSTICS = originalCaptureEnv;
+    }
   });
 
   it("throws on non-loopback host without allowRemote", async () => {
@@ -162,9 +177,9 @@ describe("getPostStats", () => {
   it("throws when no LinkedIn page found", async () => {
     vi.mocked(discoverTargets).mockResolvedValue([]);
 
-    await expect(
-      getPostStats({ postUrl: POST_URL, cdpPort: CDP_PORT }),
-    ).rejects.toThrow("No LinkedIn page found in LinkedHelper");
+    await expect(getPostStats({ postUrl: POST_URL, cdpPort: CDP_PORT })).rejects.toThrow(
+      "No LinkedIn page found in LinkedHelper",
+    );
   });
 
   it("navigates to post detail URL and extracts stats from DOM", async () => {
@@ -175,9 +190,7 @@ describe("getPostStats", () => {
       cdpPort: CDP_PORT,
     });
 
-    expect(navigate).toHaveBeenCalledWith(
-      "https://www.linkedin.com/feed/update/urn:li:activity:1234567890/",
-    );
+    expect(navigate).toHaveBeenCalledWith("https://www.linkedin.com/feed/update/urn:li:activity:1234567890/");
 
     expect(result.stats).toEqual({
       postUrn: "urn:li:activity:1234567890",
@@ -203,8 +216,19 @@ describe("getPostStats", () => {
   });
 
   it("handles zero counts gracefully", async () => {
+    // `countsRootNarrowed: false` is what makes this the LEGAL empty rather
+    // than the contradicted one (#852), and it is stated rather than left to
+    // the field's absence: on a captured legacy page with no engagement the
+    // counts row is simply not there (`socialCounts: 0`), and on `sdui` the
+    // adapter declares `counts: []` so the flag can never be anything else.
     setupMocks({
-      postStats: { reactionCount: 0, commentCount: 0, shareCount: 0 },
+      postStats: {
+        variant: "legacy",
+        reactionCount: 0,
+        commentCount: 0,
+        shareCount: 0,
+        countsRootNarrowed: false,
+      },
     });
 
     const result = await getPostStats({
@@ -221,12 +245,72 @@ describe("getPostStats", () => {
     });
   });
 
-  it("throws when DOM extraction returns null", async () => {
+  it("refuses when no adapter claimed the page", async () => {
+    // `null` is the extraction script's "nothing read this page" outcome:
+    // zero adapters claimed it, or the claiming one could not resolve its own
+    // scope.  Refusing is ADR-011's empty-vs-error contract — the alternative
+    // the whole-page regex took was to return zeroes, which is a claim about
+    // the post's engagement that nothing observed (#857).
     setupMocks({ postStats: null });
 
-    await expect(
-      getPostStats({ postUrl: POST_URL, cdpPort: CDP_PORT }),
-    ).rejects.toThrow("Failed to extract post stats from the DOM");
+    const rejection = getPostStats({ postUrl: POST_URL, cdpPort: CDP_PORT });
+
+    // Class AND arguments, on one settled rejection.  The two branches pass
+    // DIFFERENT string arrays — this one every registered variant, the
+    // ambiguous one only the variants that actually claimed the page — and
+    // they are interchangeable to the type checker, so the class alone does
+    // not pin which list the operator is shown.
+    await expect(rejection).rejects.toThrow(DOMVariantUnsupportedError);
+    await expect(rejection).rejects.toThrow(/No DOM adapter matched the post-detail page \(tried: sdui, legacy\)/);
+  });
+
+  it("attaches the reading its own message cannot give (#923)", async () => {
+    // Same criterion, same surface, second site.  Pinned here as well as on
+    // `get-post` because the falsifier is per site: deleting `{ cause: … }`
+    // from either one must turn exactly its own test red, which one shared
+    // test could not establish.
+    setupMocks({ postStats: null });
+
+    const error = await getPostStats({
+      postUrl: POST_URL,
+      cdpPort: CDP_PORT,
+    }).then(
+      () => null,
+      (thrown: unknown) => thrown,
+    );
+
+    expect(error).toBeInstanceOf(DOMVariantUnsupportedError);
+    const cause = (error as DOMVariantUnsupportedError).cause;
+    expect(cause).toBeInstanceOf(Error);
+    expect((cause as Error).message).toBe(unreadableAfterReadinessCause("post-detail").message);
+  });
+
+  it("refuses when two adapters claimed the page", async () => {
+    // A transitional or hybrid dialect.  Counters assembled out of two
+    // dialects are wrong in a way nothing downstream can detect, so the
+    // outcome is reported rather than resolved — the same posture `get-post`
+    // takes against the same script.
+    setupMocks({ postStats: { ambiguousVariants: ["sdui", "legacy"] } });
+
+    const rejection = getPostStats({ postUrl: POST_URL, cdpPort: CDP_PORT });
+
+    await expect(rejection).rejects.toThrow(DOMVariantAmbiguousError);
+    // The variants the SCRIPT reported, not the registry's whole list: an
+    // operator told every registered dialect matched would tighten the wrong
+    // detect anchors.
+    await expect(rejection).rejects.toThrow(/Multiple DOM adapters matched the post-detail page \(sdui, legacy\)/);
+  });
+
+  it("refuses when the page evaluation yields nothing at all", async () => {
+    // `CDPClient.evaluate` ends `return result.result?.value as T`, so it
+    // resolves `undefined` — not `null` — whenever CDP omits `result`.  The
+    // refusal is written as a falsiness test and therefore covers both; this
+    // pins that, so a later tightening to `raw === null` cannot let an
+    // `undefined` fall through to the ambiguity check, which would dereference
+    // it and replace a typed refusal with a bare `TypeError`.
+    setupMocks({ postStats: undefined });
+
+    await expect(getPostStats({ postUrl: POST_URL, cdpPort: CDP_PORT })).rejects.toThrow(DOMVariantUnsupportedError);
   });
 
   it("waits for post to load with polling", async () => {
@@ -251,10 +335,140 @@ describe("getPostStats", () => {
   it("disconnects CDP client even on error", async () => {
     const { disconnect } = setupMocks({ postStats: null });
 
-    await expect(
-      getPostStats({ postUrl: POST_URL, cdpPort: CDP_PORT }),
-    ).rejects.toThrow();
+    await expect(getPostStats({ postUrl: POST_URL, cdpPort: CDP_PORT })).rejects.toThrow();
 
     expect(disconnect).toHaveBeenCalled();
+  });
+
+  // ─────────────────────────────────────────────────────────────────────────
+  // #857 — the counts are read through the selected adapter, not off the page
+  //
+  // This tier cannot run a DOM, so it does not re-grade what the read returns.
+  // What it pins is WHICH script performs the read, and that is the whole of
+  // the fix: the script below is already graded against a real browser in
+  // `dom-variant.integration.test.ts` for each of the three ways the
+  // whole-page read was wrong — the join ("2" beside "41 comments" flattening
+  // to "241 comments"), the label (a reaction count whose words live only on
+  // the control's `aria-label`), and the scope (a "<N> comments" run from
+  // somewhere else on the page).  Binding this operation to that string is
+  // what transfers all three; re-asserting the values here would duplicate
+  // that oracle against a stand-in DOM it exists to distrust.
+  // ─────────────────────────────────────────────────────────────────────────
+
+  /** The script the operation evaluates after readiness has gone green. */
+  function extractionScript(evaluateMock: ReturnType<typeof vi.fn>): string {
+    return evaluateMock.mock.calls.at(-1)?.[0] as string;
+  }
+
+  it("evaluates the shared post-detail extraction script", async () => {
+    const { evaluateMock } = setupMocks();
+
+    await getPostStats({ postUrl: POST_URL, cdpPort: CDP_PORT });
+
+    expect(extractionScript(evaluateMock)).toBe(buildPostDetailExtractionSource(adaptersFor("post-detail")));
+  });
+
+  // ─────────────────────────────────────────────────────────────────────────
+  // #852 — an all-zero read is corroborated against the row it was read from
+  //
+  // The gate `getPostStats` waits on polls the selected adapter's author link,
+  // which attests a different REGION of the page from the one this operation
+  // reads.  Requiring the counts row AT THE GATE is refuted rather than
+  // untried: `__fixtures__/legacy/post-zero-comments` is a captured page whose
+  // readiness predicate returns `true` with `socialCounts: 0`, so a gate
+  // demanding that row would poll to the deadline on every post with no
+  // engagement.  What is decidable is the pairing, and it is decided here.
+  // ─────────────────────────────────────────────────────────────────────────
+
+  it("refuses an all-zero read the counts row contradicts", async () => {
+    setupMocks({
+      postStats: {
+        variant: "legacy",
+        reactionCount: 0,
+        commentCount: 0,
+        shareCount: 0,
+        countsRootNarrowed: true,
+      },
+    });
+
+    const rejection = getPostStats({ postUrl: POST_URL, cdpPort: CDP_PORT });
+
+    await expect(rejection).rejects.toThrow(ExtractionFailedError);
+    // Anchored at BOTH ends, not just through the middle.  A regex starting at
+    // `adapter "legacy"` leaves the surface unpinned — `surface:` could be
+    // passed anything at the call site and still match — and one ending at the
+    // corroborator leaves the remediation clause unpinned, which is the only
+    // sentence telling an operator what to DO and which has no other home in
+    // the corpus.
+    await expect(rejection).rejects.toThrow(
+      /^Extraction failed on the post-detail page: adapter "legacy" matched, but field "engagementCounts" came back empty while countsRoot=rendered contradicts it\. Adapter "legacy" is partially stale — repair the selectors for "engagementCounts"\.$/,
+    );
+  });
+
+  // The `raw.variant || "unknown"` fallback.  Reachable only if the script
+  // returns a record without a variant, which the committed script does not
+  // do — so this pins the FALLBACK's own behaviour, not a live path.  Without
+  // it, deleting `|| "unknown"` leaves the message reading `adapter ""` and
+  // every other test still green.
+  it("names the adapter as unknown when the record carries no variant", async () => {
+    setupMocks({
+      postStats: {
+        reactionCount: 0,
+        commentCount: 0,
+        shareCount: 0,
+        countsRootNarrowed: true,
+      },
+    });
+
+    await expect(getPostStats({ postUrl: POST_URL, cdpPort: CDP_PORT })).rejects.toThrow(/adapter "unknown" matched/);
+  });
+
+  it.each([
+    ["reactions", { reactionCount: 2, commentCount: 0, shareCount: 0 }],
+    ["comments", { reactionCount: 0, commentCount: 41, shareCount: 0 }],
+    ["reposts", { reactionCount: 0, commentCount: 0, shareCount: 1 }],
+  ])("returns a read the row corroborates through %s alone", async (_label, counts) => {
+    // The check is on the SUM because the corroborator is row-level: a
+    // per-counter raise would report a post carrying comments but no
+    // reactions as a stale-counter failure, which is the ordinary shape of
+    // most posts.  What these three cases pin is that arm ONLY — they do not
+    // establish that a non-zero counter vouches for the other two, which it
+    // does not.  See `get-post-stats.ts` for the partial-staleness residual
+    // that leaves open.
+    setupMocks({
+      postStats: { variant: "legacy", ...counts, countsRootNarrowed: true },
+    });
+
+    const result = await getPostStats({
+      postUrl: POST_URL,
+      cdpPort: CDP_PORT,
+    });
+
+    expect(result.stats).toMatchObject(counts);
+  });
+
+  it("never reads the counts off the whole page body", async () => {
+    // The defect itself, stated independently of the builder above so that it
+    // survives a builder rename: no scrape this operation runs may flatten the
+    // document into one string.  Asserting `241` anywhere would bake the
+    // defect into the oracle and make the next fix look like the regression.
+    //
+    // Keyed on `document.body` rather than on the one spelling the defect
+    // happened to use.  This repo flattens a page in four other places as
+    // `document.body.innerText` (`search-posts.ts`, `wait-for-post-load.ts`,
+    // `wait-for-reactions-modal.ts`, `navigate-to-profile.ts`), so the most
+    // likely accidental reintroduction here is a copy-paste that a
+    // `textContent`-only assertion would wave straight through.
+    const { evaluateMock } = setupMocks();
+
+    await getPostStats({ postUrl: POST_URL, cdpPort: CDP_PORT });
+
+    // Cardinality first: a loop over zero calls satisfies the assertion below
+    // without evaluating anything, which is a pass this test must not be able
+    // to produce.  One readiness poll plus one extraction.
+    expect(evaluateMock.mock.calls).toHaveLength(2);
+    for (const [script] of evaluateMock.mock.calls) {
+      expect(script).not.toContain("document.body");
+    }
   });
 });

@@ -8,9 +8,9 @@ import {
   CampaignExecutionError,
   CampaignTimeoutError,
   withLoggedInStateRetryAtPort,
-} from "@lhremote/core";
+} from "@insoftex/lhremote-core";
 
-/** Handle the {@link https://github.com/alexey-pelykh/lhremote#follow-person | follow-person} CLI command. */
+/** Handle the {@link https://github.com/insoftex-company/insoftex-lhremote#follow-person | follow-person} CLI command. */
 export async function handleFollowPerson(options: {
   personId?: number;
   url?: string;
@@ -41,17 +41,18 @@ export async function handleFollowPerson(options: {
       options.allowRemote ?? false,
       () =>
         followPerson({
-      personId: options.personId,
-      url: options.url,
-      mode: options.mode,
-      skipIfUnfollowable: options.skipIfUnfollowable,
-      keepCampaign: options.keepCampaign,
-      timeout: options.timeout,
-      cdpPort: options.cdpPort,
-      cdpHost: options.cdpHost,
-      allowRemote: options.allowRemote,
-      accountId: options.accountId,
-      }),
+          personId: options.personId,
+          url: options.url,
+          mode: options.mode,
+          skipIfUnfollowable: options.skipIfUnfollowable,
+          keepCampaign: options.keepCampaign,
+          timeout: options.timeout,
+          cdpPort: options.cdpPort,
+          cdpHost: options.cdpHost,
+          allowRemote: options.allowRemote,
+          accountId: options.accountId,
+        }),
+      { accountId: options.accountId },
     );
   } catch (error) {
     if (error instanceof CampaignExecutionError || error instanceof CampaignTimeoutError) {

@@ -21,27 +21,16 @@ vi.mock("node:os", async (importOriginal) => {
 const mockedHomedir = vi.mocked(homedir);
 
 describe("discovery (integration)", () => {
-  const tmpBase = join(
-    tmpdir(),
-    `lhremote-discovery-int-${Date.now().toString(36)}`,
-  );
+  const tmpBase = join(tmpdir(), `lhremote-discovery-int-${Date.now().toString(36)}`);
   const fakeHome = tmpBase;
   // Linux layout: ~/.config/linked-helper/Partitions/...
-  const partitionsDir = join(
-    fakeHome,
-    ".config",
-    "linked-helper",
-    "Partitions",
-  );
+  const partitionsDir = join(fakeHome, ".config", "linked-helper", "Partitions");
 
   let dbPath111: string;
   let dbPath222: string;
 
   function createPartition(accountId: number): string {
-    const dir = join(
-      partitionsDir,
-      `linked-helper-account-${String(accountId)}-main`,
-    );
+    const dir = join(partitionsDir, `linked-helper-account-${String(accountId)}-main`);
     mkdirSync(dir, { recursive: true });
     const dbPath = join(dir, "lh.db");
     copyFileSync(FIXTURE_PATH, dbPath);
@@ -54,10 +43,7 @@ describe("discovery (integration)", () => {
     dbPath222 = createPartition(222);
 
     // Account 333: partition directory exists but no lh.db inside
-    mkdirSync(
-      join(partitionsDir, "linked-helper-account-333-main"),
-      { recursive: true },
-    );
+    mkdirSync(join(partitionsDir, "linked-helper-account-333-main"), { recursive: true });
 
     // Non-matching directories that should be ignored
     mkdirSync(join(partitionsDir, "some-unrelated-dir"), { recursive: true });
@@ -68,6 +54,18 @@ describe("discovery (integration)", () => {
 
   afterAll(() => {
     vi.restoreAllMocks();
+    // `vi.stubGlobal` survives both reset and restore, so the `process` stub in
+    // `beforeAll` above otherwise stays installed to the end of this file
+    // (#935; `isolate` defaults to true, so it cannot reach the next one).
+    // Released here and
+    // not in an `afterEach`, deliberately: that stub is installed once and is
+    // meant to hold for the whole file — every test below reads the linux
+    // layout — so releasing it per test breaks four of the nine, measured on a
+    // non-linux runner; on linux the stub matches reality and none break.  Same
+    // exemption `cdp/client.test.ts` relies on for its module-scope
+    // `WebSocket` stub — though that one never releases at all, where this
+    // releases late.
+    vi.unstubAllGlobals();
     rmSync(tmpBase, { recursive: true, force: true });
   });
 
@@ -93,11 +91,9 @@ describe("discovery (integration)", () => {
     it("discovered database can be opened by DatabaseClient", () => {
       const path = discoverDatabase(111);
       const client = new DatabaseClient(path);
-      const row = client.db
-        .prepare(
-          "SELECT first_name FROM person_mini_profile WHERE person_id = 1",
-        )
-        .get() as { first_name: string } | undefined;
+      const row = client.db.prepare("SELECT first_name FROM person_mini_profile WHERE person_id = 1").get() as
+        | { first_name: string }
+        | undefined;
       expect(row?.first_name).toBe("Ada");
       client.close();
     });
@@ -128,9 +124,7 @@ describe("discovery (integration)", () => {
 
       for (const [, path] of result) {
         const client = new DatabaseClient(path);
-        const row = client.db
-          .prepare("SELECT COUNT(*) AS cnt FROM people")
-          .get() as { cnt: number };
+        const row = client.db.prepare("SELECT COUNT(*) AS cnt FROM people").get() as { cnt: number };
         expect(row.cnt).toBeGreaterThan(0);
         client.close();
       }

@@ -9,8 +9,7 @@ import { discoverTargets } from "./discovery.js";
 const MOCK_TARGETS: CdpTarget[] = [
   {
     description: "",
-    devtoolsFrontendUrl:
-      "/devtools/inspector.html?ws=127.0.0.1:9222/devtools/page/ABC",
+    devtoolsFrontendUrl: "/devtools/inspector.html?ws=127.0.0.1:9222/devtools/page/ABC",
     id: "ABC",
     type: "page",
     title: "LinkedHelper",
@@ -19,8 +18,7 @@ const MOCK_TARGETS: CdpTarget[] = [
   },
   {
     description: "",
-    devtoolsFrontendUrl:
-      "/devtools/inspector.html?ws=127.0.0.1:9222/devtools/worker/DEF",
+    devtoolsFrontendUrl: "/devtools/inspector.html?ws=127.0.0.1:9222/devtools/worker/DEF",
     id: "DEF",
     type: "service_worker",
     title: "Service Worker",
@@ -30,20 +28,21 @@ const MOCK_TARGETS: CdpTarget[] = [
 
 describe("discoverTargets", () => {
   beforeEach(() => {
-    vi.stubGlobal(
-      "fetch",
-      vi.fn<(input: string | URL | Request) => Promise<Response>>(),
-    );
+    vi.stubGlobal("fetch", vi.fn<(input: string | URL | Request) => Promise<Response>>());
   });
 
   afterEach(() => {
     vi.restoreAllMocks();
+    // `vi.stubGlobal` is undone by neither reset nor restore, so without this
+    // the `fetch` stub above stays installed over the Tier-1 network guard for
+    // the rest of the file — including past this suite's last test (#935).
+    // Every test here sets its own resolved value, so nothing depends on
+    // inheriting the stub.
+    vi.unstubAllGlobals();
   });
 
   it("should return targets from /json/list endpoint", async () => {
-    vi.mocked(fetch).mockResolvedValue(
-      new Response(JSON.stringify(MOCK_TARGETS), { status: 200 }),
-    );
+    vi.mocked(fetch).mockResolvedValue(new Response(JSON.stringify(MOCK_TARGETS), { status: 200 }));
 
     const targets = await discoverTargets(9222);
 
@@ -54,30 +53,22 @@ describe("discoverTargets", () => {
   });
 
   it("should use custom host when provided", async () => {
-    vi.mocked(fetch).mockResolvedValue(
-      new Response(JSON.stringify([]), { status: 200 }),
-    );
+    vi.mocked(fetch).mockResolvedValue(new Response(JSON.stringify([]), { status: 200 }));
 
     await discoverTargets(9222, "192.168.1.10");
 
-    expect(fetch).toHaveBeenCalledWith(
-      "http://192.168.1.10:9222/json/list",
-    );
+    expect(fetch).toHaveBeenCalledWith("http://192.168.1.10:9222/json/list");
   });
 
   it("should throw CDPConnectionError when fetch fails", async () => {
     vi.mocked(fetch).mockRejectedValue(new Error("ECONNREFUSED"));
 
     await expect(discoverTargets(9222)).rejects.toThrow(CDPConnectionError);
-    await expect(discoverTargets(9222)).rejects.toThrow(
-      /LinkedHelper not running/,
-    );
+    await expect(discoverTargets(9222)).rejects.toThrow(/LinkedHelper not running/);
   });
 
   it("should throw CDPConnectionError on non-array response", async () => {
-    vi.mocked(fetch).mockResolvedValue(
-      new Response(JSON.stringify({ error: "not targets" }), { status: 200 }),
-    );
+    vi.mocked(fetch).mockResolvedValue(new Response(JSON.stringify({ error: "not targets" }), { status: 200 }));
 
     await expect(discoverTargets(9222)).rejects.toThrow(
       expect.objectContaining({
@@ -88,9 +79,7 @@ describe("discoverTargets", () => {
   });
 
   it("should throw CDPConnectionError on non-OK HTTP status", async () => {
-    vi.mocked(fetch).mockResolvedValue(
-      new Response("Not Found", { status: 404 }),
-    );
+    vi.mocked(fetch).mockResolvedValue(new Response("Not Found", { status: 404 }));
 
     await expect(discoverTargets(9222)).rejects.toThrow(CDPConnectionError);
     await expect(discoverTargets(9222)).rejects.toThrow(/HTTP 404/);

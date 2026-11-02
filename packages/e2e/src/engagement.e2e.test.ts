@@ -8,14 +8,16 @@ import {
   getE2ECommentUrn,
   getE2EPersonId,
   getE2EPostUrl,
+  getE2EProfileUrl,
   installErrorDetection,
   launchApp,
   quitApp,
   resolveAccountId,
   retryAsync,
-} from "@lhremote/core/testing";
+} from "@insoftex/lhremote-core/testing";
 import {
   type AppService,
+  CampaignExecutionError,
   discoverInstancePort,
   discoverTargets,
   dismissErrors,
@@ -23,14 +25,15 @@ import {
   reactToComment,
   reactToPost,
   startInstanceWithRecovery,
-} from "@lhremote/core";
+  visitProfile,
+} from "@insoftex/lhremote-core";
 import type {
   VisitProfileOutput,
   EphemeralActionResult,
   ReactToCommentOutput,
   ReactToPostOutput,
   CommentOnPostOutput,
-} from "@lhremote/core";
+} from "@insoftex/lhremote-core";
 
 // CLI handlers
 import {
@@ -41,7 +44,7 @@ import {
   handleReactToPost,
   handleReactToComment,
   handleCommentOnPost,
-} from "@lhremote/cli/handlers";
+} from "@insoftex/lhremote-cli/handlers";
 
 // MCP tool registrations
 import {
@@ -52,8 +55,8 @@ import {
   registerReactToPost,
   registerReactToComment,
   registerCommentOnPost,
-} from "@lhremote/mcp/tools";
-import { createMockServer } from "@lhremote/mcp/testing";
+} from "@insoftex/lhremote-mcp/tools";
+import { createMockServer } from "@insoftex/lhremote-mcp/testing";
 
 describeE2E("engagement operations", () => {
   let app: AppService;
@@ -61,11 +64,13 @@ describeE2E("engagement operations", () => {
   let accountId: number;
   let cdpPort: number;
   let personId: number;
+  let profileUrl: string;
   let postUrl: string;
   let commentUrn: string;
 
   beforeAll(async () => {
     personId = getE2EPersonId();
+    profileUrl = getE2EProfileUrl();
     postUrl = getE2EPostUrl();
     commentUrn = getE2ECommentUrn();
 
@@ -189,6 +194,29 @@ describeE2E("engagement operations", () => {
         expect(parsed.profile).toHaveProperty("miniProfile");
       }, 120_000);
     });
+
+    // criterion B: URL-based visit succeeds
+    it("visit-profile by URL returns profile data", async () => {
+      const result = await visitProfile({ url: profileUrl, cdpPort, accountId });
+
+      expect(result.success).toBe(true);
+      expect(result.actionType).toBe("VisitAndExtract");
+      expect(result.profile).toHaveProperty("id");
+      expect(result.profile).toHaveProperty("miniProfile");
+      expect(typeof result.profile.miniProfile.firstName).toBe("string");
+    }, 120_000);
+
+    // criterion E: clean failure — throws, no popup, instance stays healthy
+    it("visit-profile with nonexistent personId throws CampaignExecutionError, instance stays healthy", async () => {
+      await expect(
+        visitProfile({ personId: 2_147_483_647, cdpPort, accountId }),
+      ).rejects.toThrow(CampaignExecutionError);
+
+      // Verify the instance is still connectable (no crash, no UI block)
+      await expect(
+        dismissErrors({ cdpPort, accountId }),
+      ).resolves.not.toThrow();
+    }, 60_000);
   });
 
   // ── follow-person ─────────────────────────────────────────────────

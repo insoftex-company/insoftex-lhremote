@@ -113,6 +113,52 @@ export function extractPublicId(url: string): string {
 }
 
 /**
+ * Extract the company identifier (URL slug or numeric ID) from a LinkedIn
+ * company URL.
+ *
+ * The company-page counterpart of {@link extractPublicId}: the hostname
+ * must end with `linkedin.com` and the pathname must start with
+ * `/company/{slug}`.  LinkedIn serves company pages under both the public
+ * slug (`/company/mobimeo`) and the numeric company ID
+ * (`/company/27109959`); both are returned as-is (URL-decoded).
+ * Profile (`/in/...`) and all other URLs are rejected.
+ *
+ * @throws If `url` is not a well-formed LinkedIn company URL.
+ */
+export function extractCompanyId(url: string): string {
+  const invalid = (): Error =>
+    new Error(
+      `Invalid LinkedIn company URL: ${url}. Expected format: https://www.linkedin.com/company/<slug-or-id>`,
+    );
+
+  let parsed: URL;
+  try {
+    parsed = new URL(url);
+  } catch {
+    throw invalid();
+  }
+
+  const host = parsed.hostname.toLowerCase();
+  const isLinkedInHost = host === "linkedin.com" || host.endsWith(".linkedin.com");
+  if (!isLinkedInHost) {
+    throw invalid();
+  }
+
+  const match = LINKEDIN_COMPANY_RE.exec(parsed.pathname);
+  if (!match?.[1]) {
+    throw invalid();
+  }
+  // Malformed percent-encoding (e.g. `%ZZ`) makes `decodeURIComponent`
+  // throw `URIError`; convert to the standard validation error so callers
+  // see a uniform message (same handling as extractPublicId).
+  try {
+    return decodeURIComponent(match[1]);
+  } catch {
+    throw invalid();
+  }
+}
+
+/**
  * Build a canonical LinkedIn profile URL from a public ID.
  *
  * The public ID is URL-encoded before interpolation so values containing

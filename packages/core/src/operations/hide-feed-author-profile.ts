@@ -12,8 +12,7 @@ import type { ConnectionOptions } from "./types.js";
 import { gateOnLoggedInState } from "./wait-for-logged-in-state.js";
 
 /** CSS selector for the profile-page overflow action menu button. */
-const PROFILE_MORE_BUTTON_SELECTOR =
-  'main button[aria-label="More actions"], main button[aria-label="More"]';
+const PROFILE_MORE_BUTTON_SELECTOR = 'main button[aria-label="More actions"], main button[aria-label="More"]';
 
 /** Prefix of the "Mute {Name}" menu item text in the profile More menu. */
 const MUTE_MENUITEM_PREFIX = "Mute ";
@@ -33,9 +32,7 @@ const MUTE_CONFIRM_LABEL_PATTERNS = ["Mute", "Confirm"];
  * structured result instead of throwing so callers can iterate through
  * bulk lists without unwinding the operation on expected misses.
  */
-export type HideFeedAuthorProfileSkipReason =
-  | "mute_not_available"
-  | "already_muted";
+export type HideFeedAuthorProfileSkipReason = "mute_not_available" | "already_muted";
 
 export interface HideFeedAuthorProfileInput extends ConnectionOptions {
   /** LinkedIn profile URL (e.g. `https://www.linkedin.com/in/{publicId}/`). */
@@ -68,9 +65,7 @@ interface HideFeedAuthorProfileSkip {
   readonly dryRun: boolean;
 }
 
-export type HideFeedAuthorProfileOutput =
-  | HideFeedAuthorProfileSuccess
-  | HideFeedAuthorProfileSkip;
+export type HideFeedAuthorProfileOutput = HideFeedAuthorProfileSuccess | HideFeedAuthorProfileSkip;
 
 /**
  * Hide posts by a profile author via the profile page's More menu.
@@ -94,12 +89,10 @@ export type HideFeedAuthorProfileOutput =
  * @returns Structured result indicating whether mute was applied, skipped,
  * or was already in the target state.
  */
-export async function hideFeedAuthorProfile(
-  input: HideFeedAuthorProfileInput,
-): Promise<HideFeedAuthorProfileOutput> {
+export async function hideFeedAuthorProfile(input: HideFeedAuthorProfileInput): Promise<HideFeedAuthorProfileOutput> {
   const publicId = extractPublicId(input.profileUrl);
 
-  const cdpPort = await resolveInstancePort(input.cdpPort, input.cdpHost);
+  const cdpPort = await resolveInstancePort(input.cdpPort, input.cdpHost, undefined, input.accountId);
   const cdpHost = input.cdpHost ?? "127.0.0.1";
   const allowRemote = input.allowRemote ?? false;
 
@@ -113,14 +106,11 @@ export async function hideFeedAuthorProfile(
   await gateOnLoggedInState(cdpPort, cdpHost, allowRemote, { timeout: 60_000 });
 
   const targets = await discoverTargets(cdpPort, cdpHost);
-  const linkedInTarget = targets.find(
-    (t) => t.type === "page" && t.url?.includes("linkedin.com"),
-  );
+  const linkedInTarget = targets.find((t) => t.type === "page" && t.url?.includes("linkedin.com"));
 
   if (!linkedInTarget) {
     throw new Error(
-      "No LinkedIn page found in LinkedHelper. " +
-        "Ensure LinkedHelper is running with an active LinkedIn session.",
+      "No LinkedIn page found in LinkedHelper. " + "Ensure LinkedHelper is running with an active LinkedIn session.",
     );
   }
 
@@ -135,12 +125,7 @@ export async function hideFeedAuthorProfile(
 
     // Open the More menu with retry — the button may render asynchronously.
     const outcome = await retryInteraction(async () => {
-      await waitForElement(
-        client,
-        PROFILE_MORE_BUTTON_SELECTOR,
-        { timeout: 10_000 },
-        mouse,
-      );
+      await waitForElement(client, PROFILE_MORE_BUTTON_SELECTOR, { timeout: 10_000 }, mouse);
 
       const clicked = await client.evaluate<boolean>(`(() => {
         const btn = document.querySelector(
@@ -152,9 +137,7 @@ export async function hideFeedAuthorProfile(
       })()`);
 
       if (!clicked) {
-        throw new Error(
-          `Failed to open the profile More menu for "${publicId}".`,
-        );
+        throw new Error(`Failed to open the profile More menu for "${publicId}".`);
       }
 
       await gaussianDelay(700, 100, 500, 900);
@@ -163,9 +146,7 @@ export async function hideFeedAuthorProfile(
       // the action is available; "Unmute {Name}" indicates the profile is
       // already muted.
       const item = await client.evaluate<
-        | { kind: "mute"; name: string }
-        | { kind: "unmute"; name: string }
-        | { kind: "none" }
+        { kind: "mute"; name: string } | { kind: "unmute"; name: string } | { kind: "none" }
       >(`(() => {
         const dryRun = ${String(dryRun)};
         const mutePrefix = ${JSON.stringify(MUTE_MENUITEM_PREFIX)};
@@ -220,8 +201,7 @@ export async function hideFeedAuthorProfile(
 
         if (confirmation.dialogPresent && !confirmation.confirmed) {
           throw new Error(
-            `Mute confirmation dialog appeared for "${publicId}" ` +
-              "but no matching confirm button was clicked.",
+            `Mute confirmation dialog appeared for "${publicId}" ` + "but no matching confirm button was clicked.",
           );
         }
       }

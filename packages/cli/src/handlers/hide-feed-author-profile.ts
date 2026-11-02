@@ -6,15 +6,16 @@ import {
   hideFeedAuthorProfile,
   type HideFeedAuthorProfileOutput,
   withLoggedInStateRetryAtPort,
-} from "@lhremote/core";
+} from "@insoftex/lhremote-core";
 
-/** Handle the {@link https://github.com/alexey-pelykh/lhremote#hide-feed-author-profile | hide-feed-author-profile} CLI command. */
+/** Handle the {@link https://github.com/insoftex-company/insoftex-lhremote#hide-feed-author-profile | hide-feed-author-profile} CLI command. */
 export async function handleHideFeedAuthorProfile(
   profileUrl: string,
   options: {
     cdpPort?: number;
     cdpHost?: string;
     allowRemote?: boolean;
+    accountId?: number;
     dryRun?: boolean;
     json?: boolean;
   },
@@ -27,12 +28,13 @@ export async function handleHideFeedAuthorProfile(
       options.allowRemote ?? false,
       () =>
         hideFeedAuthorProfile({
-      profileUrl,
-      cdpPort: options.cdpPort,
-      cdpHost: options.cdpHost,
-      allowRemote: options.allowRemote,
-      dryRun: options.dryRun,
-      }),
+          profileUrl,
+          cdpPort: options.cdpPort,
+          cdpHost: options.cdpHost,
+          allowRemote: options.allowRemote,
+          accountId: options.accountId,
+          dryRun: options.dryRun,
+        }),
     );
   } catch (error) {
     const message = errorMessage(error);
@@ -48,9 +50,7 @@ export async function handleHideFeedAuthorProfile(
 
   if (!result.success) {
     if (result.reason === "already_muted") {
-      process.stdout.write(
-        `Profile "${result.publicId}" is already muted (no action taken)\n`,
-      );
+      process.stdout.write(`Profile "${result.publicId}" is already muted (no action taken)\n`);
     } else {
       process.stdout.write(
         `Mute is not available for "${result.publicId}" ` +
@@ -68,8 +68,7 @@ export async function handleHideFeedAuthorProfile(
     );
   } else {
     process.stdout.write(
-      `Muted posts by "${result.hiddenName}" via their profile page\n` +
-        `  Profile: ${result.profileUrl}\n`,
+      `Muted posts by "${result.hiddenName}" via their profile page\n` + `  Profile: ${result.profileUrl}\n`,
     );
   }
 }

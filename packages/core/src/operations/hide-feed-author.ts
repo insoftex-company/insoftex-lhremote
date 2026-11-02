@@ -6,15 +6,12 @@ import { CDPClient } from "../cdp/client.js";
 import { discoverTargets } from "../cdp/discovery.js";
 import { humanizedScrollToByIndex, retryInteraction } from "../linkedin/dom-automation.js";
 import type { HumanizedMouse } from "../linkedin/humanized-mouse.js";
+import { FEED_POST_MENU_BUTTON } from "../linkedin/selectors.js";
 import { gaussianDelay } from "../utils/delay.js";
 import type { ConnectionOptions } from "./types.js";
 import { navigateAwayIf } from "./navigate-away.js";
 import { waitForFeedLoad } from "./get-feed.js";
 import { gateOnLoggedInState } from "./wait-for-logged-in-state.js";
-
-/** CSS selector for feed post menu buttons. */
-const FEED_MENU_BUTTON_SELECTOR =
-  '[data-testid="mainFeed"] div[role="listitem"] button[aria-label^="Open control menu for post"]';
 
 /** Prefix of the "Hide posts by {Name}" menu item text. */
 const HIDE_POSTS_PREFIX = "Hide posts by ";
@@ -49,10 +46,8 @@ export interface HideFeedAuthorOutput {
  * @param input - Feed index and CDP connection parameters.
  * @returns Confirmation including the name extracted from the menu item.
  */
-export async function hideFeedAuthor(
-  input: HideFeedAuthorInput,
-): Promise<HideFeedAuthorOutput> {
-  const cdpPort = await resolveInstancePort(input.cdpPort, input.cdpHost);
+export async function hideFeedAuthor(input: HideFeedAuthorInput): Promise<HideFeedAuthorOutput> {
+  const cdpPort = await resolveInstancePort(input.cdpPort, input.cdpHost, undefined, input.accountId);
   const cdpHost = input.cdpHost ?? "127.0.0.1";
   const allowRemote = input.allowRemote ?? false;
 
@@ -67,14 +62,11 @@ export async function hideFeedAuthor(
   await gateOnLoggedInState(cdpPort, cdpHost, allowRemote, { timeout: 60_000 });
 
   const targets = await discoverTargets(cdpPort, cdpHost);
-  const linkedInTarget = targets.find(
-    (t) => t.type === "page" && t.url?.includes("linkedin.com"),
-  );
+  const linkedInTarget = targets.find((t) => t.type === "page" && t.url?.includes("linkedin.com"));
 
   if (!linkedInTarget) {
     throw new Error(
-      "No LinkedIn page found in LinkedHelper. " +
-        "Ensure LinkedHelper is running with an active LinkedIn session.",
+      "No LinkedIn page found in LinkedHelper. " + "Ensure LinkedHelper is running with an active LinkedIn session.",
     );
   }
 
@@ -94,17 +86,12 @@ export async function hideFeedAuthor(
     // Open the three-dot menu with retry logic
     const hiddenName = await retryInteraction(async () => {
       // Scroll menu button into view
-      await humanizedScrollToByIndex(
-        client,
-        FEED_MENU_BUTTON_SELECTOR,
-        feedIndex,
-        mouse,
-      );
+      await humanizedScrollToByIndex(client, FEED_POST_MENU_BUTTON, feedIndex, mouse);
 
       // Click the specific menu button by index (not the first match)
       const clicked = await client.evaluate<boolean>(`(() => {
         const btns = document.querySelectorAll(
-          ${JSON.stringify(FEED_MENU_BUTTON_SELECTOR)}
+          ${JSON.stringify(FEED_POST_MENU_BUTTON)}
         );
         const btn = btns[${feedIndex}];
         if (!btn) return false;
@@ -113,10 +100,7 @@ export async function hideFeedAuthor(
       })()`);
 
       if (!clicked) {
-        throw new Error(
-          "No feed post menu button found. " +
-            "Ensure the feed index points to a visible feed post.",
-        );
+        throw new Error("No feed post menu button found. " + "Ensure the feed index points to a visible feed post.");
       }
 
       await gaussianDelay(700, 100, 500, 900);
@@ -143,9 +127,7 @@ export async function hideFeedAuthor(
             new KeyboardEvent('keydown', { key: 'Escape', bubbles: true })
           );
         })()`);
-        throw new Error(
-          `No "Hide posts by" menu item found in the post's three-dot menu.`,
-        );
+        throw new Error(`No "Hide posts by" menu item found in the post's three-dot menu.`);
       }
 
       return name;

@@ -2,11 +2,7 @@
 // Copyright (C) 2026 Oleksii PELYKH
 
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import {
-  CDPConnectionError,
-  CDPEvaluationError,
-  CDPTimeoutError,
-} from "./errors.js";
+import { CDPConnectionError, CDPEvaluationError, CDPTimeoutError } from "./errors.js";
 import { CDPClient } from "./client.js";
 
 // Mock discovery so CDPClient.connect() resolves a WebSocket URL
@@ -90,7 +86,13 @@ class MockWebSocket {
   }
 }
 
-// Replace the global WebSocket with our mock
+// Replace the global WebSocket with our mock.  Module scope, and deliberately
+// never unstubbed: this file's whole subject is CDP over a WebSocket, so the
+// mock has to hold for every test in it.  That does mean the file runs without
+// the Tier-1 WebSocket guard `vitest.setup.ts` installs — which is the point,
+// not an oversight, and is why the rule in
+// `.github/instructions/tests.instructions.md` exempts a module-scope stub
+// while requiring an `afterEach` for one taken inside a test or hook.
 vi.stubGlobal("WebSocket", MockWebSocket);
 
 const MOCK_TARGETS = [
@@ -119,6 +121,14 @@ describe("CDPClient", () => {
   beforeEach(() => {
     MockWebSocket.instances = [];
     MockWebSocket.nextBehaviors = [];
+    // The afterEach below clears no mock state: `restoreAllMocks()` touches
+    // `vi.spyOn` spies and nothing else.  Without this the `discoverTargets`
+    // CALL RECORDS accumulated across every test in the file, and
+    // `expect(discoverTargets).toHaveBeenCalledWith(...)` could be satisfied by
+    // any earlier test's call.  Reset first, then re-establish the baseline on
+    // the next line — resetting drops implementations too.  Do not normalise
+    // this back to `clearAllMocks` (#846, #928).
+    vi.resetAllMocks();
     vi.mocked(discoverTargets).mockResolvedValue(MOCK_TARGETS);
     client = new CDPClient(9222, { timeout: 500 });
   });
@@ -134,29 +144,19 @@ describe("CDPClient", () => {
     });
 
     it("should reject non-loopback host without allowRemote", () => {
-      expect(() => new CDPClient(9222, { host: "192.168.1.1" })).toThrow(
-        CDPConnectionError,
-      );
-      expect(() => new CDPClient(9222, { host: "example.com" })).toThrow(
-        /arbitrary code execution/,
-      );
+      expect(() => new CDPClient(9222, { host: "192.168.1.1" })).toThrow(CDPConnectionError);
+      expect(() => new CDPClient(9222, { host: "example.com" })).toThrow(/arbitrary code execution/);
     });
 
     it("should allow non-loopback host with allowRemote", () => {
-      expect(
-        () => new CDPClient(9222, { host: "192.168.1.1", allowRemote: true }),
-      ).not.toThrow();
-      expect(
-        () => new CDPClient(9222, { host: "example.com", allowRemote: true }),
-      ).not.toThrow();
+      expect(() => new CDPClient(9222, { host: "192.168.1.1", allowRemote: true })).not.toThrow();
+      expect(() => new CDPClient(9222, { host: "example.com", allowRemote: true })).not.toThrow();
     });
 
     it("should warn when allowRemote is used with non-loopback host", () => {
       const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
       new CDPClient(9222, { host: "192.168.1.1", allowRemote: true });
-      expect(warnSpy).toHaveBeenCalledWith(
-        expect.stringContaining("[SECURITY WARNING]"),
-      );
+      expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining("[SECURITY WARNING]"));
       warnSpy.mockRestore();
     });
 
@@ -180,9 +180,7 @@ describe("CDPClient", () => {
       expect(client.isConnected).toBe(true);
       expect(discoverTargets).toHaveBeenCalledWith(9222, "127.0.0.1");
       expect(MockWebSocket.instances).toHaveLength(1);
-      expect(lastMockWs().url).toBe(
-        "ws://127.0.0.1:9222/devtools/page/PAGE1",
-      );
+      expect(lastMockWs().url).toBe("ws://127.0.0.1:9222/devtools/page/PAGE1");
     });
 
     it("should connect to a specific target by ID", async () => {
@@ -192,9 +190,7 @@ describe("CDPClient", () => {
     });
 
     it("should throw when target ID not found", async () => {
-      await expect(client.connect("NONEXISTENT")).rejects.toThrow(
-        CDPConnectionError,
-      );
+      await expect(client.connect("NONEXISTENT")).rejects.toThrow(CDPConnectionError);
     });
 
     it("should throw when target has no webSocketDebuggerUrl", async () => {
@@ -209,17 +205,13 @@ describe("CDPClient", () => {
         },
       ]);
 
-      await expect(client.connect()).rejects.toThrow(
-        /webSocketDebuggerUrl/,
-      );
+      await expect(client.connect()).rejects.toThrow(/webSocketDebuggerUrl/);
     });
   });
 
   describe("send", () => {
     it("should throw when not connected", async () => {
-      await expect(client.send("Runtime.evaluate")).rejects.toThrow(
-        CDPConnectionError,
-      );
+      await expect(client.send("Runtime.evaluate")).rejects.toThrow(CDPConnectionError);
     });
 
     it("should correlate request and response by message ID", async () => {
@@ -283,9 +275,7 @@ describe("CDPClient", () => {
         /* swallow, never respond */
       };
 
-      await expect(client.send("Slow.method")).rejects.toThrow(
-        CDPTimeoutError,
-      );
+      await expect(client.send("Slow.method")).rejects.toThrow(CDPTimeoutError);
     });
   });
 
@@ -326,12 +316,8 @@ describe("CDPClient", () => {
         });
       };
 
-      await expect(client.evaluate("x")).rejects.toThrow(
-        CDPEvaluationError,
-      );
-      await expect(client.evaluate("x")).rejects.toThrow(
-        /ReferenceError/,
-      );
+      await expect(client.evaluate("x")).rejects.toThrow(CDPEvaluationError);
+      await expect(client.evaluate("x")).rejects.toThrow(/ReferenceError/);
     });
   });
 
@@ -375,34 +361,22 @@ describe("CDPClient", () => {
     it("should reject file: URLs", async () => {
       await client.connect();
 
-      await expect(client.navigate("file:///etc/passwd")).rejects.toThrow(
-        TypeError,
-      );
-      await expect(client.navigate("file:///etc/passwd")).rejects.toThrow(
-        /Unsafe URL scheme: file:/,
-      );
+      await expect(client.navigate("file:///etc/passwd")).rejects.toThrow(TypeError);
+      await expect(client.navigate("file:///etc/passwd")).rejects.toThrow(/Unsafe URL scheme: file:/);
     });
 
     it("should reject javascript: URLs", async () => {
       await client.connect();
 
-      await expect(
-        client.navigate("javascript:alert(1)"),
-      ).rejects.toThrow(TypeError);
-      await expect(
-        client.navigate("javascript:alert(1)"),
-      ).rejects.toThrow(/Unsafe URL scheme: javascript:/);
+      await expect(client.navigate("javascript:alert(1)")).rejects.toThrow(TypeError);
+      await expect(client.navigate("javascript:alert(1)")).rejects.toThrow(/Unsafe URL scheme: javascript:/);
     });
 
     it("should reject data: URLs", async () => {
       await client.connect();
 
-      await expect(
-        client.navigate("data:text/html,<h1>Test</h1>"),
-      ).rejects.toThrow(TypeError);
-      await expect(
-        client.navigate("data:text/html,<h1>Test</h1>"),
-      ).rejects.toThrow(/Unsafe URL scheme: data:/);
+      await expect(client.navigate("data:text/html,<h1>Test</h1>")).rejects.toThrow(TypeError);
+      await expect(client.navigate("data:text/html,<h1>Test</h1>")).rejects.toThrow(/Unsafe URL scheme: data:/);
     });
 
     it("should throw on invalid URL strings", async () => {
@@ -473,9 +447,7 @@ describe("CDPClient", () => {
     it("should reject waitForEvent on timeout", async () => {
       await client.connect();
 
-      await expect(
-        client.waitForEvent("Never.happens", 50),
-      ).rejects.toThrow(CDPTimeoutError);
+      await expect(client.waitForEvent("Never.happens", 50)).rejects.toThrow(CDPTimeoutError);
     });
   });
 
@@ -498,227 +470,49 @@ describe("CDPClient", () => {
     });
   });
 
-  describe("reconnection", () => {
-    beforeEach(() => {
-      vi.useFakeTimers({ shouldAdvanceTime: true });
-    });
-
-    afterEach(() => {
-      vi.useRealTimers();
-    });
-
-    it("should attempt reconnection after WebSocket close on a connected client", async () => {
+  describe("unexpected close — no auto-reconnect", () => {
+    it("does NOT create a new WebSocket when the connection closes unexpectedly", async () => {
       await client.connect();
-      const ws = lastMockWs();
       expect(MockWebSocket.instances).toHaveLength(1);
 
-      // Simulate unexpected close — reconnection auto-opens (default behaviour)
-      ws.emit("close", {});
-
-      // Advance past the first backoff delay (500ms)
-      await vi.advanceTimersByTimeAsync(500);
-
-      // A second MockWebSocket should have been created for the reconnection
-      expect(MockWebSocket.instances).toHaveLength(2);
-      expect(client.isConnected).toBe(true);
-    });
-
-    it("should use exponential backoff timing", async () => {
-      await client.connect();
       const ws = lastMockWs();
-
-      const setTimeoutSpy = vi.spyOn(globalThis, "setTimeout");
-
-      // All reconnection attempts will fail, so we can observe all 5 delays
-      MockWebSocket.nextBehaviors = ["error", "error", "error", "error", "error"];
-
       ws.emit("close", {});
 
-      // Advance past all backoff delays to let all 5 attempts complete
-      await vi.advanceTimersByTimeAsync(15_500);
+      // Flush microtasks; verify no second WebSocket was spawned
+      await Promise.resolve();
 
-      // Extract the backoff delay values passed to setTimeout by the
-      // reconnection loop.  The loop calls: await new Promise(r => setTimeout(r, delay))
-      // We look for calls with the expected exponential backoff values.
-      const backoffDelays = setTimeoutSpy.mock.calls
-        .map((call) => call[1])
-        .filter((ms): ms is number => typeof ms === "number" && ms >= 500);
-
-      expect(backoffDelays).toEqual([500, 1000, 2000, 4000, 8000]);
-
-      setTimeoutSpy.mockRestore();
-    });
-
-    it("should restore functionality after successful reconnection", async () => {
-      await client.connect();
-      const ws = lastMockWs();
-
-      // Close the connection — next WebSocket will auto-open (default)
-      ws.emit("close", {});
-      expect(client.isConnected).toBe(false);
-
-      // Advance past the first backoff (500ms) to allow reconnection
-      await vi.advanceTimersByTimeAsync(500);
-
-      expect(client.isConnected).toBe(true);
-
-      // Verify the client can send messages on the new connection
-      const newWs = lastMockWs();
-      let sentMessage: string | undefined;
-      newWs.send = (data: string) => {
-        sentMessage = data;
-      };
-
-      const resultPromise = client.send("Runtime.evaluate", {
-        expression: "1+1",
-      });
-
-      await vi.waitFor(() => expect(sentMessage).toBeDefined());
-
-      const parsed = JSON.parse(sentMessage as string) as { id: number };
-      newWs.receiveMessage({
-        id: parsed.id,
-        result: { result: { value: 2 } },
-      });
-
-      const result = await resultPromise;
-      expect(result).toEqual({ result: { value: 2 } });
-    });
-
-    it("should transition to disconnected after exhausting max attempts", async () => {
-      await client.connect();
-      const ws = lastMockWs();
-
-      // All 5 reconnection attempts will fail
-      MockWebSocket.nextBehaviors = ["error", "error", "error", "error", "error"];
-
-      ws.emit("close", {});
-
-      // Advance past all 5 backoff delays: 500 + 1000 + 2000 + 4000 + 8000 = 15500
-      await vi.advanceTimersByTimeAsync(15_500);
-
-      // All 5 attempts exhausted (+ 1 original = 6 total instances)
-      expect(MockWebSocket.instances).toHaveLength(6);
+      expect(MockWebSocket.instances).toHaveLength(1);
       expect(client.isConnected).toBe(false);
     });
 
-    it("should emit reconnect-exhausted event after all attempts fail", async () => {
-      await client.connect();
-      const ws = lastMockWs();
-
-      const exhaustedEvents: unknown[] = [];
-      client.on("reconnect-exhausted", (params) => {
-        exhaustedEvents.push(params);
-      });
-
-      // All 5 reconnection attempts will fail
-      MockWebSocket.nextBehaviors = ["error", "error", "error", "error", "error"];
-
-      ws.emit("close", {});
-
-      // Advance past all 5 backoff delays: 500 + 1000 + 2000 + 4000 + 8000 = 15500
-      await vi.advanceTimersByTimeAsync(15_500);
-
-      expect(exhaustedEvents).toHaveLength(1);
-      expect(exhaustedEvents[0]).toEqual({ attempts: 5 });
-    });
-
-    it("should not emit reconnect-exhausted event when reconnection succeeds", async () => {
-      await client.connect();
-      const ws = lastMockWs();
-
-      const exhaustedEvents: unknown[] = [];
-      client.on("reconnect-exhausted", (params) => {
-        exhaustedEvents.push(params);
-      });
-
-      // Reconnection will succeed on first attempt (default auto-open)
-      ws.emit("close", {});
-
-      await vi.advanceTimersByTimeAsync(500);
-
-      expect(client.isConnected).toBe(true);
-      expect(exhaustedEvents).toHaveLength(0);
-    });
-
-    it("should reject pending requests when reconnection fails", async () => {
+    it("rejects in-flight requests when the WebSocket closes unexpectedly", async () => {
       await client.connect();
       const ws = lastMockWs();
       ws.send = () => {
-        /* swallow */
+        /* swallow — never respond */
       };
 
-      // Create a pending request before the close
-      const pendingPromise = client.send("Runtime.evaluate", {
-        expression: "1",
-      });
+      const pendingPromise = client.send("Runtime.evaluate", { expression: "1" });
 
-      // Close fires rejectAllPending with "WebSocket closed"
       ws.emit("close", {});
 
       await expect(pendingPromise).rejects.toThrow(CDPConnectionError);
       await expect(pendingPromise).rejects.toThrow(/WebSocket closed/);
     });
 
-    it("should guard against concurrent reconnection attempts", async () => {
+    it("does NOT create a new WebSocket when close fires multiple times", async () => {
       await client.connect();
       const ws = lastMockWs();
 
-      // First close triggers reconnection — make the first attempt slow (will
-      // still be in progress when we trigger the second close)
-      // All attempts error out so we can count them
-      MockWebSocket.nextBehaviors = ["error", "error", "error", "error", "error"];
-
-      // Trigger two close events in quick succession
+      ws.emit("close", {});
       ws.emit("close", {});
       ws.emit("close", {});
 
-      // Advance past all possible backoff time
-      await vi.advanceTimersByTimeAsync(15_500);
+      await Promise.resolve();
 
-      // Should only have the original + 5 reconnection attempts, not 10
-      expect(MockWebSocket.instances).toHaveLength(6);
-    });
-
-    it("should not attempt reconnection when targetId is null", async () => {
-      // The targetId guard is defense-in-depth. We test it by connecting
-      // (so wasConnected becomes true), then nullifying targetId before
-      // triggering close.
-      await client.connect();
-      const ws = lastMockWs();
-
-      // Null out targetId to test the guard
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any -- accessing private field for testing
-      (client as any).targetId = null;
-
-      ws.emit("close", {});
-
-      // Advance past potential backoff time
-      await vi.advanceTimersByTimeAsync(15_500);
-
-      // No reconnection attempts should have been made
+      // Still exactly the original WebSocket — no background reconnect
       expect(MockWebSocket.instances).toHaveLength(1);
-    });
-
-    it("should succeed on a later attempt after initial failures", async () => {
-      await client.connect();
-      const ws = lastMockWs();
-
-      // First two reconnection attempts fail, third succeeds (auto-open)
-      MockWebSocket.nextBehaviors = ["error", "error", "open"];
-
-      ws.emit("close", {});
-
-      // Advance past first two backoff delays: 500 + 1000 = 1500
-      await vi.advanceTimersByTimeAsync(1500);
       expect(client.isConnected).toBe(false);
-
-      // Advance past third backoff delay: 2000
-      await vi.advanceTimersByTimeAsync(2000);
-      expect(client.isConnected).toBe(true);
-
-      // Only original + 3 attempts (2 failed + 1 succeeded)
-      expect(MockWebSocket.instances).toHaveLength(4);
     });
   });
 });

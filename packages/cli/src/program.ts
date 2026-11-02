@@ -18,6 +18,7 @@ import {
   handleCampaignExport,
   handleCampaignGet,
   handleCampaignList,
+  handleCampaignListOrganizations,
   handleCampaignListPeople,
   handleCampaignMoveNext,
   handleCampaignRemoveAction,
@@ -34,11 +35,15 @@ import {
   handleDeleteCollection,
   handleDismissFeedPost,
   handleDismissErrors,
+  handleImportOrganizationsFromUrls,
   handleImportPeopleFromCollection,
   handleImportPeopleFromUrls,
   handleListCollections,
   handleCheckReplies,
   handleCheckStatus,
+  handleEnsureInstances,
+  handleListOrphans,
+  handleReapOrphans,
   handleCommentOnPost,
   handleCollectPeople,
   handleDescribeActions,
@@ -76,11 +81,14 @@ import {
   handleQuitApp,
   handleReactToPost,
   handleReactToComment,
+  handleRestartInstance,
   handleStartInstance,
   handleStopInstance,
   handleUnfollowFromFeed,
   handleUnfollowProfile,
 } from "./handlers/index.js";
+
+export { runProgram } from "./run.js";
 
 const require = createRequire(import.meta.url);
 const { version } = require("../package.json") as { version: string };
@@ -98,9 +106,7 @@ function parsePositiveInt(value: string): number {
 function parseMaxResults(value: string): number {
   const n = Number(value);
   if (!Number.isInteger(n) || n < -1 || n === 0) {
-    throw new InvalidArgumentError(
-      `Expected a positive integer or -1 for unlimited, got "${value}".`,
-    );
+    throw new InvalidArgumentError(`Expected a positive integer or -1 for unlimited, got "${value}".`);
   }
   return n;
 }
@@ -109,16 +115,14 @@ function parseMaxResults(value: string): number {
 function parseNonNegativeInt(value: string): number {
   const n = Number(value);
   if (!Number.isInteger(n) || n < 0) {
-    throw new InvalidArgumentError(
-      `Expected a non-negative integer, got "${value}".`,
-    );
+    throw new InvalidArgumentError(`Expected a non-negative integer, got "${value}".`);
   }
   return n;
 }
 
 /** Collect repeatable positive integer values into an array. */
-function collectPositiveInt(value: string, previous: number[]): number[] {
-  return [...previous, parsePositiveInt(value)];
+function collectPositiveInt(value: string, previous: number[] | undefined): number[] {
+  return [...(previous ?? []), parsePositiveInt(value)];
 }
 
 /** Collect repeatable string values into an array. */
@@ -129,26 +133,52 @@ function collectString(value: string, previous: string[]): string[] {
 /**
  * Create the CLI program with all subcommands registered.
  */
-export function createProgram(): Command {
+export interface CreateProgramOptions {
+  version?: string;
+}
+
+export function createProgram(options: CreateProgramOptions = {}): Command {
   const program = new Command()
     .name("lhremote")
     .description("CLI for LinkedHelper automation")
-    .version(version);
+    .version(options.version ?? version);
 
-  program
+  const findAppCmd = program
     .command("find-app")
     .description("Detect running LinkedHelper instances")
     .option("--json", "Output as JSON")
+    .option("--verbose", "Print diagnostic messages during discovery")
+    .option(
+      "--ports [pid]",
+      "List listening TCP ports and probe each for CDP — for every LinkedHelper process, or only the given PID",
+      parsePositiveInt,
+    )
     .action(handleFindApp);
+
+  findAppCmd.addHelpText(
+    "after",
+    `
+Examples:
+  lhremote find-app --verbose      Print diagnostics while discovering instances
+  lhremote find-app --json         Machine-readable JSON output
+  lhremote find-app --ports        Probe every LinkedHelper process's listening ports for CDP
+  lhremote find-app --ports 19780  Probe listening ports of PID 19780 (any process)
+`,
+  );
 
   program
     .command("launch-app")
     .description("Launch the LinkedHelper application")
+    .option("--force", "Kill existing LinkedHelper processes before launching")
+    .option("--verbose", "Print diagnostic messages during launch (binary path, CDP probe status)")
+    .option("--no-visible", "Do not restore/focus the LinkedHelper launcher window on Windows")
     .action(handleLaunchApp);
 
   program
     .command("quit-app")
     .description("Quit the LinkedHelper application")
+    .option("--verbose", "Print diagnostic messages while quitting")
+    .option("--cdp-port <port>", "CDP debugging port to target", parsePositiveInt)
     .action(handleQuitApp);
 
   program
@@ -158,7 +188,10 @@ export function createProgram(): Command {
     .option("--cdp-host <host>", "CDP host (default: 127.0.0.1)")
     .option("--allow-remote", "SECURITY: allow non-loopback CDP connections (enables remote code execution on target)")
     .option("--json", "Output as JSON")
-    .option("--all-workspaces", "List accounts across every workspace the LH user belongs to, not just the selected one (LinkedHelper 2.113.x+)")
+    .option(
+      "--all-workspaces",
+      "List accounts across every workspace the LH user belongs to, not just the selected one (LinkedHelper 2.113.x+)",
+    )
     .action(handleListAccounts);
 
   program
@@ -173,7 +206,7 @@ export function createProgram(): Command {
   program
     .command("start-instance")
     .description("Start a LinkedHelper instance")
-    .argument("<accountId>", "Account ID to start", parsePositiveInt)
+    .argument("[accountId]", "Account ID to start (auto-selects when exactly one account exists)", parsePositiveInt)
     .option("--cdp-port <port>", "CDP debugging port (auto-discovered when omitted)", parsePositiveInt)
     .option("--cdp-host <host>", "CDP host (default: 127.0.0.1)")
     .option("--allow-remote", "SECURITY: allow non-loopback CDP connections (enables remote code execution on target)")
@@ -182,16 +215,58 @@ export function createProgram(): Command {
   program
     .command("stop-instance")
     .description("Stop a LinkedHelper instance")
-    .argument("<accountId>", "Account ID to stop", parsePositiveInt)
+    .argument("[accountId]", "Account ID to stop (auto-selects when exactly one account exists)", parsePositiveInt)
     .option("--cdp-port <port>", "CDP debugging port (auto-discovered when omitted)", parsePositiveInt)
     .option("--cdp-host <host>", "CDP host (default: 127.0.0.1)")
     .option("--allow-remote", "SECURITY: allow non-loopback CDP connections (enables remote code execution on target)")
     .action(handleStopInstance);
 
   program
+    .command("restart-instance")
+    .description(
+      "Restart a single LinkedHelper account instance. " +
+        "Stops it, waits for exit, starts it, and waits until connectable. " +
+        "No-op when already healthy unless --force is used.",
+    )
+    .argument("<accountId>", "Account ID to restart", parsePositiveInt)
+    .option("--cdp-port <port>", "CDP debugging port (auto-discovered when omitted)", parsePositiveInt)
+    .option("--cdp-host <host>", "CDP host (default: 127.0.0.1)")
+    .option("--allow-remote", "SECURITY: allow non-loopback CDP connections (enables remote code execution on target)")
+    .option("--force", "Restart even when the instance is already healthy")
+    .option("--json", "Output as JSON")
+    .action(handleRestartInstance);
+
+  program
+    .command("ensure-instances")
+    .description("Idempotently start the specified account instances (skips already-running ones)")
+    .argument("<accountId...>", "Account IDs to ensure are running", (v, prev: number[]) => collectPositiveInt(v, prev))
+    .option("--cdp-port <port>", "CDP debugging port (auto-discovered when omitted)", parsePositiveInt)
+    .option("--cdp-host <host>", "CDP host (default: 127.0.0.1)")
+    .option("--allow-remote", "SECURITY: allow non-loopback CDP connections (enables remote code execution on target)")
+    .option("--json", "Output as JSON")
+    .action(handleEnsureInstances);
+
+  program
+    .command("list-orphans")
+    .description("List orphaned LinkedHelper account-instance processes")
+    .option("--json", "Output as JSON")
+    .action(handleListOrphans);
+
+  program
+    .command("reap-orphans")
+    .description("Terminate orphaned LinkedHelper account-instance processes (dry-run by default)")
+    .option("--confirm", "Actually terminate orphaned processes (without this flag, performs a dry-run)")
+    .option("--json", "Output kill results as JSON")
+    .action(handleReapOrphans);
+
+  program
     .command("campaign-list")
     .description("List LinkedHelper campaigns")
     .option("--include-archived", "Include archived campaigns")
+    .option("--cdp-port <port>", "CDP debugging port (auto-discovered when omitted)", parsePositiveInt)
+    .option("--cdp-host <host>", "CDP host (default: 127.0.0.1)")
+    .option("--allow-remote", "SECURITY: allow non-loopback CDP connections (enables remote code execution on target)")
+    .option("--account-id <id>", "Account ID to select when multiple accounts exist", parsePositiveInt)
     .option("--json", "Output as JSON")
     .action(handleCampaignList);
 
@@ -201,13 +276,39 @@ export function createProgram(): Command {
     .argument("<campaignId>", "Campaign ID", parsePositiveInt)
     .option("--action-id <id>", "Filter to a specific action", parsePositiveInt)
     .option("--status <status>", "Filter by status (queued, processed, successful, failed)")
+    .option("--urls <urls>", "Filter/verify by comma-separated LinkedIn profile URLs")
+    .option(
+      "--urls-file <path>",
+      "Filter/verify by LinkedIn profile URLs read from a file (newline- or comma-separated)",
+    )
     .option("--limit <n>", "Max results (default: 20)", parsePositiveInt)
     .option("--offset <n>", "Pagination offset (default: 0)", parseNonNegativeInt)
     .option("--cdp-port <port>", "CDP debugging port (auto-discovered when omitted)", parsePositiveInt)
     .option("--cdp-host <host>", "CDP host (default: 127.0.0.1)")
     .option("--allow-remote", "SECURITY: allow non-loopback CDP connections (enables remote code execution on target)")
+    .option("--account-id <id>", "Account ID to select when multiple accounts exist", parsePositiveInt)
     .option("--json", "Output as JSON")
     .action(handleCampaignListPeople);
+
+  program
+    .command("campaign-list-organizations")
+    .description("List organizations assigned to an organizations campaign")
+    .argument("<campaignId>", "Campaign ID", parsePositiveInt)
+    .option("--action-id <id>", "Filter to a specific action", parsePositiveInt)
+    .option("--status <status>", "Filter by status (queued, processed, successful, failed)")
+    .option("--urls <urls>", "Filter/verify by comma-separated LinkedIn company URLs")
+    .option(
+      "--urls-file <path>",
+      "Filter/verify by LinkedIn company URLs read from a file (newline- or comma-separated)",
+    )
+    .option("--limit <n>", "Max results (default: 20)", parsePositiveInt)
+    .option("--offset <n>", "Pagination offset (default: 0)", parseNonNegativeInt)
+    .option("--cdp-port <port>", "CDP debugging port (auto-discovered when omitted)", parsePositiveInt)
+    .option("--cdp-host <host>", "CDP host (default: 127.0.0.1)")
+    .option("--allow-remote", "SECURITY: allow non-loopback CDP connections (enables remote code execution on target)")
+    .option("--account-id <id>", "Account ID to select when multiple accounts exist", parsePositiveInt)
+    .option("--json", "Output as JSON")
+    .action(handleCampaignListOrganizations);
 
   program
     .command("campaign-create")
@@ -218,6 +319,7 @@ export function createProgram(): Command {
     .option("--cdp-port <port>", "CDP debugging port (auto-discovered when omitted)", parsePositiveInt)
     .option("--cdp-host <host>", "CDP host (default: 127.0.0.1)")
     .option("--allow-remote", "SECURITY: allow non-loopback CDP connections (enables remote code execution on target)")
+    .option("--account-id <id>", "Account ID to select when multiple accounts exist", parsePositiveInt)
     .option("--json", "Output as JSON")
     .action(handleCampaignCreate);
 
@@ -228,6 +330,7 @@ export function createProgram(): Command {
     .option("--cdp-port <port>", "CDP debugging port (auto-discovered when omitted)", parsePositiveInt)
     .option("--cdp-host <host>", "CDP host (default: 127.0.0.1)")
     .option("--allow-remote", "SECURITY: allow non-loopback CDP connections (enables remote code execution on target)")
+    .option("--account-id <id>", "Account ID to select when multiple accounts exist", parsePositiveInt)
     .option("--json", "Output as JSON")
     .action(handleCampaignGet);
 
@@ -239,6 +342,7 @@ export function createProgram(): Command {
     .option("--cdp-port <port>", "CDP debugging port (auto-discovered when omitted)", parsePositiveInt)
     .option("--cdp-host <host>", "CDP host (default: 127.0.0.1)")
     .option("--allow-remote", "SECURITY: allow non-loopback CDP connections (enables remote code execution on target)")
+    .option("--account-id <id>", "Account ID to select when multiple accounts exist", parsePositiveInt)
     .option("--json", "Output as JSON")
     .action(handleCampaignDelete);
 
@@ -249,6 +353,7 @@ export function createProgram(): Command {
     .option("--cdp-port <port>", "CDP debugging port (auto-discovered when omitted)", parsePositiveInt)
     .option("--cdp-host <host>", "CDP host (default: 127.0.0.1)")
     .option("--allow-remote", "SECURITY: allow non-loopback CDP connections (enables remote code execution on target)")
+    .option("--account-id <id>", "Account ID to select when multiple accounts exist", parsePositiveInt)
     .option("--json", "Output as JSON")
     .action(handleCampaignErase);
 
@@ -264,6 +369,7 @@ export function createProgram(): Command {
     .option("--cdp-port <port>", "CDP debugging port (auto-discovered when omitted)", parsePositiveInt)
     .option("--cdp-host <host>", "CDP host (default: 127.0.0.1)")
     .option("--allow-remote", "SECURITY: allow non-loopback CDP connections (enables remote code execution on target)")
+    .option("--account-id <id>", "Account ID to select when multiple accounts exist", parsePositiveInt)
     .option("--json", "Output as JSON")
     .action(handleCampaignExcludeList);
 
@@ -281,6 +387,7 @@ export function createProgram(): Command {
     .option("--cdp-port <port>", "CDP debugging port (auto-discovered when omitted)", parsePositiveInt)
     .option("--cdp-host <host>", "CDP host (default: 127.0.0.1)")
     .option("--allow-remote", "SECURITY: allow non-loopback CDP connections (enables remote code execution on target)")
+    .option("--account-id <id>", "Account ID to select when multiple accounts exist", parsePositiveInt)
     .option("--json", "Output as JSON")
     .action(handleCampaignExcludeAdd);
 
@@ -298,6 +405,7 @@ export function createProgram(): Command {
     .option("--cdp-port <port>", "CDP debugging port (auto-discovered when omitted)", parsePositiveInt)
     .option("--cdp-host <host>", "CDP host (default: 127.0.0.1)")
     .option("--allow-remote", "SECURITY: allow non-loopback CDP connections (enables remote code execution on target)")
+    .option("--account-id <id>", "Account ID to select when multiple accounts exist", parsePositiveInt)
     .option("--json", "Output as JSON")
     .action(handleCampaignExcludeRemove);
 
@@ -305,15 +413,12 @@ export function createProgram(): Command {
     .command("campaign-export")
     .description("Export a campaign configuration as YAML or JSON")
     .argument("<campaignId>", "Campaign ID to export", parsePositiveInt)
-    .addOption(
-      new Option("--format <format>", "Export format")
-        .choices(["yaml", "json"])
-        .default("yaml"),
-    )
+    .addOption(new Option("--format <format>", "Export format").choices(["yaml", "json"]).default("yaml"))
     .option("--output <path>", "Output file path (default: stdout)")
     .option("--cdp-port <port>", "CDP debugging port (auto-discovered when omitted)", parsePositiveInt)
     .option("--cdp-host <host>", "CDP host (default: 127.0.0.1)")
     .option("--allow-remote", "SECURITY: allow non-loopback CDP connections (enables remote code execution on target)")
+    .option("--account-id <id>", "Account ID to select when multiple accounts exist", parsePositiveInt)
     .action(handleCampaignExport);
 
   program
@@ -325,6 +430,7 @@ export function createProgram(): Command {
     .option("--cdp-port <port>", "CDP debugging port (auto-discovered when omitted)", parsePositiveInt)
     .option("--cdp-host <host>", "CDP host (default: 127.0.0.1)")
     .option("--allow-remote", "SECURITY: allow non-loopback CDP connections (enables remote code execution on target)")
+    .option("--account-id <id>", "Account ID to select when multiple accounts exist", parsePositiveInt)
     .option("--json", "Output as JSON")
     .action(handleCampaignStatus);
 
@@ -337,6 +443,7 @@ export function createProgram(): Command {
     .option("--cdp-port <port>", "CDP debugging port (auto-discovered when omitted)", parsePositiveInt)
     .option("--cdp-host <host>", "CDP host (default: 127.0.0.1)")
     .option("--allow-remote", "SECURITY: allow non-loopback CDP connections (enables remote code execution on target)")
+    .option("--account-id <id>", "Account ID to select when multiple accounts exist", parsePositiveInt)
     .option("--json", "Output as JSON")
     .action(handleCampaignStatistics);
 
@@ -350,6 +457,7 @@ export function createProgram(): Command {
     .option("--cdp-port <port>", "CDP debugging port (auto-discovered when omitted)", parsePositiveInt)
     .option("--cdp-host <host>", "CDP host (default: 127.0.0.1)")
     .option("--allow-remote", "SECURITY: allow non-loopback CDP connections (enables remote code execution on target)")
+    .option("--account-id <id>", "Account ID to select when multiple accounts exist", parsePositiveInt)
     .option("--json", "Output as JSON")
     .action(handleCampaignMoveNext);
 
@@ -362,6 +470,7 @@ export function createProgram(): Command {
     .option("--cdp-port <port>", "CDP debugging port (auto-discovered when omitted)", parsePositiveInt)
     .option("--cdp-host <host>", "CDP host (default: 127.0.0.1)")
     .option("--allow-remote", "SECURITY: allow non-loopback CDP connections (enables remote code execution on target)")
+    .option("--account-id <id>", "Account ID to select when multiple accounts exist", parsePositiveInt)
     .option("--json", "Output as JSON")
     .action(handleCampaignRetry);
 
@@ -374,6 +483,7 @@ export function createProgram(): Command {
     .option("--cdp-port <port>", "CDP debugging port (auto-discovered when omitted)", parsePositiveInt)
     .option("--cdp-host <host>", "CDP host (default: 127.0.0.1)")
     .option("--allow-remote", "SECURITY: allow non-loopback CDP connections (enables remote code execution on target)")
+    .option("--account-id <id>", "Account ID to select when multiple accounts exist", parsePositiveInt)
     .option("--json", "Output as JSON")
     .action(handleCampaignStart);
 
@@ -384,6 +494,7 @@ export function createProgram(): Command {
     .option("--cdp-port <port>", "CDP debugging port (auto-discovered when omitted)", parsePositiveInt)
     .option("--cdp-host <host>", "CDP host (default: 127.0.0.1)")
     .option("--allow-remote", "SECURITY: allow non-loopback CDP connections (enables remote code execution on target)")
+    .option("--account-id <id>", "Account ID to select when multiple accounts exist", parsePositiveInt)
     .option("--json", "Output as JSON")
     .action(handleCampaignStop);
 
@@ -397,6 +508,7 @@ export function createProgram(): Command {
     .option("--cdp-port <port>", "CDP debugging port (auto-discovered when omitted)", parsePositiveInt)
     .option("--cdp-host <host>", "CDP host (default: 127.0.0.1)")
     .option("--allow-remote", "SECURITY: allow non-loopback CDP connections (enables remote code execution on target)")
+    .option("--account-id <id>", "Account ID to select when multiple accounts exist", parsePositiveInt)
     .option("--json", "Output as JSON")
     .action(handleCampaignUpdate);
 
@@ -405,25 +517,15 @@ export function createProgram(): Command {
     .description("Add a new action to a campaign's action chain")
     .argument("<campaignId>", "Campaign ID", parsePositiveInt)
     .requiredOption("--name <name>", "Display name for the action")
-    .requiredOption(
-      "--action-type <type>",
-      "Action type identifier (e.g., 'VisitAndExtract', 'MessageToPerson')",
-    )
+    .requiredOption("--action-type <type>", "Action type identifier (e.g., 'VisitAndExtract', 'MessageToPerson')")
     .option("--description <text>", "Action description")
-    .option(
-      "--cool-down <ms>",
-      "Milliseconds between action executions",
-      parsePositiveInt,
-    )
-    .option(
-      "--max-results <n>",
-      "Maximum results per iteration (-1 for unlimited)",
-      parseMaxResults,
-    )
+    .option("--cool-down <ms>", "Milliseconds between action executions", parsePositiveInt)
+    .option("--max-results <n>", "Maximum results per iteration (-1 for unlimited)", parseMaxResults)
     .option("--action-settings <json>", "Action-specific settings as JSON")
     .option("--cdp-port <port>", "CDP debugging port (auto-discovered when omitted)", parsePositiveInt)
     .option("--cdp-host <host>", "CDP host (default: 127.0.0.1)")
     .option("--allow-remote", "SECURITY: allow non-loopback CDP connections (enables remote code execution on target)")
+    .option("--account-id <id>", "Account ID to select when multiple accounts exist", parsePositiveInt)
     .option("--json", "Output as JSON")
     .action(handleCampaignAddAction);
 
@@ -435,6 +537,7 @@ export function createProgram(): Command {
     .option("--cdp-port <port>", "CDP debugging port (auto-discovered when omitted)", parsePositiveInt)
     .option("--cdp-host <host>", "CDP host (default: 127.0.0.1)")
     .option("--allow-remote", "SECURITY: allow non-loopback CDP connections (enables remote code execution on target)")
+    .option("--account-id <id>", "Account ID to select when multiple accounts exist", parsePositiveInt)
     .option("--json", "Output as JSON")
     .action(handleCampaignRemoveAction);
 
@@ -446,20 +549,13 @@ export function createProgram(): Command {
     .option("--name <name>", "New display name for the action")
     .option("--description <text>", "New action description")
     .option("--clear-description", "Clear the action description")
-    .option(
-      "--cool-down <ms>",
-      "Milliseconds between action executions",
-      parsePositiveInt,
-    )
-    .option(
-      "--max-results <n>",
-      "Maximum results per iteration (-1 for unlimited)",
-      parseMaxResults,
-    )
+    .option("--cool-down <ms>", "Milliseconds between action executions", parsePositiveInt)
+    .option("--max-results <n>", "Maximum results per iteration (-1 for unlimited)", parseMaxResults)
     .option("--action-settings <json>", "Action-specific settings as JSON (merged with existing)")
     .option("--cdp-port <port>", "CDP debugging port (auto-discovered when omitted)", parsePositiveInt)
     .option("--cdp-host <host>", "CDP host (default: 127.0.0.1)")
     .option("--allow-remote", "SECURITY: allow non-loopback CDP connections (enables remote code execution on target)")
+    .option("--account-id <id>", "Account ID to select when multiple accounts exist", parsePositiveInt)
     .option("--json", "Output as JSON")
     .action(handleCampaignUpdateAction);
 
@@ -467,13 +563,11 @@ export function createProgram(): Command {
     .command("campaign-reorder-actions")
     .description("Reorder actions in a campaign's action chain")
     .argument("<campaignId>", "Campaign ID", parsePositiveInt)
-    .requiredOption(
-      "--action-ids <ids>",
-      "Comma-separated action IDs in desired order",
-    )
+    .requiredOption("--action-ids <ids>", "Comma-separated action IDs in desired order")
     .option("--cdp-port <port>", "CDP debugging port (auto-discovered when omitted)", parsePositiveInt)
     .option("--cdp-host <host>", "CDP host (default: 127.0.0.1)")
     .option("--allow-remote", "SECURITY: allow non-loopback CDP connections (enables remote code execution on target)")
+    .option("--account-id <id>", "Account ID to select when multiple accounts exist", parsePositiveInt)
     .option("--json", "Output as JSON")
     .action(handleCampaignReorderActions);
 
@@ -486,8 +580,22 @@ export function createProgram(): Command {
     .option("--cdp-port <port>", "CDP debugging port (auto-discovered when omitted)", parsePositiveInt)
     .option("--cdp-host <host>", "CDP host (default: 127.0.0.1)")
     .option("--allow-remote", "SECURITY: allow non-loopback CDP connections (enables remote code execution on target)")
+    .option("--account-id <id>", "Account ID to select when multiple accounts exist", parsePositiveInt)
     .option("--json", "Output as JSON")
     .action(handleImportPeopleFromUrls);
+
+  program
+    .command("import-organizations-from-urls")
+    .description("Import LinkedIn company URLs into an organizations campaign action target list")
+    .argument("<campaignId>", "Campaign ID to import into (must be an organizations campaign)", parsePositiveInt)
+    .option("--urls <urls>", "Comma-separated LinkedIn company URLs")
+    .option("--urls-file <path>", "File containing LinkedIn company URLs")
+    .option("--cdp-port <port>", "CDP debugging port (auto-discovered when omitted)", parsePositiveInt)
+    .option("--cdp-host <host>", "CDP host (default: 127.0.0.1)")
+    .option("--allow-remote", "SECURITY: allow non-loopback CDP connections (enables remote code execution on target)")
+    .option("--account-id <id>", "Account ID to select when multiple accounts exist", parsePositiveInt)
+    .option("--json", "Output as JSON")
+    .action(handleImportOrganizationsFromUrls);
 
   program
     .command("collect-people")
@@ -501,6 +609,7 @@ export function createProgram(): Command {
     .option("--cdp-port <port>", "CDP debugging port (auto-discovered when omitted)", parsePositiveInt)
     .option("--cdp-host <host>", "CDP host (default: 127.0.0.1)")
     .option("--allow-remote", "SECURITY: allow non-loopback CDP connections (enables remote code execution on target)")
+    .option("--account-id <id>", "Account ID to select when multiple accounts exist", parsePositiveInt)
     .option("--json", "Output as JSON")
     .action(handleCollectPeople);
 
@@ -513,6 +622,7 @@ export function createProgram(): Command {
     .option("--cdp-port <port>", "CDP debugging port (auto-discovered when omitted)", parsePositiveInt)
     .option("--cdp-host <host>", "CDP host (default: 127.0.0.1)")
     .option("--allow-remote", "SECURITY: allow non-loopback CDP connections (enables remote code execution on target)")
+    .option("--account-id <id>", "Account ID to select when multiple accounts exist", parsePositiveInt)
     .option("--json", "Output as JSON")
     .action(handleCampaignRemovePeople);
 
@@ -627,9 +737,7 @@ export function createProgram(): Command {
 
   program
     .command("scrape-messaging-history")
-    .description(
-      "Scrape messaging history from LinkedIn into the local database",
-    )
+    .description("Scrape messaging history from LinkedIn into the local database")
     .option("--person-id <id>", "Person ID to scrape (repeatable, at least one required)", collectPositiveInt, [])
     .option("--pause-others", "Pause all other campaigns during execution, then restore them")
     .option("--cdp-port <port>", "CDP debugging port (auto-discovered when omitted)", parsePositiveInt)
@@ -640,9 +748,7 @@ export function createProgram(): Command {
 
   program
     .command("visit-profile")
-    .description(
-      "Visit a LinkedIn profile and extract data (name, positions, education, skills)",
-    )
+    .description("Visit a LinkedIn profile and extract data (name, positions, education, skills)")
     .option("--person-id <id>", "Person ID to visit (provide this or --url)", parsePositiveInt)
     .option("--url <url>", "LinkedIn profile URL to visit (provide this or --person-id)")
     .option("--extract-current-organizations", "Extract current company info during profile visit")
@@ -676,6 +782,7 @@ export function createProgram(): Command {
   program
     .command("get-errors")
     .description("Query current UI errors, dialogs, and blocking popups")
+    .option("--account-id <id>", "Account ID whose session to use", parsePositiveInt)
     .option("--cdp-port <port>", "CDP debugging port (auto-discovered when omitted)", parsePositiveInt)
     .option("--cdp-host <host>", "CDP host (default: 127.0.0.1)")
     .option("--allow-remote", "SECURITY: allow non-loopback CDP connections (enables remote code execution on target)")
@@ -685,6 +792,7 @@ export function createProgram(): Command {
   program
     .command("dismiss-errors")
     .description("Dismiss closable error popups in the instance UI")
+    .option("--account-id <id>", "Account ID whose session to use", parsePositiveInt)
     .option("--cdp-port <port>", "CDP debugging port (auto-discovered when omitted)", parsePositiveInt)
     .option("--cdp-host <host>", "CDP host (default: 127.0.0.1)")
     .option("--allow-remote", "SECURITY: allow non-loopback CDP connections (enables remote code execution on target)")
@@ -714,10 +822,18 @@ export function createProgram(): Command {
     .description("Post a comment on a LinkedIn post")
     .requiredOption("--url <url>", "LinkedIn post URL")
     .requiredOption("--text <text>", "Comment text to post")
-    .option("--parent-comment-urn <urn>", "Reply to a specific comment instead of posting top-level (use commentUrn from get-post)")
+    .option(
+      "--parent-comment-urn <urn>",
+      "Reply to a specific comment instead of posting top-level (use commentUrn from get-post)",
+    )
     .option("--mentions <json>", 'JSON array of {name} objects for @mentions (e.g. \'[{"name":"John Doe"}]\')')
     .option("--cdp-port <port>", "CDP debugging port (auto-discovered when omitted)", parsePositiveInt)
     .option("--cdp-host <host>", "CDP host (default: 127.0.0.1)")
+    .option(
+      "--account-id <id>",
+      "LinkedHelper account whose action budget to check (required when several accounts exist)",
+      parsePositiveInt,
+    )
     .option("--allow-remote", "SECURITY: allow non-loopback CDP connections (enables remote code execution on target)")
     .option("--dry-run", "Validate the comment flow but skip typing and submitting")
     .option("--json", "Output as JSON")
@@ -728,6 +844,7 @@ export function createProgram(): Command {
     .description("Get detailed data for a single LinkedIn post with comment thread")
     .argument("<postUrl>", "LinkedIn post URL or URN")
     .option("--comment-count <n>", "Maximum number of comments to load (default: 100, 0 to skip)", parseNonNegativeInt)
+    .option("--account-id <id>", "Account ID whose session to use", parsePositiveInt)
     .option("--cdp-port <port>", "CDP debugging port (auto-discovered when omitted)", parsePositiveInt)
     .option("--cdp-host <host>", "CDP host (default: 127.0.0.1)")
     .option("--allow-remote", "SECURITY: allow non-loopback CDP connections (enables remote code execution on target)")
@@ -738,6 +855,7 @@ export function createProgram(): Command {
     .command("get-post-stats")
     .description("Get engagement statistics for a LinkedIn post")
     .argument("<postUrl>", "LinkedIn post URL or URN")
+    .option("--account-id <id>", "Account ID whose session to use", parsePositiveInt)
     .option("--cdp-port <port>", "CDP debugging port (auto-discovered when omitted)", parsePositiveInt)
     .option("--cdp-host <host>", "CDP host (default: 127.0.0.1)")
     .option("--allow-remote", "SECURITY: allow non-loopback CDP connections (enables remote code execution on target)")
@@ -749,6 +867,7 @@ export function createProgram(): Command {
     .description("Read the LinkedIn home feed with cursor-based pagination")
     .option("--count <n>", "Number of posts per page (default: 10)", parsePositiveInt)
     .option("--cursor <token>", "Cursor token from a previous call for the next page")
+    .option("--account-id <id>", "Account ID whose session to use", parsePositiveInt)
     .option("--cdp-port <port>", "CDP debugging port (auto-discovered when omitted)", parsePositiveInt)
     .option("--cdp-host <host>", "CDP host (default: 127.0.0.1)")
     .option("--allow-remote", "SECURITY: allow non-loopback CDP connections (enables remote code execution on target)")
@@ -759,6 +878,7 @@ export function createProgram(): Command {
     .command("dismiss-feed-post")
     .description('Dismiss a post from the LinkedIn feed by clicking "Not interested"')
     .argument("<feedIndex>", "Zero-based index of the post in the visible feed", parseNonNegativeInt)
+    .option("--account-id <id>", "Account ID whose session to use", parsePositiveInt)
     .option("--cdp-port <port>", "CDP debugging port (auto-discovered when omitted)", parsePositiveInt)
     .option("--cdp-host <host>", "CDP host (default: 127.0.0.1)")
     .option("--allow-remote", "SECURITY: allow non-loopback CDP connections (enables remote code execution on target)")
@@ -777,8 +897,16 @@ export function createProgram(): Command {
     )
     .option("--cdp-port <port>", "CDP debugging port (auto-discovered when omitted)", parsePositiveInt)
     .option("--cdp-host <host>", "CDP host (default: 127.0.0.1)")
+    .option(
+      "--account-id <id>",
+      "LinkedHelper account whose action budget to check (required when several accounts exist)",
+      parsePositiveInt,
+    )
     .option("--allow-remote", "SECURITY: allow non-loopback CDP connections (enables remote code execution on target)")
-    .option("--dry-run", "Detect current reaction state without clicking")
+    .option(
+      "--dry-run",
+      "Detect current reaction state without clicking (still refused when the action budget is exhausted)",
+    )
     .option("--json", "Output as JSON")
     .action(handleReactToPost);
 
@@ -792,6 +920,7 @@ export function createProgram(): Command {
         .choices(["like", "celebrate", "support", "love", "insightful", "funny"])
         .default("like"),
     )
+    .option("--account-id <id>", "Account ID whose session to use", parsePositiveInt)
     .option("--cdp-port <port>", "CDP debugging port (auto-discovered when omitted)", parsePositiveInt)
     .option("--cdp-host <host>", "CDP host (default: 127.0.0.1)")
     .option("--allow-remote", "SECURITY: allow non-loopback CDP connections (enables remote code execution on target)")
@@ -803,6 +932,7 @@ export function createProgram(): Command {
     .command("unfollow-from-feed")
     .description("Unfollow the author of a post via its feed three-dot menu")
     .argument("<feedIndex>", "Zero-based index of the post in the visible feed", parseNonNegativeInt)
+    .option("--account-id <id>", "Account ID whose session to use", parsePositiveInt)
     .option("--cdp-port <port>", "CDP debugging port (auto-discovered when omitted)", parsePositiveInt)
     .option("--cdp-host <host>", "CDP host (default: 127.0.0.1)")
     .option("--allow-remote", "SECURITY: allow non-loopback CDP connections (enables remote code execution on target)")
@@ -814,6 +944,7 @@ export function createProgram(): Command {
     .command("hide-feed-author")
     .description("Click 'Hide posts by {Name}' in a feed post's three-dot menu")
     .argument("<feedIndex>", "Zero-based index of the post in the visible feed", parseNonNegativeInt)
+    .option("--account-id <id>", "Account ID whose session to use", parsePositiveInt)
     .option("--cdp-port <port>", "CDP debugging port (auto-discovered when omitted)", parsePositiveInt)
     .option("--cdp-host <host>", "CDP host (default: 127.0.0.1)")
     .option("--allow-remote", "SECURITY: allow non-loopback CDP connections (enables remote code execution on target)")
@@ -825,6 +956,7 @@ export function createProgram(): Command {
     .command("hide-feed-author-profile")
     .description("Mute a LinkedIn profile's posts via the profile page's More menu (primarily 1st-degree connections)")
     .argument("<profileUrl>", "LinkedIn profile URL")
+    .option("--account-id <id>", "Account ID whose session to use", parsePositiveInt)
     .option("--cdp-port <port>", "CDP debugging port (auto-discovered when omitted)", parsePositiveInt)
     .option("--cdp-host <host>", "CDP host (default: 127.0.0.1)")
     .option("--allow-remote", "SECURITY: allow non-loopback CDP connections (enables remote code execution on target)")
@@ -834,8 +966,11 @@ export function createProgram(): Command {
 
   program
     .command("unfollow-profile")
-    .description("Unfollow a LinkedIn member profile or organization page by navigating to it and clicking Following → Unfollow")
+    .description(
+      "Unfollow a LinkedIn member profile or organization page by navigating to it and clicking Following → Unfollow",
+    )
     .argument("<profileUrl>", "LinkedIn profile URL (/in/{publicId}/) or company URL (/company/{slug}/)")
+    .option("--account-id <id>", "Account ID whose session to use", parsePositiveInt)
     .option("--cdp-port <port>", "CDP debugging port (auto-discovered when omitted)", parsePositiveInt)
     .option("--cdp-host <host>", "CDP host (default: 127.0.0.1)")
     .option("--allow-remote", "SECURITY: allow non-loopback CDP connections (enables remote code execution on target)")
@@ -849,6 +984,7 @@ export function createProgram(): Command {
     .argument("<profile>", "LinkedIn profile public ID or URL")
     .option("--count <n>", "Number of posts per page (default: 10)", parsePositiveInt)
     .option("--cursor <token>", "Cursor token from a previous call for the next page")
+    .option("--account-id <id>", "Account ID whose session to use", parsePositiveInt)
     .option("--cdp-port <port>", "CDP debugging port (auto-discovered when omitted)", parsePositiveInt)
     .option("--cdp-host <host>", "CDP host (default: 127.0.0.1)")
     .option("--allow-remote", "SECURITY: allow non-loopback CDP connections (enables remote code execution on target)")
@@ -876,7 +1012,9 @@ export function createProgram(): Command {
 
   program
     .command("resolve-entity")
-    .description("Resolve a LinkedIn entity (company, geo, school) by name via the public LinkedIn typeahead (no auth, no LinkedHelper required)")
+    .description(
+      "Resolve a LinkedIn entity (company, geo, school) by name via the public LinkedIn typeahead (no auth, no LinkedHelper required)",
+    )
     .argument("<entityType>", "Entity type: COMPANY, GEO, or SCHOOL")
     .argument("<query>", "Search query")
     .option("--limit <n>", "Max results to show", parsePositiveInt)
@@ -886,7 +1024,10 @@ export function createProgram(): Command {
   program
     .command("list-reference-data")
     .description("List LinkedIn reference data (industries, seniorities, functions, etc.)")
-    .argument("<dataType>", "Data type: INDUSTRY, SENIORITY, FUNCTION, COMPANY_SIZE, CONNECTION_DEGREE, PROFILE_LANGUAGE")
+    .argument(
+      "<dataType>",
+      "Data type: INDUSTRY, SENIORITY, FUNCTION, COMPANY_SIZE, CONNECTION_DEGREE, PROFILE_LANGUAGE",
+    )
     .option("--json", "Output as JSON")
     .action(handleListReferenceData);
 
@@ -896,6 +1037,7 @@ export function createProgram(): Command {
     .argument("<query>", "Search query (keywords or hashtag)")
     .option("--cursor <n>", "Index-based cursor from a previous search for the next page", parseNonNegativeInt)
     .option("--count <n>", "Results per page (default: 10)", parsePositiveInt)
+    .option("--account-id <id>", "Account ID whose session to use", parsePositiveInt)
     .option("--cdp-port <port>", "CDP debugging port (auto-discovered when omitted)", parsePositiveInt)
     .option("--cdp-host <host>", "CDP host (default: 127.0.0.1)")
     .option("--allow-remote", "SECURITY: allow non-loopback CDP connections (enables remote code execution on target)")
@@ -913,7 +1055,11 @@ export function createProgram(): Command {
     .option("--reject-if-replied", "Skip if person already replied")
     .option("--reject-if-messaged", "Skip if already messaged")
     .option("--keep-campaign", "Archive the ephemeral campaign instead of deleting it")
-    .option("--timeout <ms>", "Maximum time to wait for action completion in milliseconds (default: 5 min)", parsePositiveInt)
+    .option(
+      "--timeout <ms>",
+      "Maximum time to wait for action completion in milliseconds (default: 5 min)",
+      parsePositiveInt,
+    )
     .option("--cdp-port <port>", "CDP debugging port (auto-discovered when omitted)", parsePositiveInt)
     .option("--cdp-host <host>", "CDP host (default: 127.0.0.1)")
     .option("--allow-remote", "SECURITY: allow non-loopback CDP connections (enables remote code execution on target)")
@@ -928,7 +1074,11 @@ export function createProgram(): Command {
     .option("--message-template <json>", "Invitation message template as JSON (empty for no message)")
     .option("--save-as-lead-sn", "Save as lead in Sales Navigator")
     .option("--keep-campaign", "Archive the ephemeral campaign instead of deleting it")
-    .option("--timeout <ms>", "Maximum time to wait for action completion in milliseconds (default: 5 min)", parsePositiveInt)
+    .option(
+      "--timeout <ms>",
+      "Maximum time to wait for action completion in milliseconds (default: 5 min)",
+      parsePositiveInt,
+    )
     .option("--cdp-port <port>", "CDP debugging port (auto-discovered when omitted)", parsePositiveInt)
     .option("--cdp-host <host>", "CDP host (default: 127.0.0.1)")
     .option("--allow-remote", "SECURITY: allow non-loopback CDP connections (enables remote code execution on target)")
@@ -945,7 +1095,11 @@ export function createProgram(): Command {
     .option("--reject-if-replied", "Skip if person already replied")
     .option("--proceed-on-out-of-credits", "Continue even when InMail credits are exhausted")
     .option("--keep-campaign", "Archive the ephemeral campaign instead of deleting it")
-    .option("--timeout <ms>", "Maximum time to wait for action completion in milliseconds (default: 5 min)", parsePositiveInt)
+    .option(
+      "--timeout <ms>",
+      "Maximum time to wait for action completion in milliseconds (default: 5 min)",
+      parsePositiveInt,
+    )
     .option("--cdp-port <port>", "CDP debugging port (auto-discovered when omitted)", parsePositiveInt)
     .option("--cdp-host <host>", "CDP host (default: 127.0.0.1)")
     .option("--allow-remote", "SECURITY: allow non-loopback CDP connections (enables remote code execution on target)")
@@ -957,14 +1111,14 @@ export function createProgram(): Command {
     .description("Follow or unfollow a LinkedIn profile")
     .option("--person-id <id>", "Person ID (provide this or --url)", parsePositiveInt)
     .option("--url <url>", "LinkedIn profile URL (provide this or --person-id)")
-    .addOption(
-      new Option("--mode <mode>", "Follow or unfollow")
-        .choices(["follow", "unfollow"])
-        .default("follow"),
-    )
+    .addOption(new Option("--mode <mode>", "Follow or unfollow").choices(["follow", "unfollow"]).default("follow"))
     .option("--skip-if-unfollowable", "Skip if person cannot be unfollowed")
     .option("--keep-campaign", "Archive the ephemeral campaign instead of deleting it")
-    .option("--timeout <ms>", "Maximum time to wait for action completion in milliseconds (default: 5 min)", parsePositiveInt)
+    .option(
+      "--timeout <ms>",
+      "Maximum time to wait for action completion in milliseconds (default: 5 min)",
+      parsePositiveInt,
+    )
     .option("--cdp-port <port>", "CDP debugging port (auto-discovered when omitted)", parsePositiveInt)
     .option("--cdp-host <host>", "CDP host (default: 127.0.0.1)")
     .option("--allow-remote", "SECURITY: allow non-loopback CDP connections (enables remote code execution on target)")
@@ -980,15 +1134,17 @@ export function createProgram(): Command {
     .option("--limit <n>", "Max number of skills to endorse", parsePositiveInt)
     .option("--skip-if-not-endorsable", "Skip if person has no endorsable skills")
     .option("--keep-campaign", "Archive the ephemeral campaign instead of deleting it")
-    .option("--timeout <ms>", "Maximum time to wait for action completion in milliseconds (default: 5 min)", parsePositiveInt)
+    .option(
+      "--timeout <ms>",
+      "Maximum time to wait for action completion in milliseconds (default: 5 min)",
+      parsePositiveInt,
+    )
     .option("--cdp-port <port>", "CDP debugging port (auto-discovered when omitted)", parsePositiveInt)
     .option("--cdp-host <host>", "CDP host (default: 127.0.0.1)")
     .option("--allow-remote", "SECURITY: allow non-loopback CDP connections (enables remote code execution on target)")
     .option("--json", "Output as JSON")
     .action((opts) => {
-      const skillNames = (opts.skillName as string[] | undefined)?.length
-        ? opts.skillName as string[]
-        : undefined;
+      const skillNames = (opts.skillName as string[] | undefined)?.length ? (opts.skillName as string[]) : undefined;
       return handleEndorseSkills({ ...opts, skillNames, skillName: undefined });
     });
 
@@ -1005,7 +1161,11 @@ export function createProgram(): Command {
     .option("--message-template <json>", "Comment text template as JSON (required with --should-add-comment)")
     .option("--skip-if-not-liked", "Skip if nothing was liked")
     .option("--keep-campaign", "Archive the ephemeral campaign instead of deleting it")
-    .option("--timeout <ms>", "Maximum time to wait for action completion in milliseconds (default: 5 min)", parsePositiveInt)
+    .option(
+      "--timeout <ms>",
+      "Maximum time to wait for action completion in milliseconds (default: 5 min)",
+      parsePositiveInt,
+    )
     .option("--cdp-port <port>", "CDP debugging port (auto-discovered when omitted)", parsePositiveInt)
     .option("--cdp-host <host>", "CDP host (default: 127.0.0.1)")
     .option("--allow-remote", "SECURITY: allow non-loopback CDP connections (enables remote code execution on target)")
@@ -1018,7 +1178,11 @@ export function createProgram(): Command {
     .option("--person-id <id>", "Person ID (provide this or --url)", parsePositiveInt)
     .option("--url <url>", "LinkedIn profile URL (provide this or --person-id)")
     .option("--keep-campaign", "Archive the ephemeral campaign instead of deleting it")
-    .option("--timeout <ms>", "Maximum time to wait for action completion in milliseconds (default: 5 min)", parsePositiveInt)
+    .option(
+      "--timeout <ms>",
+      "Maximum time to wait for action completion in milliseconds (default: 5 min)",
+      parsePositiveInt,
+    )
     .option("--cdp-port <port>", "CDP debugging port (auto-discovered when omitted)", parsePositiveInt)
     .option("--cdp-host <host>", "CDP host (default: 127.0.0.1)")
     .option("--allow-remote", "SECURITY: allow non-loopback CDP connections (enables remote code execution on target)")
@@ -1036,7 +1200,11 @@ export function createProgram(): Command {
     .option("--enrich-socials", "Enrich social profiles")
     .option("--enrich-companies", "Enrich company data")
     .option("--keep-campaign", "Archive the ephemeral campaign instead of deleting it")
-    .option("--timeout <ms>", "Maximum time to wait for action completion in milliseconds (default: 5 min)", parsePositiveInt)
+    .option(
+      "--timeout <ms>",
+      "Maximum time to wait for action completion in milliseconds (default: 5 min)",
+      parsePositiveInt,
+    )
     .option("--cdp-port <port>", "CDP debugging port (auto-discovered when omitted)", parsePositiveInt)
     .option("--cdp-host <host>", "CDP host (default: 127.0.0.1)")
     .option("--allow-remote", "SECURITY: allow non-loopback CDP connections (enables remote code execution on target)")

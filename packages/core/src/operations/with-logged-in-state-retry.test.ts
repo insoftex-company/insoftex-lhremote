@@ -24,6 +24,23 @@ import {
   withLoggedInStateRetryAtPort,
 } from "./with-logged-in-state-retry.js";
 
+/**
+ * An `Error` whose `message` is `value`.
+ *
+ * `new Error(value)` would coerce it, which is the very step under test.  The
+ * construction mirrors `error-message.test.ts` § `errorMessage totality`, and
+ * so does its warrant: `message` is typed `string` but is not one by
+ * construction -- a subclass assigning `this.message`, an error rehydrated
+ * across a worker or IPC boundary, and a `Proxy` can each produce one.  No
+ * producer in this repo builds one today; this pins the contract `unknown`
+ * promises to accept, not an observed source.
+ */
+function errorWithMessage(value: unknown): Error {
+  const error = new Error("placeholder");
+  Object.defineProperty(error, "message", { value, configurable: true });
+  return error;
+}
+
 const instance = {} as InstanceService;
 
 describe("withLoggedInStateRetry", () => {
@@ -48,9 +65,7 @@ describe("withLoggedInStateRetry", () => {
   it("rethrows non-IncorrectContentStateError without waiting", async () => {
     const op = vi.fn().mockRejectedValue(new Error("Some unrelated CDP failure"));
 
-    await expect(withLoggedInStateRetry(instance, op)).rejects.toThrow(
-      "Some unrelated CDP failure",
-    );
+    await expect(withLoggedInStateRetry(instance, op)).rejects.toThrow("Some unrelated CDP failure");
 
     expect(op).toHaveBeenCalledTimes(1);
     expect(waitForLoggedInState).not.toHaveBeenCalled();
@@ -59,9 +74,7 @@ describe("withLoggedInStateRetry", () => {
   it("retries once after IncorrectContentStateError and succeeds", async () => {
     const op = vi
       .fn()
-      .mockRejectedValueOnce(
-        new Error("Action.IncorrectContentStateError: Incorrect web-page state"),
-      )
+      .mockRejectedValueOnce(new Error("Action.IncorrectContentStateError: Incorrect web-page state"))
       .mockResolvedValueOnce("ok");
 
     const result = await withLoggedInStateRetry(instance, op);
@@ -75,9 +88,7 @@ describe("withLoggedInStateRetry", () => {
   it("recognises the canonical predicate-failure phrasing", async () => {
     const op = vi
       .fn()
-      .mockRejectedValueOnce(
-        new Error("state `li-logged-in-loading` is not `LoggedInState`"),
-      )
+      .mockRejectedValueOnce(new Error("state `li-logged-in-loading` is not `LoggedInState`"))
       .mockResolvedValueOnce("ok");
 
     const result = await withLoggedInStateRetry(instance, op);
@@ -98,26 +109,22 @@ describe("withLoggedInStateRetry", () => {
   });
 
   it("throws LoggedInStatePersistedError when retries exhausted", async () => {
-    const op = vi.fn().mockRejectedValue(
-      new Error("Action.IncorrectContentStateError: Incorrect web-page state"),
-    );
+    const op = vi.fn().mockRejectedValue(new Error("Action.IncorrectContentStateError: Incorrect web-page state"));
 
-    await expect(
-      withLoggedInStateRetry(instance, op, { maxRetries: 1 }),
-    ).rejects.toBeInstanceOf(LoggedInStatePersistedError);
+    await expect(withLoggedInStateRetry(instance, op, { maxRetries: 1 })).rejects.toBeInstanceOf(
+      LoggedInStatePersistedError,
+    );
 
     expect(op).toHaveBeenCalledTimes(2);
     expect(waitForLoggedInState).toHaveBeenCalledTimes(1);
   });
 
   it("respects custom maxRetries", async () => {
-    const op = vi.fn().mockRejectedValue(
-      new Error("Action.IncorrectContentStateError"),
-    );
+    const op = vi.fn().mockRejectedValue(new Error("Action.IncorrectContentStateError"));
 
-    await expect(
-      withLoggedInStateRetry(instance, op, { maxRetries: 3 }),
-    ).rejects.toBeInstanceOf(LoggedInStatePersistedError);
+    await expect(withLoggedInStateRetry(instance, op, { maxRetries: 3 })).rejects.toBeInstanceOf(
+      LoggedInStatePersistedError,
+    );
 
     expect(op).toHaveBeenCalledTimes(4);
     expect(waitForLoggedInState).toHaveBeenCalledTimes(3);
@@ -162,6 +169,30 @@ describe("withLoggedInStateRetry", () => {
     await expect(withLoggedInStateRetry(instance, op)).rejects.toBe(gateError);
     expect(op).toHaveBeenCalledTimes(1);
   });
+
+  /**
+   * The eight `RegExp.test` calls in the classifier coerce their argument
+   * either way, so what this pins is that classification is unchanged on a
+   * non-string message: the retry still fires and the operation still
+   * succeeds.  Asserted on the outcome rather than on the absence of a throw,
+   * which nothing here raises.
+   */
+  it("classifies a non-string message by its text, and still retries", async () => {
+    const op = vi
+      .fn()
+      .mockRejectedValueOnce(
+        errorWithMessage({
+          toString: () => "Action.IncorrectContentStateError",
+        }),
+      )
+      .mockResolvedValueOnce("ok");
+
+    const result = await withLoggedInStateRetry(instance, op);
+
+    expect(result).toBe("ok");
+    expect(op).toHaveBeenCalledTimes(2);
+    expect(waitForLoggedInState).toHaveBeenCalledTimes(1);
+  });
 });
 
 describe("withLoggedInStateRetryAtPort", () => {
@@ -195,9 +226,7 @@ describe("withLoggedInStateRetryAtPort", () => {
   it("rethrows non-IncorrectContentStateError without constructing InstanceService", async () => {
     const op = vi.fn().mockRejectedValue(new Error("unrelated CDP failure"));
 
-    await expect(withLoggedInStateRetryAtPort(9222, "127.0.0.1", false, op)).rejects.toThrow(
-      "unrelated CDP failure",
-    );
+    await expect(withLoggedInStateRetryAtPort(9222, "127.0.0.1", false, op)).rejects.toThrow("unrelated CDP failure");
     expect(InstanceService).not.toHaveBeenCalled();
     expect(waitForLoggedInState).not.toHaveBeenCalled();
   });
@@ -230,9 +259,9 @@ describe("withLoggedInStateRetryAtPort", () => {
   it("throws LoggedInStatePersistedError when retries exhausted", async () => {
     const op = vi.fn().mockRejectedValue(new Error("Action.IncorrectContentStateError"));
 
-    await expect(
-      withLoggedInStateRetryAtPort(9222, "127.0.0.1", false, op, { maxRetries: 1 }),
-    ).rejects.toBeInstanceOf(LoggedInStatePersistedError);
+    await expect(withLoggedInStateRetryAtPort(9222, "127.0.0.1", false, op, { maxRetries: 1 })).rejects.toBeInstanceOf(
+      LoggedInStatePersistedError,
+    );
 
     expect(op).toHaveBeenCalledTimes(2);
   });

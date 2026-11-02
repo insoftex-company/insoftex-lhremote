@@ -7,9 +7,9 @@ import {
   type ReactToCommentOutput,
   type ReactionType,
   withLoggedInStateRetryAtPort,
-} from "@lhremote/core";
+} from "@insoftex/lhremote-core";
 
-/** Handle the {@link https://github.com/alexey-pelykh/lhremote#react-to-comment | react-to-comment} CLI command. */
+/** Handle the {@link https://github.com/insoftex-company/insoftex-lhremote#react-to-comment | react-to-comment} CLI command. */
 export async function handleReactToComment(
   postUrl: string,
   commentUrn: string,
@@ -18,6 +18,7 @@ export async function handleReactToComment(
     cdpPort?: number;
     cdpHost?: string;
     allowRemote?: boolean;
+    accountId?: number;
     dryRun?: boolean;
     json?: boolean;
   },
@@ -30,14 +31,15 @@ export async function handleReactToComment(
       options.allowRemote ?? false,
       () =>
         reactToComment({
-      postUrl,
-      commentUrn,
-      reactionType: (options.type as ReactionType | undefined),
-      cdpPort: options.cdpPort,
-      cdpHost: options.cdpHost,
-      allowRemote: options.allowRemote,
-      dryRun: options.dryRun,
-      }),
+          postUrl,
+          commentUrn,
+          reactionType: options.type as ReactionType | undefined,
+          cdpPort: options.cdpPort,
+          cdpHost: options.cdpHost,
+          allowRemote: options.allowRemote,
+          accountId: options.accountId,
+          dryRun: options.dryRun,
+        }),
     );
   } catch (error) {
     const message = errorMessage(error);

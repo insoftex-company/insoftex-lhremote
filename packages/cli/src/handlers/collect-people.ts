@@ -7,9 +7,9 @@ import {
   collectPeople,
   errorMessage,
   withLoggedInStateRetryAtPort,
-} from "@lhremote/core";
+} from "@insoftex/lhremote-core";
 
-/** Handle the {@link https://github.com/alexey-pelykh/lhremote#collect-people | collect-people} CLI command. */
+/** Handle the {@link https://github.com/insoftex-company/insoftex-lhremote#collect-people | collect-people} CLI command. */
 export async function handleCollectPeople(
   campaignId: number,
   sourceUrl: string,
@@ -21,6 +21,7 @@ export async function handleCollectPeople(
     cdpPort?: number;
     cdpHost?: string;
     allowRemote?: boolean;
+    accountId?: number;
     json?: boolean;
   },
 ): Promise<void> {
@@ -31,30 +32,28 @@ export async function handleCollectPeople(
       options.allowRemote ?? false,
       () =>
         collectPeople({
-      campaignId,
-      sourceUrl,
-      ...(options.limit !== undefined && { limit: options.limit }),
-      ...(options.maxPages !== undefined && { maxPages: options.maxPages }),
-      ...(options.pageSize !== undefined && { pageSize: options.pageSize }),
-      ...(options.sourceType !== undefined && { sourceType: options.sourceType }),
-      cdpPort: options.cdpPort,
-      ...(options.cdpHost !== undefined && { cdpHost: options.cdpHost }),
-      ...(options.allowRemote !== undefined && { allowRemote: options.allowRemote }),
-      }),
+          campaignId,
+          sourceUrl,
+          ...(options.limit !== undefined && { limit: options.limit }),
+          ...(options.maxPages !== undefined && { maxPages: options.maxPages }),
+          ...(options.pageSize !== undefined && { pageSize: options.pageSize }),
+          ...(options.sourceType !== undefined && { sourceType: options.sourceType }),
+          cdpPort: options.cdpPort,
+          ...(options.cdpHost !== undefined && { cdpHost: options.cdpHost }),
+          ...(options.allowRemote !== undefined && { allowRemote: options.allowRemote }),
+          ...(options.accountId !== undefined && { accountId: options.accountId }),
+        }),
+      { accountId: options.accountId },
     );
 
     if (options.json) {
       process.stdout.write(JSON.stringify(result, null, 2) + "\n");
     } else {
-      process.stdout.write(
-        `Started collecting people (${result.sourceType}) into campaign ${String(campaignId)}.\n`,
-      );
+      process.stdout.write(`Started collecting people (${result.sourceType}) into campaign ${String(campaignId)}.\n`);
     }
   } catch (error) {
     if (error instanceof CollectionBusyError) {
-      process.stderr.write(
-        `Cannot collect — instance is busy (state: ${error.runnerState}).\n`,
-      );
+      process.stderr.write(`Cannot collect — instance is busy (state: ${error.runnerState}).\n`);
     } else if (error instanceof CollectionError) {
       process.stderr.write(`${error.message}\n`);
     } else {

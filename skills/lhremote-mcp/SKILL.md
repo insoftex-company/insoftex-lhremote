@@ -1,439 +1,332 @@
+---
+name: lhremote-mcp
+description: This skill should be used when the user asks about lhremote MCP tools, LinkedHelper automation workflows, campaign management, account selection, instance lifecycle, instance health/connectability, CDP port discovery, people collection, messaging, or any lhremote CLI/MCP commands. Provides tool discovery, instance/account visibility, the CDP connection/port model, lifecycle and stability patterns, Windows auto-start behavior, workflow sequences, parameter conventions, error handling, diagnostics, and resource/rate guidance for automating LinkedHelper via CDP.
+version: 0.26.0
+updated: 2026-07-01
+---
+
 # lhremote MCP — Tool Surface & Workflow Guide
 
-This skill teaches lhremote MCP workflow patterns, conventions, and error handling for automating LinkedHelper via Chrome DevTools Protocol (CDP).
+This skill teaches lhremote MCP workflow patterns, conventions, and error handling for automating LinkedHelper (LH) via Chrome DevTools Protocol (CDP).
+
+It reflects the Insoftex **dev fork** of lhremote, including the **CDP port-validation fix** (validated 2026-06-24) that resolved intermittent false "CDP not reachable" failures on launcher operations. The **2026-06-26** update adds an error-code reference, the `query-profiles` scoping footgun, the `isDraft`/commit reality, and ephemeral single-action status. The **2026-06-29** update adds the mandatory Insoftex account-prefix convention for campaign names.
 
 ## Prerequisites
 
-LinkedHelper must be installed locally with an active license. The MCP server connects to it via CDP on a configurable port (default: 9222).
+LinkedHelper must be installed locally with an active license per LinkedIn account. The MCP server connects via CDP. LinkedHelper runs as a **launcher** process plus, per started account, one **account-instance** process and a cluster of **Chromium helper child processes**.
 
-## Tool Discovery
+---
 
-Tools are autodiscovered via the MCP protocol handshake (`tools/list`). Use the MCP tool listing to see available tools and their parameters.
+## CDP Connection Model & Port Discovery
+
+Read this before trusting or doubting any reachability result.
+
+### Each LH process binds TWO listening sockets
+
+A running launcher (and each running instance) opens **two** listening TCP sockets:
+
+- the **real CDP/DevTools endpoint** — answers `http://127.0.0.1:<port>/json/version`;
+- a **secondary ephemeral socket** the same Chromium/Electron process opens, which does **not** speak CDP.
+
+```
+launcher  PID 12548  --remote-debugging-port=9222  listening=[9222, 51664]
+instance  PID 9852   (--remote-debugging-port=0)    listening=[52805, 64038]
+```
+
+`9222`/`52805` are CDP; `51664`/`64038` are non-CDP secondary sockets.
+
+### The correct way to identify a CDP port
+
+A CDP port is confirmed **only** by a successful `/json/version` probe — never by "this PID has a listening socket." The historical discovery bug latched onto the secondary socket (e.g. `51664`) and falsely reported the launcher unreachable while `9222` was serving. The current fork validates candidate ports via `/json/version` and pins the validated port.
+
+### Regression signals
+
+- A launcher op fails with "CDP is not reachable" while `/json/version` on the expected port answers fine.
+- `check-status` summary says `reachable: false` while its `processes[]` entry shows `connectable: true`.
+- The same launcher PID is reported on different ports across consecutive calls.
+
+### Explicit-port escape hatch
+
+Every lifecycle/launcher tool accepts an explicit `cdpPort`, bypassing auto-discovery:
+
+```
+start-instance(accountId, cdpPort: 9222)
+stop-instance(accountId, cdpPort: 9222)
+launch-app(cdpPort: 9222, force: true)
+```
+
+`9222` is correct only when LH was started by the auto-start script (or `launch-app cdpPort: 9222`); a plain `launch-app force:true` picks a **new** dynamic port.
+
+> **Operational note (2026-06-26):** the explicit-port escape hatch remains valuable. Several reads this session were most reliable when the **instance** `cdpPort` was passed explicitly (e.g. campaign reads on a specific account). Reads are launcher-independent; passing the instance port avoids any launcher-side flakiness.
+
+---
+
+## Windows Auto-Start & Boot Behavior
+
+- The **launcher auto-starts** at Windows sign-in via a Startup-folder shortcut chain.
+- **Account instances do NOT auto-start.** Start them on demand with `start-instance` / `ensure-instances`.
+
+Auto-start chain:
+
+```
+Startup shortcut
+  → C:\Users\xuser\scripts\launch-linkedhelper-silent.vbs
+    → C:\Users\xuser\scripts\launch-linkedhelper-silent.cmd
+```
+
+The silent `.cmd` launches `linked-helper.exe --remote-debugging-port=9222`, polls `http://127.0.0.1:9222/json/version`, force-relaunches a stale non-debug instance, and logs to `%TEMP%\lh-cdp-startup.log`.
+
+Timing (measured): **launcher CDP up ~4s**; **instance startup ~35–90s**. Do not shorten the instance wait.
+
+---
+
+## Instance & Account Visibility
+
+### Process model
+
+- **Launcher** — single shared process; owns the launcher CDP port (dynamic). Binds CDP + a secondary socket.
+- **Account-instance main process** — command line carries `--app-id`/`--user-li-id`/`--user-li`; no `--type=`; own dynamic CDP port. This is what you start/stop/restart.
+- **Helper children** — `--type=` subprocesses; never instances/orphans; collapsed into `helperChildCount` (~12 per instance).
+
+### Identity resolution
+
+Parsed from the instance main process command line (`source: "cmdline"`, `confidence: "high"`), even when launcher CDP is down. `--lh-account` is the **license owner** (identical across instances) — never use it for per-instance identity.
+
+### `check-status` — authoritative running state
+
+Returns `launcher: { reachable, port }`, `runningInstances[]` (process-inspected), `databases[]` (full roster), `warnings[]`. Read the running set from `runningInstances[]`, not `databases[]`.
+
+### `find-app` — process/role view
+
+Launcher + classified instances, connectable-first. Use `find-app` for PID/port detail; `check-status` for the account-level running set.
+
+> **Resource note:** the reference box runs 7 configured accounts. At **6 instances running concurrently** (~9 GB on a 16 GB box) the host approaches saturation and BOTH lhremote and Windows-MCP can hang together — a host-resource symptom, not an lhremote bug. Prefer **2–3 concurrent instances**; `stop-instance` when idle.
+
+---
 
 ## Workflow Patterns
 
 ### Discovery Flow
-
-Always start here when connecting to LinkedHelper for the first time in a session:
-
 ```
-find-app → list-accounts → check-status
+find-app → check-status → list-accounts
 ```
-
-1. **`find-app`** — Detect if LinkedHelper is running and get its CDP port
-2. **`list-accounts`** — See available accounts (needed for targeting)
-3. **`check-status`** — Verify instance health and database connectivity
-
-If `find-app` returns nothing, use `launch-app` first.
+If nothing is running, `launch-app` first.
 
 ### Instance Lifecycle
-
-An instance must be running before any campaign or query operations:
-
 ```
 launch-app → start-instance → [work] → stop-instance → quit-app
+restart-instance(accountId)          # recycle one stuck instance
+ensure-instances(accountIds[])       # serialized starts + settle for a set
 ```
+Lifecycle ops are launcher operations (need launcher CDP); they return `{ status:'in_progress', operationId }` when >2s — poll `get-operation`. Start ~35–90s, launch ~5–10s, stop ~10–60s. Confirm true state with `check-status`, not the immediate return payload.
 
-- `start-instance` auto-selects the account when only one exists
-- Most tools require a running instance (they will error if not started)
-- `stop-instance` and `quit-app` are separate — stop the instance before quitting the app
+### Connectability & Stability
+Connectability is eventually-consistent — a fresh instance can read `connectable: false` for ~30s then self-recover. Re-poll before concluding failure (`readiness`: `connectable`/`starting`/`degraded`/`stuck`). `stuck` past grace → `restart-instance`. Never rapid-fire `start-instance`; use `ensure-instances`/`restart-instance`.
 
-### Collection Workflow (Primary)
+### Orphan Management
+`list-orphans` (true orphans only; helpers never count). `reap-orphans` — dry-run by default, requires `confirm: true`.
 
-The primary way to populate a campaign with targets. Discovers sources from LinkedIn pages, collects people automatically, and monitors progress:
-
+### Collection Workflow
 ```
-[build search URL] → collect-people → campaign-status → campaign-start
+[build search URL] → collect-people(campaignId, sourceUrl) → campaign-status → campaign-start
 ```
-
-**Step 1 — Build a source URL:**
-
-Construct a LinkedIn page URL to collect from. See [Building LinkedIn Search URLs](#building-linkedin-search-urls-for-import) for search URL construction, or use any supported source page (company people, group members, event attendees, etc.). See [Source Type Reference](#source-type-reference) for the full list.
-
-**Step 2 — Collect people into a campaign:**
-
-`collect-people` accepts a LinkedIn page URL and campaign ID. The source type is auto-detected from the URL. Collection runs asynchronously — the call returns immediately.
-
-```
-collect-people(campaignId, sourceUrl)
-```
-
-Optional parameters:
-- `limit` — Maximum profiles to collect
-- `maxPages` — Maximum pages to process
-- `pageSize` — Results per page
-- `sourceType` — Explicit source type to bypass URL auto-detection
-
-**Step 3 — Monitor collection progress:**
-
-Poll `campaign-status` to track collection progress. The campaign's people list grows as profiles are collected.
-
-**Step 4 — Start the campaign:**
-
-Once collection is complete (or enough people are collected), use `campaign-start` with the collected `personIds`.
-
-**Collection rate limiting:** Collection respects LinkedHelper's internal pacing. For large source pages (1000+ results), use `limit` or `maxPages` to control scope. Only one collection can run at a time per instance — attempting a second returns a `CollectionBusyError`.
+One collection per instance (`CollectionBusyError` otherwise).
 
 ### Campaign Creation & Execution
-
-Full workflow for creating and running a campaign:
-
 ```
 describe-actions → campaign-create → [populate targets] → campaign-start → campaign-status / campaign-statistics
 ```
+`campaign-create` accepts YAML (default) or JSON. Populate via `collect-people`, `import-people-from-collection`, or `import-people-from-urls` (CLI `--urls-file` for 1000+). `campaign-start` needs `campaignId` + `personIds`.
 
-**Step 1 — Discover action types:**
+> For campaign **design/validation** (action ordering, reply detection, webhook placement, CRM rules, action `actionSettings` shapes), use the **linkedhelper-webhooks** skill and `lhremote-action-config-samples.md` — not this file.
 
-Use `describe-actions` to see available action types and their configuration schemas before building a campaign config.
+### Insoftex Campaign Name Prefix
 
-**Step 2 — Create the campaign:**
+Before `campaign-create`, resolve the owning `accountId` and require the campaign name to use this format:
 
-`campaign-create` accepts YAML (default) or JSON configuration:
-
-```yaml
-version: "1"
-name: "Visit & Connect"
-actions:
-  - type: "VisitAndExtract"
-    cooldownMs: 60000
-    maxActionsPerRun: 10
-  - type: "InvitePerson"
-    config:
-      message: "Hi {firstName}, I'd like to connect!"
+```text
+<ACCOUNT_ABBREVIATION>: <descriptive campaign name>
 ```
 
-**Step 3 — Populate targets:**
+Canonical example: `CEO: Lead Automation follow-up`
 
-Three methods for adding people to a campaign:
+| LinkedHelper account | Required prefix |
+|---|---|
+| Michael Fliorko | `CEO:` |
+| Mike Florko | `CTO:` |
+| Michael Babylon | `MB:` |
+| Liza Feder | `LF:` |
+| Vira Lyn | `VL:` |
+| Oleksandra Fliorko | `OF:` |
 
-| Method | Tool | Best For |
-|--------|------|----------|
-| **Collection** (recommended) | `collect-people` | Automated discovery from LinkedIn pages |
-| **From Lists** | `import-people-from-collection` | Reusing curated people sets across campaigns |
-| **Direct URL import** | `import-people-from-urls` | Known LinkedIn profile URLs |
+The prefix must match the account where the campaign is created. Missing, unrecognized, or mismatched prefixes are validation failures. Do not invent a prefix for an unlisted account.
 
-For `import-people-from-urls`: This is idempotent — re-importing the same person is a no-op. For bulk imports (1000+ URLs), use the CLI instead:
-
-```bash
-npx lhremote import-people-from-urls <campaignId> --urls-file <path> --cdp-port <port>
-```
-
-URL file: one LinkedIn profile URL per line. Get `cdp-port` from `find-app` output.
-
-**Step 4 — Start execution:**
-
-`campaign-start` requires both `campaignId` and `personIds` (the internal IDs, not LinkedIn URLs). It returns immediately — execution is asynchronous.
-
-**Step 5 — Monitor progress:**
-
-- `campaign-status` — Real-time execution state (with optional `includeResults`)
-- `campaign-statistics` — Aggregated success/error counts per action
+Beyond the prefix, apply the **extended naming convention**: use **"Invites"** not Connect/Connection/Invite, **omit "EspoCRM"**, **"Contacts for Cold Emails"** not "Cold Email", **"Contact"** not "Profile", **omit "Campaign"** unless needed; keep names **≤60 chars** and **unique** with a `(Mon YYYY)` suffix; name empty stubs `<PREFIX>: Untitled — Stub #<id>`; fix Cyrillic/wrong-account/duplicate anomalies on sight. Full rules live in the **linkedhelper-webhooks** skill / `campaign-templates.md` — enforce them there, not here.
 
 ### Campaign Action Chain Management
+`campaign-add-action`, `campaign-remove-action`, `campaign-reorder-actions`, `campaign-move-next`, `campaign-update-action`.
 
-Campaigns contain ordered action chains. Manage them with:
-
-- `campaign-add-action` — Append an action (use `describe-actions` to discover types)
-- `campaign-remove-action` — Remove by action ID
-- `campaign-reorder-actions` — Reorder by providing action IDs in desired order
-- `campaign-move-next` — Advance specific persons to the next action
+> **`isDraft` / commit reality (2026-06-26):** `campaign-add-action` inserts new actions with `isDraft = 0` (lhremote does **not** create drafts). `campaign-update-action` does a shallow merge on `actionSettings` and **preserves** the existing `isDraft` flag — it will **not** clear `isDraft = 1`. Clearing a draft action requires a save in the LH UI. Whether LinkedHelper's runner skips `isDraft = 1` actions is **unverified**; to settle it, query LinkedHelper's SQLite (read-only) and check whether the action_ids appear in the latest committed `campaign_version` via `campaign_version_actions`. Never assert a draft node is skipped without that probe. **Invisible in the LH UI (verified 2026-07-01):** there is no per-block draft indicator — draft and committed blocks look identical on the workflow screen (official "Draft" is a campaign-level status only). **Statistics can't settle it, either direction:** `campaign-get` shows the *current* flag, not the flag/config at execution time — so `successful: 0` / `firstResultAt: null` is explained by queue-gating (not proof of skip), and non-zero history on a currently-draft block can reflect a run made while committed before a later edit (observed: campaign 32 action 259 — 526 runs under a config its current 25-day window couldn't have produced). Only the `campaign_version` membership probe indicates current live/skip state.
 
 ### Lists Management
-
-LinkedHelper collections (Lists) are reusable sets of people that persist across campaigns. Use them to curate target audiences and import into multiple campaigns.
-
-**CRUD operations:**
-
 ```
-create-collection → add-people-to-collection → [use in campaigns] → delete-collection
-```
-
-- **`create-collection`** — Create a named List. Returns the new `collectionId`.
-- **`list-collections`** — List all named Lists with people counts.
-- **`delete-collection`** — Delete a List and all its people associations. Does not delete the people themselves.
-- **`add-people-to-collection`** — Add people by `personIds`. Idempotent — adding an already-present person is a no-op.
-- **`remove-people-from-collection`** — Remove people by `personIds`.
-
-**Import into campaign:**
-
-`import-people-from-collection` reads all LinkedIn profile URLs from a List and feeds them into a campaign. Large sets are automatically chunked.
-
-```
-import-people-from-collection(collectionId, campaignId)
-```
-
-**Typical workflow:**
-
-```
-1. Create a List                → create-collection("Senior Engineers SF")
-2. Collect into it              → collect-people(campaignId, sourceUrl) or add-people-to-collection
-3. Review/curate                → list-collections to verify counts
-4. Import into campaign         → import-people-from-collection(collectionId, campaignId)
-5. Reuse for another campaign   → import-people-from-collection(collectionId, anotherCampaignId)
+create-collection → add-people-to-collection → import-people-from-collection → [reuse across campaigns]
 ```
 
 ### Messaging Workflow
-
 ```
 check-replies → query-messages
 ```
 
-- `check-replies` triggers LinkedHelper to fetch new replies from LinkedIn, then returns messages since a cutoff (default: last 24 hours)
-- `query-messages` searches the local database — use `personId` to filter by contact, `chatId` for a specific thread, or `search` for text search
-- `scrape-messaging-history` does a full scrape of all LinkedIn messages into the local database
+### Data Queries (instance required, no campaign)
+`query-profile` (by `personId`/`publicId`), `query-profiles` (by name/headline/company), `campaign-list-people`, `campaign-list`.
 
-### Data Queries (No Campaign Needed)
+> **`query-profiles` scoping footgun (2026-06-26):** `query-profiles` is **GLOBAL** across all configured account DBs (no `accountId` scoping; reference box totaled ~195k profiles across 7 accounts). The `personId`s it returns are **not** valid in account-scoped tools and will fail there. For clean, account-scoped `personId`s (e.g. to feed `campaign-*` tools), use **`campaign-list-people`** instead.
 
-Profile and message queries work against the local LinkedHelper database — no campaign execution required, but an instance must be running:
-
-- `query-profile` — Look up by `personId` (internal) or `publicId` (LinkedIn URL slug like `jane-doe-12345`)
-- `query-profiles` — Search by name/headline (`query`) or company, with `limit`/`offset` pagination
+---
 
 ## Parameter Conventions
 
-- **`cdpPort`**: Optional on all tools, defaults to `9222`. Only change if LinkedHelper runs on a non-default port.
-- **`accountId`**: Optional when only one account exists (auto-resolved). Required when multiple accounts are configured.
-- **`campaignId`** / **`actionId`** / **`personId`**: Internal LinkedHelper integer IDs (not LinkedIn public IDs).
-- **`format`**: Campaign config format — `"yaml"` (default) or `"json"`.
-- **`publicId`**: The LinkedIn profile URL slug (e.g., `jane-doe-12345` from `linkedin.com/in/jane-doe-12345`).
+- **`accountId`** — required for campaign/targeting/import/lifecycle tools when multiple accounts exist.
+- **`cdpPort`** — optional; auto-discovered (validated via `/json/version`). Dynamic — never hardcode. Pass the **instance** port explicitly as a deterministic override for account-scoped reads/edits.
+- **`campaignId` / `actionId` / `personId`** — internal LH integer IDs (not LinkedIn public IDs).
+- **`publicId`** — LinkedIn URL slug.
+- **`coolDown`** — top-level action field, ms = LH UI **"bunch time" / "Bunch Settings"**. **`maxActionResultsPerIteration`** = bunch size (`-1` unlimited). **`moveToSuccessfulAfterMs`** (in `actionSettings`) = "message analyzer period". **`Waiter.delay`** is in **hours**.
+- **`format`** — campaign config `"yaml"` (default) or `"json"`.
+
+---
+
+## Resource & Time Efficiency
+
+- Each running instance ~300–500 MB + ~12 helper children; launcher ~350 MB. Start on demand; stop idle instances.
+- Reads are cheap and launcher-independent — prefer `check-status`/`query-*` for status.
+- Don't over-poll `get-operation` (every few seconds). Instance starts legitimately take ~35–90s.
+- Boot plan: launcher auto-starts (~4s); then `ensure-instances([...])` only the accounts you need. Keep concurrency to 2–3.
+- Antivirus: exclude LH data dirs (`…\AppData\Local\linked-helper`, `…\AppData\Roaming\linked-helper`).
+
+---
 
 ## Error Patterns
 
-| Error | Cause | Fix |
-|-------|-------|-----|
-| "No running LinkedHelper instances found" | App not running | Use `launch-app` |
-| "Failed to connect to LinkedHelper" | Wrong CDP port or app crashed | Use `find-app` to discover correct port |
-| "Instance not running" | Instance not started for account | Use `start-instance` |
-| "No accounts found" / "Multiple accounts" | Account resolution failed | Use `list-accounts`, then pass explicit `accountId` |
-| "Campaign not found" | Invalid campaign ID | Use `campaign-list` to find valid IDs |
-| "Campaign start timed out" | LinkedHelper unresponsive | Check `check-status`, retry |
-| "Cannot collect — instance is busy" | Another collection in progress | Wait for current collection to finish, then retry |
-| "Collection failed" | Source URL invalid or unsupported | Check URL against source type reference, try explicit `sourceType` |
+| Error / symptom | Cause | Fix |
+|---|---|---|
+| "LinkedHelper is not running." | No LH process | `launch-app` |
+| "running but CDP is not reachable" | Launcher CDP down, **or** discovery regression if `/json/version` answers | Probe `/json/version`; if it answers, pass explicit `cdpPort` + flag regression; else `launch-app --force` |
+| "Instance not running" | Instance not started | `start-instance` / `ensure-instances` |
+| "No accounts found" / "Multiple accounts" | Resolution failed | `list-accounts`, pass explicit `accountId` |
+| "Campaign not found" | Invalid ID | `campaign-list` |
+| "Cannot collect — instance is busy" | Collection in progress | wait, retry |
+| Instance started but not connectable | Transient | re-poll ~30s |
+| Non-connectable past grace | Stuck | `restart-instance` |
+| Account requested but no instance process | No LH license / failed launch | reported `failed`/`verified:false` — verify license |
+| `"workspaceId" must be a number` (launcher UI) | **LinkedHelper's own launcher↔cloud workspace sync** — not lhremote | re-login / re-select workspace in LH; check for LH update. Not caused by lhremote campaign/instance ops; does not block CDP reads while instances stay connectable |
+| Single Action "X" failed: "incorrect action type" | Ephemeral single-action path (see below) | `dismiss-errors`; use fixed build — re-test required |
+
+---
+
+## Ephemeral single-action tools (status 2026-07-01)
+
+`visit-profile`, `follow-person`, `unfollow-profile`, `like-person-posts`, `endorse-skills`, `message-person`, `send-invite`, `send-inmail`, `remove-connection`, `comment-on-post`, `react-to-post`, `react-to-comment` run as "ephemeral campaigns" / single actions.
+
+- A bug previously caused these to fail with LH "incorrect action type: VisitAndExtract" and leave a
+  **blocking instance popup**; a full LH crash followed in one case. `get-errors` detects the popup;
+  `dismiss-errors` (with explicit instance `cdpPort`) clears it.
+- `visit-profile` is now re-verified by code coverage: unit tests cover the `success:false` failure
+  path plus `keepCampaign` / `timeout` passthrough, and end-to-end coverage confirms both URL-based
+  visits and a clean failure path that leaves the instance connectable with no lingering popup.
+- Do **not** generalize that verification to the whole family. Sibling ephemeral actions still need
+  live re-checks before being treated as equally well validated; for a conservative smoke test,
+  confirm one reversible sibling such as `follow-person` -> `unfollow-profile`.
+- For benign validation prefer `visit-profile` (a profile view); do **not** fire outreach-type ephemeral actions (invite/message/like/comment) at cold/non-consenting people during testing.
+
+---
+
+## Error-Code Reference (from live `campaign-statistics`, 2026-06-26)
+
+`topErrors[]` carries `{ code, count, isException, whoToBlame }`. Working key (interpretation inferred from `whoToBlame` + context — not an official LH codebook):
+
+| Code | Blame | Action(s) | Working interpretation |
+|---|---|---|---|
+| 271403 | LinkedIn | InvitePerson | Invite can't complete for this profile (out-of-network / restricted / changed). Per-contact, retryable |
+| 270013 | LinkedIn | InvitePerson | Most common LinkedIn invite rejection (limit / cannot-invite class) |
+| 270008 / 270009 | LinkedIn | InvitePerson | LinkedIn invite-rejection variants |
+| 270020 / 340001 | LH | InvitePerson | LH-side exception during invite (low rate) |
+| 380001 | LH | MessageToPerson | **Recurring** LH-side message exception (135 ×70, 141 ×4) — escalate to dev |
+| 60016 / 60031 / 60403 / 30003 | LinkedIn | MessageToPerson | LinkedIn message rejections (cannot message / restricted thread) |
+| 870030 | LH | SendPersonToWebhook | Webhook-delivery exception (record not pushed to EspoCRM/n8n) |
+| 1140006 | LH | PersonPostsLiker | LH-side engagement exception |
+| 1140010 | Proxy | PersonPostsLiker | Proxy-side failure |
+
+Interpretation rules: a `FilterContactsOutOfMyNetwork` **`failed`** count = profiles **not yet accepted** (held in Queue), **not** errors — report acceptance rate instead. `whoToBlame: LinkedIn` = per-contact / external (often retryable via `campaign-retry`); `whoToBlame: LH` with `isException: true` = tooling/runtime issue worth escalating; `whoToBlame: Proxy` = network/proxy.
+
+---
+
+## Diagnostic Recipes (PowerShell)
+
+**Ports each LH process listens on:**
+```powershell
+Get-CimInstance Win32_Process -Filter "Name='linked-helper.exe'" | ForEach-Object {
+  $rdp = if ($_.CommandLine -match '--remote-debugging-port=(\d+)') { $matches[1] } else { 'none' }
+  $listen = (Get-NetTCPConnection -OwningProcess $_.ProcessId -State Listen -ErrorAction SilentlyContinue |
+             Select-Object -ExpandProperty LocalPort | Sort-Object -Unique) -join ','
+  if ($listen) { "PID $($_.ProcessId) rdp-flag=$rdp listening=[$listen]" }
+}
+```
+
+**Does a candidate port speak CDP?**
+```powershell
+curl.exe --silent --fail http://127.0.0.1:9222/json/version
+```
+
+**Find a specific account's instance port:**
+```powershell
+Get-CimInstance Win32_Process -Filter "Name='linked-helper.exe'" |
+  ? { $_.CommandLine -match '--app-id=570886' -and $_.CommandLine -notmatch '--type=' }
+```
+
+**Boot log:**
+```powershell
+Get-Content (Join-Path $env:TEMP 'lh-cdp-startup.log') -Tail 20
+```
+
+---
 
 ## Action Type Reference
 
-Use `describe-actions` to get full schemas. The available action types are:
+Use `describe-actions` for full schemas. Types: `VisitAndExtract`, `InvitePerson`, `MessageToPerson`, `InMail`, `CheckForReplies`, `Follow`, `EndorseSkills`, `PersonPostsLiker`, `FilterContactsOutOfMyNetwork`, `RemoveFromFirstConnection`, `DataEnrichment`, `ScrapeMessagingHistory`, `Waiter`. Note `SendPersonToWebhook` executes at runtime but is not in the modeled catalog (linter "unknown type" is expected). For verified `actionSettings` shapes, see `lhremote-action-config-samples.md`.
 
-| Type | Category | Purpose |
-|------|----------|---------|
-| `VisitAndExtract` | people | Visit LinkedIn profile and extract data |
-| `InvitePerson` | people | Send connection request |
-| `MessageToPerson` | messaging | Send message to connection |
-| `InMail` | messaging | Send InMail to non-connection |
-| `CheckForReplies` | messaging | Check for new message replies |
-| `Follow` | engagement | Follow a LinkedIn profile |
-| `EndorseSkills` | engagement | Endorse skills on a profile |
-| `PersonPostsLiker` | engagement | Like posts by a person |
-| `FilterContactsOutOfMyNetwork` | people | Filter out non-connections |
-| `RemoveFromFirstConnection` | people | Remove from first connections |
-| `DataEnrichment` | crm | Enrich profile data |
-| `ScrapeMessagingHistory` | messaging | Scrape messaging history |
-| `Waiter` | workflow | Wait for a configured delay |
+## Source Type Reference (`collect-people` auto-detects from URL)
 
-## Source Type Reference
+**Free:** `SearchPage`, `MyConnections`, `Alumni`, `OrganizationPeople`, `Group`, `Event`, `LWVYPP`, `SentInvitationPage`, `FollowersPage`, `FollowingPage`.
+**Sales Navigator:** `SNSearchPage`, `SNListPage`, `SNOrgsPage`, `SNOrgsListsPage`.
+**Recruiter:** `TSearchPage`, `TProjectPage`, `RSearchPage`, `RProjectPage`.
 
-`collect-people` auto-detects the source type from the URL. You can also pass `sourceType` explicitly.
+## Building LinkedIn Search URLs
 
-### Free Tier (LinkedIn Basic)
-
-| Source Type | URL Pattern | Description |
-|-------------|-------------|-------------|
-| `SearchPage` | `/search/results/people/` | People search results |
-| `MyConnections` | `/mynetwork/invite-connect/connections/` | Your connections list |
-| `Alumni` | `/school/{id}/people/` | School alumni page |
-| `OrganizationPeople` | `/company/{id}/people/` | Company people page |
-| `Group` | `/groups/{id}/members/` | Group members |
-| `Event` | `/events/{id}/attendees/` | Event attendees |
-| `LWVYPP` | `/me/profile-views/` | Who viewed your profile |
-| `SentInvitationPage` | `/mynetwork/invitation-manager/sent/` | Sent connection invitations |
-| `FollowersPage` | `/me/my-network/followers/` | Your followers |
-| `FollowingPage` | `/me/my-network/following/` | People you follow |
-
-### Sales Navigator Tier
-
-| Source Type | URL Pattern | Description |
-|-------------|-------------|-------------|
-| `SNSearchPage` | `/sales/search/people` | Sales Navigator people search |
-| `SNListPage` | `/sales/lists/people/` | Sales Navigator saved lists (people) |
-| `SNOrgsPage` | `/sales/search/company` | Sales Navigator company search |
-| `SNOrgsListsPage` | `/sales/lists/company/` | Sales Navigator saved lists (companies) |
-
-### Recruiter Tier
-
-| Source Type | URL Pattern | Description |
-|-------------|-------------|-------------|
-| `TSearchPage` | `/talent/search/` | Recruiter search |
-| `TProjectPage` | `/talent/projects/` | Recruiter projects |
-| `RSearchPage` | `/recruiter/search/` | Recruiter Lite search |
-| `RProjectPage` | `/recruiter/projects/` | Recruiter Lite projects |
-
-## Building LinkedIn Search URLs for Import
-
-To populate a campaign with targets, you need LinkedIn profile URLs. The most common source is LinkedIn's people search. You can construct search URLs programmatically and then use LinkedHelper or browser automation to collect the resulting profile URLs for import.
-
-### Basic People Search URL
-
-Base: `https://www.linkedin.com/search/results/people/?`
-
-Parameters are appended as `&key=value`. Faceted filters use URL-encoded JSON arrays of strings.
-
-### Encoding Rule
-
-All faceted parameters (except `keywords`, `firstName`, `lastName`, `title`) use URL-encoded JSON arrays:
-
-```
-["12345"]       → %5B%2212345%22%5D
-["12345","678"] → %5B%2212345%22%2C%22678%22%5D
-```
-
-Characters: `[` → `%5B`, `]` → `%5D`, `"` → `%22`, `,` → `%2C`
-
-### Parameter Reference
-
-| Parameter | Type | Description |
-|-----------|------|-------------|
-| `keywords` | Plain text | Free-text search across all profile fields. Supports Boolean: `AND`, `OR`, `NOT`, `"exact phrase"`, `(grouping)` |
-| `network` | JSON array | Connection degree: `"F"` (1st), `"S"` (2nd), `"O"` (3rd+) |
-| `geoUrn` | JSON array | Location IDs (see geo table below) |
-| `currentCompany` | JSON array | Company IDs for current employer |
-| `pastCompany` | JSON array | Company IDs for previous employers |
-| `school` | JSON array | Educational institution IDs |
-| `industry` | JSON array | Industry code IDs |
-| `profileLanguage` | JSON array | ISO 639-1 codes: `"en"`, `"fr"`, `"de"`, `"es"` |
-| `serviceCategory` | JSON array | Service category IDs (for freelancers) |
-| `firstName` | Plain text | First name filter |
-| `lastName` | Plain text | Last name filter |
-| `title` | Plain text | Job title filter. Supports Boolean |
-| `connectionOf` | JSON array | Profile hash — search within someone's connections |
-
-### Common Geo URN IDs
-
-| Location | ID |
-|----------|-----|
-| United States | 103644278 |
-| Canada | 101174742 |
-| United Kingdom | 101165590 |
-| France | 105015875 |
-| Germany | 101282230 |
-| Spain | 105646813 |
-| Italy | 103350119 |
-| Netherlands | 102890719 |
-| Switzerland | 106693272 |
-| India | 102713980 |
-| Australia | 101452733 |
-| Brazil | 106057199 |
-| Japan | 101355337 |
-| SF Bay Area | 90000084 |
-
-### Discovering IDs
-
-To find IDs for companies, schools, industries, or locations not listed above:
-
-1. **URL inspection**: Apply the filter in LinkedIn's UI, then read the ID from the browser URL bar
-2. **Company page trick**: Visit a company page → click "See all jobs" → the URL contains `f_C=<companyId>`
-3. **Network tab**: Open browser DevTools → Network tab → type in a filter box → inspect the typeahead XHR request for the returned IDs
-
-### Example URLs
-
-**2nd-degree connections at Microsoft in SF Bay Area with "Senior Engineer" title:**
-
-```
-https://www.linkedin.com/search/results/people/?currentCompany=%5B%221035%22%5D&geoUrn=%5B%2290000084%22%5D&network=%5B%22S%22%5D&title=Senior%20Engineer&origin=FACETED_SEARCH
-```
-
-**French-speaking software industry professionals:**
-
-```
-https://www.linkedin.com/search/results/people/?industry=%5B%224%22%5D&profileLanguage=%5B%22fr%22%5D&origin=FACETED_SEARCH
-```
-
-**Boolean keyword search for founders or CEOs in Germany:**
-
-```
-https://www.linkedin.com/search/results/people/?keywords=founder%20OR%20CEO&geoUrn=%5B%22101282230%22%5D&origin=FACETED_SEARCH
-```
-
-### Sales Navigator Search URLs
-
-Sales Navigator uses a different base URL and encoding:
-
-- **Lead search**: `https://www.linkedin.com/sales/search/people?query=...`
-- **Account search**: `https://www.linkedin.com/sales/search/company?query=...`
-
-The `query` parameter uses a proprietary nested list syntax:
-
-```
-query=(filters:List((type:REGION,values:List((id:105015875,text:France,selectionType:INCLUDED)))))
-```
-
-This gets percent-encoded in the URL. Each filter has `type`, `id`, `text`, and `selectionType` (`INCLUDED` or `EXCLUDED`).
-
-Common Sales Navigator filter types and IDs:
-
-| Filter Type | Example IDs |
-|-------------|-------------|
-| `FUNCTION` | 8 (Engineering), 13 (IT), 19 (Product Management) |
-| `SENIORITY_LEVEL` | 220 (Director), 300 (VP), 310 (CXO), 320 (Owner/Partner) |
-| `REGION` | Same geo IDs as basic search |
-| `INDUSTRY` | Same industry IDs as basic search |
-| `CURRENT_COMPANY` | Company IDs (may use `urn:li:organization:<id>` format) |
-| `COMPANY_HEADCOUNT` | B (1-10), C (11-50), D (51-200), E (201-500), F (501-1000), G (1001-5000) |
-
-### Search-to-Campaign Workflow
-
-```
-1. Build search URL    → construct URL with desired filters (see above)
-2. Collect into campaign → collect-people(campaignId, sourceUrl) — automated, no browser needed
-3. Monitor progress    → poll campaign-status until collection completes
-4. Start campaign      → campaign-start with collected person IDs
-```
-
-This replaces the manual browser-based workflow. `collect-people` handles page navigation and profile extraction internally.
-
-**Alternative (manual URL import):**
-
-If you already have a list of LinkedIn profile URLs from another source:
-
-```
-1. Import to campaign → import-people-from-urls (MCP or CLI)
-2. Start campaign     → campaign-start with imported person IDs
-```
-
-LinkedIn limits search results to ~2,500 per query. For larger target lists, split the search into smaller segments (e.g., by sub-region or industry) so each sub-query stays under the limit.
+Base `https://www.linkedin.com/search/results/people/?` with `&key=value`. Faceted filters use URL-encoded JSON arrays. Key params: `keywords`, `network` (`F`/`S`/`O`), `geoUrn`, `currentCompany`, `pastCompany`, `school`, `industry`, `profileLanguage`, `title`, `connectionOf`. Geo URNs: US 103644278, Canada 101174742, UK 101165590, France 105015875, Germany 101282230, India 102713980, Australia 101452733, SF Bay Area 90000084. LinkedIn caps search at ~2,500/query — split large targets.
 
 ## Rate Limiting
 
-LinkedIn enforces undisclosed rate limits. Exceeding them triggers warnings or account restrictions that are difficult to reverse.
-
-### Campaign Actions
-
-| Parameter | Recommended |
-|-----------|-------------|
-| Daily safe volume | 100–200 visits/day |
-| Conservative start | 50/day, scale up after validation |
-| Cooldown between visits | 60s minimum |
-
-Start conservative. LinkedIn warnings are easier to prevent than to recover from. Configure `cooldownMs` (60000–90000) and `maxActionsPerRun` (5–10) on campaign actions accordingly.
-
-### Collection Operations
-
-| Parameter | Recommended |
-|-----------|-------------|
-| Profiles per collection run | Use `limit` to cap at 1000 per run |
-| Pages per run | Use `maxPages` to limit pagination depth |
-| Concurrent collections | 1 (enforced — `CollectionBusyError` if exceeded) |
-| Between collection runs | Wait for one to complete before starting another |
-
-Collection uses LinkedHelper's internal pacing. For large source pages, limit scope with `limit` or `maxPages` rather than collecting everything at once.
+- Campaign actions: 100–200 visits/day safe; start at 50/day; cooldown ≥60s (`coolDown` 60000–90000); `maxActionResultsPerIteration` 5–10.
+- Collection: `limit` (~1000/run), `maxPages`; one collection per instance.
+- LinkedIn warnings are easier to prevent than undo — start conservative.
 
 ## Common Pitfalls
 
-| Pitfall | Correct Approach |
-|---------|------------------|
-| Hardcoding CDP port | Read from `find-app` or `launch-app` output each session — the port is dynamic |
-| Skipping startup sequence | Always: `launch-app` → `start-instance` → operate |
-| Bulk import via MCP tool for large lists | Use CLI with `--urls-file` for 1000+ URLs |
-| Starting at maximum rate | Start at 50/day, scale after confirming no LinkedIn warnings |
-| Starting a second collection while one runs | Wait for the first to complete — only one collection per instance |
-| Collecting without `limit` on large searches | Use `limit` or `maxPages` to control scope on searches with 1000+ results |
-| Using `import-people-from-urls` when `collect-people` works | Prefer `collect-people` — it handles page navigation and extraction automatically |
+| Pitfall | Correct approach |
+|---|---|
+| Treating "CDP not reachable" as an outage without checking | Probe `/json/version`; if it answers, use explicit `cdpPort` + flag regression |
+| Identifying a CDP port by "PID has a listening socket" | Confirm via `/json/version`; processes bind a second non-CDP socket |
+| Reading running set from `databases[]` | Use `runningInstances[]` |
+| Judging health on a single `connectable` read | Re-poll across the grace window |
+| Raw back-to-back `start-instance` | Use `ensure-instances` / `restart-instance` |
+| Hardcoding CDP ports | Re-derive each session |
+| Leaving every instance running | Stop idle instances; keep 2–3 concurrent |
+| Expecting instances to auto-start after reboot | Only the launcher auto-starts |
+| Using `query-profiles` IDs in account-scoped tools | It's global; use `campaign-list-people` for scoped IDs |
+| Expecting `campaign-update-action` to clear `isDraft` | It preserves the flag; clearing needs the LH UI |
+| Asserting a draft node is skipped | Unverified — run the `campaign_version` membership probe |
+| Using `campaign-statistics` to prove a block's draft/live state (either direction) | Zeros = queue-gating; non-zeros on a currently-draft block = ran while committed then edited. `campaign-get` shows only the *current* flag. Only `campaign_version` membership indicates current live/skip state |
+| Blaming lhremote for the `workspaceId` launcher error | It's LH's own workspace sync; re-login/re-select workspace in LH |
+| Reading a Filter's `failed` count as errors | It's not-yet-accepted profiles; report acceptance rate |
+| Creating a campaign with no prefix or the wrong account prefix | Use `<ABBREVIATION>: <descriptive name>` and match the owning account |

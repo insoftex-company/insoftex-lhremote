@@ -71,18 +71,43 @@ export class CampaignStatisticsRepository {
        FROM campaigns WHERE id = ?`,
     );
 
-    this.stmtGetCampaignActions = db.prepare(
-      `SELECT a.id, a.campaign_id, a.name, a.description,
-              ac.id AS config_id, ac.actionType AS action_type,
-              ac.actionSettings AS action_settings, ac.coolDown AS cool_down,
-              ac.maxActionResultsPerIteration AS max_action_results_per_iteration,
-              ac.isDraft AS is_draft, av.id AS version_id
-       FROM actions a
-       JOIN action_versions av ON av.action_id = a.id
-       JOIN action_configs ac ON av.config_id = ac.id
-       WHERE a.campaign_id = ?
-       ORDER BY a.id`,
-    );
+    // Same dedup + version-order strategy as CampaignRepository.stmtGetCampaignActions:
+    // the correlated MAX subquery eliminates the two action_versions rows that both
+    // createCampaign (CDP) and addAction (DB) produce.  The LEFT JOIN on
+    // campaign_version_actions re-establishes chain order on real LH databases;
+    // the try-catch falls back to ORDER BY a.id in older schemas / test fixtures.
+    try {
+      this.stmtGetCampaignActions = db.prepare(
+        `SELECT a.id, a.campaign_id, a.name, a.description,
+                ac.id AS config_id, ac.actionType AS action_type,
+                ac.actionSettings AS action_settings, ac.coolDown AS cool_down,
+                ac.maxActionResultsPerIteration AS max_action_results_per_iteration,
+                ac.isDraft AS is_draft,
+                (SELECT MAX(av2.id) FROM action_versions av2 WHERE av2.action_id = a.id) AS version_id
+         FROM actions a
+         JOIN action_versions av ON av.id = (SELECT MAX(av2.id) FROM action_versions av2 WHERE av2.action_id = a.id)
+         JOIN action_configs ac ON av.config_id = ac.id
+         LEFT JOIN campaign_version_actions cva
+           ON cva.action_id = a.id
+           AND cva.version_id = (SELECT MAX(id) FROM campaign_versions WHERE campaign_id = a.campaign_id)
+         WHERE a.campaign_id = ?
+         ORDER BY CASE WHEN cva.id IS NOT NULL THEN cva.id ELSE 9999999999 + a.id END, a.id`,
+      );
+    } catch {
+      this.stmtGetCampaignActions = db.prepare(
+        `SELECT a.id, a.campaign_id, a.name, a.description,
+                ac.id AS config_id, ac.actionType AS action_type,
+                ac.actionSettings AS action_settings, ac.coolDown AS cool_down,
+                ac.maxActionResultsPerIteration AS max_action_results_per_iteration,
+                ac.isDraft AS is_draft,
+                (SELECT MAX(av2.id) FROM action_versions av2 WHERE av2.action_id = a.id) AS version_id
+         FROM actions a
+         JOIN action_versions av ON av.id = (SELECT MAX(av2.id) FROM action_versions av2 WHERE av2.action_id = a.id)
+         JOIN action_configs ac ON av.config_id = ac.id
+         WHERE a.campaign_id = ?
+         ORDER BY a.id`,
+      );
+    }
 
     this.stmtGetActionVersions = db.prepare(
       `SELECT av.id, av.action_id

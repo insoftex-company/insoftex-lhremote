@@ -6,15 +6,16 @@ import {
   dismissFeedPost,
   type DismissFeedPostOutput,
   withLoggedInStateRetryAtPort,
-} from "@lhremote/core";
+} from "@insoftex/lhremote-core";
 
-/** Handle the {@link https://github.com/alexey-pelykh/lhremote#dismiss-feed-post | dismiss-feed-post} CLI command. */
+/** Handle the {@link https://github.com/insoftex-company/insoftex-lhremote#dismiss-feed-post | dismiss-feed-post} CLI command. */
 export async function handleDismissFeedPost(
   feedIndex: number,
   options: {
     cdpPort?: number;
     cdpHost?: string;
     allowRemote?: boolean;
+    accountId?: number;
     dryRun?: boolean;
     json?: boolean;
   },
@@ -27,12 +28,13 @@ export async function handleDismissFeedPost(
       options.allowRemote ?? false,
       () =>
         dismissFeedPost({
-      feedIndex,
-      cdpPort: options.cdpPort,
-      cdpHost: options.cdpHost,
-      allowRemote: options.allowRemote,
-      dryRun: options.dryRun,
-      }),
+          feedIndex,
+          cdpPort: options.cdpPort,
+          cdpHost: options.cdpHost,
+          allowRemote: options.allowRemote,
+          accountId: options.accountId,
+          dryRun: options.dryRun,
+        }),
     );
   } catch (error) {
     const message = errorMessage(error);
@@ -44,12 +46,8 @@ export async function handleDismissFeedPost(
   if (options.json) {
     process.stdout.write(JSON.stringify(result, null, 2) + "\n");
   } else if (result.dryRun) {
-    process.stdout.write(
-      `[dry-run] Would dismiss post from feed\n  Feed index: ${result.feedIndex}\n`,
-    );
+    process.stdout.write(`[dry-run] Would dismiss post from feed\n  Feed index: ${result.feedIndex}\n`);
   } else {
-    process.stdout.write(
-      `Dismissed post from feed\n  Feed index: ${result.feedIndex}\n`,
-    );
+    process.stdout.write(`Dismissed post from feed\n  Feed index: ${result.feedIndex}\n`);
   }
 }

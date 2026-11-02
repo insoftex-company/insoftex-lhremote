@@ -4,7 +4,24 @@
 /**
  * Return a promise that resolves after the given number of milliseconds.
  */
-export function delay(ms: number): Promise<void> {
+export function delay(ms: number, signal?: AbortSignal): Promise<void> {
+  if (signal !== undefined) {
+    return new Promise((resolve, reject) => {
+      if (signal.aborted) {
+        reject(signal.reason);
+        return;
+      }
+      const onAbort = () => {
+        clearTimeout(timer);
+        reject(signal.reason);
+      };
+      const timer = setTimeout(() => {
+        signal.removeEventListener("abort", onAbort);
+        resolve();
+      }, ms);
+      signal.addEventListener("abort", onAbort, { once: true });
+    });
+  }
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
@@ -91,12 +108,7 @@ export function gaussianRandom(mean: number, stdDev: number): number {
  * @param min    - Minimum delay in milliseconds (default: 0).
  * @param max    - Maximum delay in milliseconds (default: Infinity).
  */
-export function gaussianDelay(
-  mean: number,
-  stdDev: number,
-  min = 0,
-  max = Infinity,
-): Promise<void> {
+export function gaussianDelay(mean: number, stdDev: number, min = 0, max = Infinity): Promise<void> {
   const raw = gaussianRandom(mean, stdDev);
   const clamped = Math.max(min, Math.min(max, raw));
   return delay(clamped);
@@ -113,12 +125,7 @@ export function gaussianDelay(
  * @param min    - Minimum value.
  * @param max    - Maximum value.
  */
-export function gaussianBetween(
-  mean: number,
-  stdDev: number,
-  min: number,
-  max: number,
-): number {
+export function gaussianBetween(mean: number, stdDev: number, min: number, max: number): number {
   const raw = gaussianRandom(mean, stdDev);
   return Math.max(min, Math.min(max, raw));
 }
@@ -135,15 +142,9 @@ export function gaussianBetween(
  * @param contentLength - Approximate character count of the visible content.
  * @param readFraction  - Fraction of full reading time to simulate (default: 0.3).
  */
-export function simulateReadingTime(
-  contentLength: number,
-  readFraction = 0.3,
-): Promise<void> {
-  const safeLength =
-    Number.isFinite(contentLength) && contentLength > 0 ? contentLength : 0;
-  const safeFraction = Number.isFinite(readFraction)
-    ? Math.max(0, Math.min(1, readFraction))
-    : 0.3;
+export function simulateReadingTime(contentLength: number, readFraction = 0.3): Promise<void> {
+  const safeLength = Number.isFinite(contentLength) && contentLength > 0 ? contentLength : 0;
+  const safeFraction = Number.isFinite(readFraction) ? Math.max(0, Math.min(1, readFraction)) : 0.3;
   const words = safeLength / 5;
   const readTimeMs = (words / 250) * 60_000 * safeFraction;
   return gaussianDelay(readTimeMs, readTimeMs * 0.3, 500, 8_000);

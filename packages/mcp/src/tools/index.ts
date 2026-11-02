@@ -19,12 +19,15 @@ import { registerCampaignAddAction } from "./campaign-add-action.js";
 import { registerCampaignCreate } from "./campaign-create.js";
 import { registerCampaignDelete } from "./campaign-delete.js";
 import { registerCampaignErase } from "./campaign-erase.js";
+import { registerCampaignCloneAction } from "./campaign-clone-action.js";
 import { registerCampaignExcludeAdd } from "./campaign-exclude-add.js";
 import { registerCampaignExcludeList } from "./campaign-exclude-list.js";
 import { registerCampaignExcludeRemove } from "./campaign-exclude-remove.js";
 import { registerCampaignExport } from "./campaign-export.js";
 import { registerCampaignGet } from "./campaign-get.js";
+import { registerCampaignImportFromSourceUrl } from "./campaign-import-from-source-url.js";
 import { registerCampaignList } from "./campaign-list.js";
+import { registerCampaignListOrganizations } from "./campaign-list-organizations.js";
 import { registerCampaignListPeople } from "./campaign-list-people.js";
 import { registerCampaignMoveNext } from "./campaign-move-next.js";
 import { registerCampaignRemoveAction } from "./campaign-remove-action.js";
@@ -32,6 +35,7 @@ import { registerCampaignRemovePeople } from "./campaign-remove-people.js";
 import { registerCampaignReorderActions } from "./campaign-reorder-actions.js";
 import { registerCampaignRetry } from "./campaign-retry.js";
 import { registerCampaignUpdateAction } from "./campaign-update-action.js";
+import { registerImportOrganizationsFromUrls } from "./import-organizations-from-urls.js";
 import { registerImportPeopleFromUrls } from "./import-people-from-urls.js";
 import { registerCampaignStart } from "./campaign-start.js";
 import { registerCampaignStatistics } from "./campaign-statistics.js";
@@ -39,9 +43,13 @@ import { registerCampaignStatus } from "./campaign-status.js";
 import { registerCampaignStop } from "./campaign-stop.js";
 import { registerCampaignUpdate } from "./campaign-update.js";
 import { registerCreateCollection } from "./create-collection.js";
+import { registerCampaignValidateActionSettings } from "./campaign-validate-action-settings.js";
 import { registerDeleteCollection } from "./delete-collection.js";
 import { registerCheckReplies } from "./check-replies.js";
 import { registerCheckStatus } from "./check-status.js";
+import { registerEnsureInstances } from "./ensure-instances.js";
+import { registerListOrphans } from "./list-orphans.js";
+import { registerReapOrphans } from "./reap-orphans.js";
 import { registerDismissErrors } from "./dismiss-errors.js";
 import { registerDescribeActions } from "./describe-actions.js";
 import { registerDismissFeedPost } from "./dismiss-feed-post.js";
@@ -63,6 +71,7 @@ import { registerListCollections } from "./list-collections.js";
 import { registerListAccounts } from "./list-accounts.js";
 import { registerListWorkspaces } from "./list-workspaces.js";
 import { registerQuitApp } from "./quit-app.js";
+import { registerRestartInstance } from "./restart-instance.js";
 import { registerStartInstance } from "./start-instance.js";
 import { registerStopInstance } from "./stop-instance.js";
 import { registerQueryMessages } from "./query-messages.js";
@@ -78,8 +87,14 @@ import { registerSearchPosts } from "./search-posts.js";
 import { registerUnfollowFromFeed } from "./unfollow-from-feed.js";
 import { registerUnfollowProfile } from "./unfollow-profile.js";
 import { registerVisitProfile } from "./visit-profile.js";
+import { registerGetOperation } from "./get-operation.js";
+import { registerCancelOperation } from "./cancel-operation.js";
+import { registerListOperations } from "./list-operations.js";
 
 export {
+  registerEnsureInstances,
+  registerListOrphans,
+  registerReapOrphans,
   registerAddPeopleToCollection,
   registerBuildLinkedInUrl,
   registerCollectPeople,
@@ -96,12 +111,15 @@ export {
   registerCampaignCreate,
   registerCampaignDelete,
   registerCampaignErase,
+  registerCampaignCloneAction,
   registerCampaignExcludeAdd,
   registerCampaignExcludeList,
   registerCampaignExcludeRemove,
   registerCampaignExport,
   registerCampaignGet,
+  registerCampaignImportFromSourceUrl,
   registerCampaignList,
+  registerCampaignListOrganizations,
   registerCampaignListPeople,
   registerCampaignMoveNext,
   registerCampaignRemoveAction,
@@ -115,6 +133,7 @@ export {
   registerCampaignStop,
   registerCampaignUpdate,
   registerCreateCollection,
+  registerCampaignValidateActionSettings,
   registerDeleteCollection,
   registerDismissFeedPost,
   registerDismissErrors,
@@ -132,6 +151,7 @@ export {
   registerGetProfileActivity,
   registerGetErrors,
   registerGetThrottleStatus,
+  registerImportOrganizationsFromUrls,
   registerImportPeopleFromCollection,
   registerImportPeopleFromUrls,
   registerLaunchApp,
@@ -145,6 +165,7 @@ export {
   registerQueryProfiles,
   registerQueryProfilesBulk,
   registerQuitApp,
+  registerRestartInstance,
   registerReactToPost,
   registerReactToComment,
   registerResolveLinkedInEntity,
@@ -155,12 +176,19 @@ export {
   registerUnfollowFromFeed,
   registerUnfollowProfile,
   registerVisitProfile,
+  registerGetOperation,
+  registerCancelOperation,
+  registerListOperations,
 };
 
 export function registerAllTools(server: McpServer): void {
+  registerEnsureInstances(server);
+  registerListOrphans(server);
+  registerReapOrphans(server);
   registerAddPeopleToCollection(server);
   registerCommentOnPost(server);
   registerCampaignAddAction(server);
+  registerCampaignCloneAction(server);
   registerCampaignCreate(server);
   registerCampaignDelete(server);
   registerCampaignErase(server);
@@ -169,7 +197,9 @@ export function registerAllTools(server: McpServer): void {
   registerCampaignExcludeRemove(server);
   registerCampaignExport(server);
   registerCampaignGet(server);
+  registerCampaignImportFromSourceUrl(server);
   registerCampaignList(server);
+  registerCampaignListOrganizations(server);
   registerCampaignListPeople(server);
   registerCampaignMoveNext(server);
   registerCampaignRemoveAction(server);
@@ -182,6 +212,7 @@ export function registerAllTools(server: McpServer): void {
   registerCampaignStop(server);
   registerCampaignUpdate(server);
   registerCampaignUpdateAction(server);
+  registerCampaignValidateActionSettings(server);
   registerFindApp(server);
   registerGetActionBudget(server);
   registerGetFeed(server);
@@ -197,6 +228,7 @@ export function registerAllTools(server: McpServer): void {
   registerQuitApp(server);
   registerListAccounts(server);
   registerListWorkspaces(server);
+  registerRestartInstance(server);
   registerStartInstance(server);
   registerStopInstance(server);
   registerQueryMessages(server);
@@ -215,6 +247,7 @@ export function registerAllTools(server: McpServer): void {
   registerCheckStatus(server);
   registerCollectPeople(server);
   registerDescribeActions(server);
+  registerImportOrganizationsFromUrls(server);
   registerImportPeopleFromCollection(server);
   registerImportPeopleFromUrls(server);
   registerListCollections(server);
@@ -233,4 +266,7 @@ export function registerAllTools(server: McpServer): void {
   registerSendInvite(server);
   registerUnfollowFromFeed(server);
   registerUnfollowProfile(server);
+  registerGetOperation(server);
+  registerCancelOperation(server);
+  registerListOperations(server);
 }

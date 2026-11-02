@@ -4,8 +4,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 vi.mock("../cdp/index.js", () => ({
-  discoverInstancePort: vi.fn(),
-  findApp: vi.fn(),
+  resolveInstancePort: vi.fn(),
   resolveAppPort: vi.fn(),
 }));
 
@@ -22,15 +21,15 @@ vi.mock("./launcher.js", () => ({
   LauncherService: vi.fn(),
 }));
 
-import { discoverInstancePort, findApp } from "../cdp/index.js";
+import { resolveInstancePort, resolveAppPort } from "../cdp/index.js";
 import { DatabaseClient, discoverDatabase } from "../db/index.js";
 import { InstanceService } from "./instance.js";
 import { LauncherService } from "./launcher.js";
-import { InstanceNotRunningError, UIBlockedError } from "./errors.js";
+import { UIBlockedError } from "./errors.js";
 import { withDatabase, withInstanceDatabase } from "./instance-context.js";
 
-const mockedDiscoverInstancePort = vi.mocked(discoverInstancePort);
-const mockedFindApp = vi.mocked(findApp);
+const mockedResolveInstancePort = vi.mocked(resolveInstancePort);
+const mockedResolveAppPort = vi.mocked(resolveAppPort);
 const mockedDiscoverDatabase = vi.mocked(discoverDatabase);
 const mockedDatabaseClient = vi.mocked(DatabaseClient);
 const mockedInstanceService = vi.mocked(InstanceService);
@@ -87,7 +86,10 @@ function extractHealthChecker(mockInstance: InstanceService): () => Promise<void
 
 describe("withDatabase", () => {
   beforeEach(() => {
-    vi.clearAllMocks();
+    // reset, not clear: clearAllMocks drops call records but keeps mock
+    // implementations, which is how one test's setup used to leak into the
+    // next. Do not normalise this back to clearAllMocks (#846).
+    vi.resetAllMocks();
   });
 
   afterEach(() => {
@@ -169,222 +171,97 @@ describe("withDatabase", () => {
 
 describe("withInstanceDatabase", () => {
   beforeEach(() => {
-    vi.clearAllMocks();
-    createMockLauncher();
-  });
-
-  afterEach(() => {
-    vi.restoreAllMocks();
-  });
-
-  it("connects to instance, opens DB, and passes context to callback", async () => {
-    const mockInstance = createMockInstance();
-    const mockDb = createMockDb();
-    mockedDiscoverInstancePort.mockResolvedValue(55123);
+    vi.resetAllMocks();
+    mockedResolveInstancePort.mockResolvedValue(55123);
+    mockedResolveAppPort.mockResolvedValue(9222);
     mockedDiscoverDatabase.mockReturnValue("/path/to/db.db");
-
-    let receivedCtx: unknown;
-    await withInstanceDatabase(9222, 42, (ctx) => {
-      receivedCtx = ctx;
-    });
-
-    expect(mockedDiscoverInstancePort).toHaveBeenCalledWith(9222);
-    expect(mockedInstanceService).toHaveBeenCalledWith(55123, undefined);
-    expect(mockInstance.connect).toHaveBeenCalledOnce();
-    expect(mockedDiscoverDatabase).toHaveBeenCalledWith(42);
-    expect(receivedCtx).toEqual({
-      accountId: 42,
-      instance: mockInstance,
-      db: mockDb,
-    });
-  });
-
-  it("returns the callback result", async () => {
     createMockInstance();
     createMockDb();
-    mockedDiscoverInstancePort.mockResolvedValue(55123);
-    mockedDiscoverDatabase.mockReturnValue("/path/to/db.db");
+    createMockLauncher();
+  });
+  afterEach(() => vi.restoreAllMocks());
 
-    const result = await withInstanceDatabase(9222, 42, () => "world");
-
-    expect(result).toBe("world");
+  it("binds the account and port before opening either resource", async () => {
+    const instance = createMockInstance();
+    const db = createMockDb();
+    const result = await withInstanceDatabase(9222, 42, (ctx) => ctx);
+    expect(mockedResolveInstancePort).toHaveBeenCalledWith(9222, undefined, undefined, 42);
+    expect(mockedInstanceService).toHaveBeenCalledWith(55123, undefined);
+    expect(mockedDiscoverDatabase).toHaveBeenCalledWith(42);
+    expect(result).toEqual({ accountId: 42, instance, db });
+    expect(instance.disconnect).toHaveBeenCalledOnce();
+    expect(db.close).toHaveBeenCalledOnce();
   });
 
-  it("cleans up both resources on success", async () => {
-    const mockInstance = createMockInstance();
-    const mockDb = createMockDb();
-    mockedDiscoverInstancePort.mockResolvedValue(55123);
-    mockedDiscoverDatabase.mockReturnValue("/path/to/db.db");
-
-    await withInstanceDatabase(9222, 42, () => undefined);
-
-    expect(mockInstance.disconnect).toHaveBeenCalledOnce();
-    expect(mockDb.close).toHaveBeenCalledOnce();
-  });
-
-  it("cleans up both resources on callback failure", async () => {
-    const mockInstance = createMockInstance();
-    const mockDb = createMockDb();
-    mockedDiscoverInstancePort.mockResolvedValue(55123);
-    mockedDiscoverDatabase.mockReturnValue("/path/to/db.db");
-
-    await expect(
-      withInstanceDatabase(9222, 42, () => {
-        throw new Error("callback error");
-      }),
-    ).rejects.toThrow("callback error");
-
-    expect(mockInstance.disconnect).toHaveBeenCalledOnce();
-    expect(mockDb.close).toHaveBeenCalledOnce();
-  });
-
-  it("disconnects instance when connect fails (db never opened)", async () => {
-    const mockInstance = createMockInstance({
-      connect: vi.fn().mockRejectedValue(new Error("connect failed")),
-      disconnect: vi.fn(),
-    });
-    mockedDiscoverInstancePort.mockResolvedValue(55123);
-
-    await expect(
-      withInstanceDatabase(9222, 42, () => undefined),
-    ).rejects.toThrow("connect failed");
-
-    expect(mockInstance.disconnect).toHaveBeenCalledOnce();
-    // DB was never created, so close should not have been called
+  it("never opens an instance or database when account verification fails", async () => {
+    mockedResolveInstancePort.mockRejectedValue(new Error("account mismatch"));
+    await expect(withInstanceDatabase(11111, 42, () => undefined)).rejects.toThrow("account mismatch");
+    expect(mockedInstanceService).not.toHaveBeenCalled();
     expect(mockedDatabaseClient).not.toHaveBeenCalled();
   });
 
-  it("throws InstanceNotRunningError when no instance port discovered", async () => {
-    mockedDiscoverInstancePort.mockResolvedValue(null);
-    mockedFindApp.mockResolvedValue([]);
+  it("passes timeout and database options", async () => {
+    await withInstanceDatabase(undefined, 42, () => undefined, { instanceTimeout: 5000, db: { readOnly: false } });
+    expect(mockedInstanceService).toHaveBeenCalledWith(55123, { timeout: 5000 });
+    expect(mockedDatabaseClient).toHaveBeenCalledWith("/path/to/db.db", { readOnly: false });
+  });
 
+  it("cleans up resources on callback failure", async () => {
+    const instance = createMockInstance();
+    const db = createMockDb();
     await expect(
-      withInstanceDatabase(9222, 42, () => undefined),
-    ).rejects.toThrow(InstanceNotRunningError);
+      withInstanceDatabase(9222, 42, () => {
+        throw new Error("callback");
+      }),
+    ).rejects.toThrow("callback");
+    expect(instance.disconnect).toHaveBeenCalledOnce();
+    expect(db.close).toHaveBeenCalledOnce();
   });
 
-  it("passes instanceTimeout option to InstanceService", async () => {
-    createMockInstance();
-    createMockDb();
-    mockedDiscoverInstancePort.mockResolvedValue(55123);
-    mockedDiscoverDatabase.mockReturnValue("/path/to/db.db");
+  it("cleans up a failed instance connection without opening the database", async () => {
+    const instance = createMockInstance({ connect: vi.fn().mockRejectedValue(new Error("connect")) });
+    await expect(withInstanceDatabase(9222, 42, () => undefined)).rejects.toThrow("connect");
+    expect(instance.disconnect).toHaveBeenCalledOnce();
+    expect(mockedDatabaseClient).not.toHaveBeenCalled();
+  });
 
-    await withInstanceDatabase(9222, 42, () => undefined, {
-      instanceTimeout: 5000,
-    });
+  it("remains usable without a launcher", async () => {
+    mockedResolveAppPort.mockRejectedValue(new Error("no launcher"));
+    const instance = createMockInstance();
+    expect(await withInstanceDatabase(undefined, 42, () => "ok")).toBe("ok");
+    expect(instance.setHealthChecker).toHaveBeenCalledWith(null);
+    expect(mockedLauncherService).not.toHaveBeenCalled();
+  });
 
-    expect(mockedInstanceService).toHaveBeenCalledWith(55123, {
-      timeout: 5000,
+  it("uses a short launcher session per health check and releases it before returning", async () => {
+    const instance = createMockInstance();
+    const launcher = createMockLauncher();
+    await withInstanceDatabase(9222, 42, async () => {
+      expect(launcher.connect).not.toHaveBeenCalled();
+      await extractHealthChecker(instance)();
+      expect(launcher.checkUIHealth).toHaveBeenCalledWith(42);
+      expect(launcher.disconnect).toHaveBeenCalledOnce();
+      expect(instance.getInstancePopups).toHaveBeenCalledOnce();
     });
   });
 
-  it("passes db options to DatabaseClient", async () => {
-    createMockInstance();
-    createMockDb();
-    mockedDiscoverInstancePort.mockResolvedValue(55123);
-    mockedDiscoverDatabase.mockReturnValue("/path/to/db.db");
-
-    await withInstanceDatabase(9222, 42, () => undefined, {
-      db: { readOnly: false },
+  it("reports blocking instance popups", async () => {
+    const instance = createMockInstance({
+      getInstancePopups: vi.fn().mockResolvedValue([{ title: "Blocked", closable: false }]),
     });
-
-    expect(mockedDatabaseClient).toHaveBeenCalledWith("/path/to/db.db", {
-      readOnly: false,
+    await withInstanceDatabase(9222, 42, async () => {
+      await expect(extractHealthChecker(instance)()).rejects.toThrow(UIBlockedError);
     });
   });
 
-  it("passes undefined to InstanceService when no timeout specified", async () => {
-    createMockInstance();
-    createMockDb();
-    mockedDiscoverInstancePort.mockResolvedValue(55123);
-    mockedDiscoverDatabase.mockReturnValue("/path/to/db.db");
-
-    await withInstanceDatabase(9222, 42, () => undefined);
-
-    expect(mockedInstanceService).toHaveBeenCalledWith(55123, undefined);
-  });
-
-  it("health checker calls getInstancePopups alongside launcher health", async () => {
-    const mockInstance = createMockInstance();
-    const mockLauncher = createMockLauncher();
-    createMockDb();
-    mockedDiscoverInstancePort.mockResolvedValue(55123);
-    mockedDiscoverDatabase.mockReturnValue("/path/to/db.db");
-
-    await withInstanceDatabase(9222, 42, () => undefined);
-
-    // Extract and invoke the registered health checker
-    const healthChecker = extractHealthChecker(mockInstance);
-
-    await healthChecker();
-
-    expect(vi.mocked(mockLauncher.checkUIHealth)).toHaveBeenCalledWith(42);
-    expect(vi.mocked(mockInstance.getInstancePopups)).toHaveBeenCalledOnce();
-  });
-
-  it("health checker throws UIBlockedError when instance popups detected", async () => {
-    const mockInstance = createMockInstance({
-      getInstancePopups: vi.fn().mockResolvedValue([
-        { title: "Failed to initialize UI", description: "Error details", closable: false },
-      ]),
+  it("releases a failed launcher connection and still checks instance popups", async () => {
+    const instance = createMockInstance();
+    const launcher = createMockLauncher();
+    vi.mocked(launcher.connect).mockRejectedValue(new Error("launcher unavailable"));
+    await withInstanceDatabase(9222, 42, async () => {
+      await expect(extractHealthChecker(instance)()).resolves.toBeUndefined();
+      expect(instance.getInstancePopups).toHaveBeenCalledOnce();
+      expect(launcher.disconnect).toHaveBeenCalledOnce();
     });
-    createMockLauncher();
-    createMockDb();
-    mockedDiscoverInstancePort.mockResolvedValue(55123);
-    mockedDiscoverDatabase.mockReturnValue("/path/to/db.db");
-
-    await withInstanceDatabase(9222, 42, () => undefined);
-
-    const healthChecker = extractHealthChecker(mockInstance);
-
-    await expect(healthChecker()).rejects.toThrow(UIBlockedError);
-    await expect(healthChecker()).rejects.toThrow("Instance popup: Failed to initialize UI");
-  });
-
-  it("health checker throws UIBlockedError with both launcher issues and instance popups", async () => {
-    const mockInstance = createMockInstance({
-      getInstancePopups: vi.fn().mockResolvedValue([
-        { title: "Error popup", closable: true },
-      ]),
-    });
-    const mockLauncher = createMockLauncher();
-    vi.mocked(mockLauncher.checkUIHealth).mockResolvedValue({
-      healthy: false,
-      issues: [
-        {
-          type: "dialog",
-          id: "d1",
-          data: { id: "d1", options: { message: "Dialog message", controls: [] } },
-        },
-      ],
-      popup: null,
-      instancePopups: [],
-    });
-    createMockDb();
-    mockedDiscoverInstancePort.mockResolvedValue(55123);
-    mockedDiscoverDatabase.mockReturnValue("/path/to/db.db");
-
-    await withInstanceDatabase(9222, 42, () => undefined);
-
-    const healthChecker = extractHealthChecker(mockInstance);
-
-    const error = await healthChecker().catch((e: unknown) => e) as UIBlockedError;
-    expect(error).toBeInstanceOf(UIBlockedError);
-    expect(error.message).toContain("Dialog: Dialog message");
-    expect(error.message).toContain("Instance popup: Error popup");
-  });
-
-  it("health checker passes when no launcher issues and no instance popups", async () => {
-    const mockInstance = createMockInstance();
-    createMockLauncher();
-    createMockDb();
-    mockedDiscoverInstancePort.mockResolvedValue(55123);
-    mockedDiscoverDatabase.mockReturnValue("/path/to/db.db");
-
-    await withInstanceDatabase(9222, 42, () => undefined);
-
-    const healthChecker = extractHealthChecker(mockInstance);
-
-    await expect(healthChecker()).resolves.toBeUndefined();
   });
 });

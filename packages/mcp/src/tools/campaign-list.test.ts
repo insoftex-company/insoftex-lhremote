@@ -3,8 +3,8 @@
 
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-vi.mock("@lhremote/core", async (importOriginal) => {
-  const actual = await importOriginal<typeof import("@lhremote/core")>();
+vi.mock("@insoftex/lhremote-core", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@insoftex/lhremote-core")>();
   return {
     ...actual,
     campaignList: vi.fn(),
@@ -14,7 +14,7 @@ vi.mock("@lhremote/core", async (importOriginal) => {
 import {
   type CampaignSummary,
   campaignList,
-} from "@lhremote/core";
+} from "@insoftex/lhremote-core";
 
 import { registerCampaignList } from "./campaign-list.js";
 import { describeInfrastructureErrors } from "./testing/infrastructure-errors.js";
@@ -27,6 +27,7 @@ const MOCK_CAMPAIGNS: CampaignSummary[] = [
     name: "Outreach Campaign",
     description: "Connect with engineering leaders",
     state: "active",
+    targetKind: "people",
     liAccountId: 1,
     actionCount: 2,
     createdAt: "2026-02-07T10:00:00Z",
@@ -36,6 +37,7 @@ const MOCK_CAMPAIGNS: CampaignSummary[] = [
     name: "Follow-up Campaign",
     description: null,
     state: "paused",
+    targetKind: "people",
     liAccountId: 1,
     actionCount: 1,
     createdAt: "2026-02-08T10:00:00Z",

@@ -31,10 +31,7 @@ export class LoggedInStatePersistedError extends ServiceError {
   readonly innerError: Error;
 
   constructor(waitedMs: number, innerError: Error) {
-    super(
-      `LinkedIn ContentWindow stuck in non-LoggedInState after ${String(waitedMs)}ms — ` +
-        `${innerError.message}`,
-    );
+    super(`LinkedIn ContentWindow stuck in non-LoggedInState after ${String(waitedMs)}ms — ` + `${innerError.message}`);
     this.name = "LoggedInStatePersistedError";
     this.waitedMs = waitedMs;
     this.innerError = innerError;
@@ -44,6 +41,8 @@ export class LoggedInStatePersistedError extends ServiceError {
 export interface WithLoggedInStateRetryOptions {
   /** Maximum number of retries after the initial failure (default `1`). */
   readonly maxRetries?: number;
+  /** Account whose session must be used for retry recovery. */
+  readonly accountId?: number | undefined;
   /** Deadline for the post-failure `waitForLoggedInState` in ms (default `60_000`). */
   readonly waitTimeout?: number;
 }
@@ -66,7 +65,22 @@ export interface WithLoggedInStateRetryOptions {
  */
 function isIncorrectContentStateError(err: unknown): boolean {
   if (!err) return false;
-  const message = err instanceof Error ? err.message : typeof err === "string" ? err : "";
+  // `String()` wraps the whole three-branch ternary rather than sitting in one
+  // branch: `message` is typed `string` but is not one by construction, so a
+  // coercion in a single branch leaves an `Error`'s own `message` un-coerced.
+  // Two consumers below actually see the difference.  `RegExp.test` is not one
+  // of them for most values -- five of the eight calls read `message` and all
+  // of them coerce their argument -- but it throws outright on a `Symbol`,
+  // which `String()` renders instead.  And `!message` on the next line reads
+  // `String(0)` as truthy where a raw `0` was falsy, so a falsy non-string
+  // message now reaches the regexes rather than short-circuiting; every such
+  // value renders text no pattern matches, so the verdict is unchanged.
+  // Contract and provenance: `utils/error-message.ts` § `ownText` (#965) --
+  // whose totality takes a `try` around `String()` as well, deliberately not
+  // adopted here: this classifier has no catch to protect, and a `message`
+  // whose own `toString` throws would take the operation down at the reporting
+  // site either way.
+  const message = String(err instanceof Error ? err.message : typeof err === "string" ? err : "");
   const name = err instanceof Error ? err.name : "";
 
   if (!message && !name) return false;
@@ -169,7 +183,7 @@ export async function withLoggedInStateRetryAtPort<T>(
       attempt++;
       const waitStart = Date.now();
       try {
-        const resolvedPort = await resolveInstancePort(cdpPort, cdpHost);
+        const resolvedPort = await resolveInstancePort(cdpPort, cdpHost, undefined, opts.accountId);
         const instance = new InstanceService(resolvedPort, { host: cdpHost, allowRemote });
         await instance.connect();
         try {
