@@ -18,7 +18,7 @@ export {
   type FindAppOptions,
   type PortProbe,
 } from "./app-discovery.js";
-export { listListeningTcpPorts } from "./list-listening-ports.js";
+export { findListeningTcpPid, listListeningTcpPorts } from "./list-listening-ports.js";
 export {
   scanRunningInstances,
   scanOrphans,

@@ -2,6 +2,7 @@
 // Copyright (C) 2026 Oleksii PELYKH
 
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { runInNewContext } from "node:vm";
 
 import { LinkedHelperNotRunningError, ServiceError, StartInstanceError, WrongPortError } from "./errors.js";
 import { LauncherService } from "./launcher.js";
@@ -255,6 +256,65 @@ describe("LauncherService", () => {
   });
 
   describe("startInstance", () => {
+    async function exerciseNativeStart(options: { state?: string; failure?: Error; legacy?: boolean } = {}) {
+      await service.connect();
+      mockEvaluate.mockClear();
+      nextEvaluateResult = { success: true };
+      await service.startInstance(42);
+      expect(mockEvaluate).toHaveBeenCalledTimes(1);
+      const expression = String(mockEvaluate.mock.calls[0]?.[0]);
+      const nativeStart = vi.fn().mockResolvedValue(undefined);
+      if (options.failure) nativeStart.mockRejectedValue(options.failure);
+      const legacyStart = vi.fn().mockResolvedValue(undefined);
+      const account = { id: 42, workspaceAccess: { level: "owner" }, instance: [{ id: 7 }] };
+      const runningLi = {
+        ...(options.legacy ? {} : { startLinkedInAccountLocal: nativeStart }),
+        extendedLinkedInAccountsMapBS: { value: new Map([[42, {
+          instanceRunDetails: { localExternalState: options.state ?? "stopped" },
+        }]]) },
+        getLinkedInAccount: vi.fn().mockResolvedValue(account),
+      };
+      const result = await runInNewContext(expression, {
+        require: () => ({ getGlobal: () => ({ startInstance: legacyStart }) }),
+        window: { webpackChunk_linked_helper_front: [], __lhrServices: {
+          auth: { userId: 1 }, user: { currentUserBS: { value: {} } }, runningLi,
+          feSettings: { getFrontendSettings: vi.fn().mockResolvedValue({}) },
+        } },
+      }) as { success: boolean; error?: string };
+      return { nativeStart, legacyStart, runningLi, result };
+    }
+
+    it("uses the native version-aware workflow without starting campaigns", async () => {
+      const r = await exerciseNativeStart();
+      expect(r.result.success).toBe(true);
+      expect(r.nativeStart).toHaveBeenCalledWith({
+        id: 42, shouldStartRunningCampaigns: false, shouldBringToFront: true, emittedFromLauncher: true,
+      });
+      expect(r.nativeStart.mock.contexts[0]).toBe(r.runningLi);
+      expect(r.legacyStart).not.toHaveBeenCalled();
+    });
+
+    it("propagates native startup failures without launching the bundled fallback", async () => {
+      const r = await exerciseNativeStart({ failure: new Error("no compatible instance version") });
+      expect(r.result).toEqual({ success: false, error: "no compatible instance version" });
+      expect(r.legacyStart).not.toHaveBeenCalled();
+    });
+
+    it("preserves already-running handling before the native workflow", async () => {
+      const r = await exerciseNativeStart({ state: "running" });
+      expect(r.result).toEqual({ success: false, error: "account is already running" });
+      expect(r.nativeStart).not.toHaveBeenCalled();
+      expect(r.legacyStart).not.toHaveBeenCalled();
+    });
+
+    it("retains legacy startup when the native workflow is absent", async () => {
+      const r = await exerciseNativeStart({ legacy: true });
+      expect(r.result.success).toBe(true);
+      expect(r.legacyStart).toHaveBeenCalledWith(expect.objectContaining({
+        linkedInAccount: expect.objectContaining({ id: 42 }), shouldStartRunningCampaigns: false,
+      }));
+    });
+
     it("evaluates the startInstance expression", async () => {
       await service.connect();
       nextEvaluateResult = { success: true };

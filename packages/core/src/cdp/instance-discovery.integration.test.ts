@@ -2,9 +2,8 @@
 // Copyright (C) 2026 Oleksii PELYKH
 
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { portToPid } from "pid-port";
 import psList from "ps-list";
-import { listListeningTcpPorts } from "./list-listening-ports.js";
+import { findListeningTcpPid, listListeningTcpPorts } from "./list-listening-ports.js";
 import {
   isChromiumAvailable,
   launchChromium,
@@ -22,13 +21,12 @@ describe.skipIf(!isChromiumAvailable)("instance-discovery packages (integration)
     await chromium?.close();
   });
 
-  it("portToPid should find the Chromium process by port", async () => {
+  it("findListeningTcpPid should find the Chromium process by port", async () => {
     expect(chromium).toBeDefined();
-    const pid = await portToPid({ port: chromium.port, host: "*" });
+    const pid = await findListeningTcpPid(chromium.port);
 
-    expect(pid).toEqual(expect.any(Number));
-    expect(pid).toBeGreaterThan(0);
-  });
+    expect(pid).toBe(chromium.process.pid);
+  }, 20_000);
 
   it("psList should include the Chromium process with correct ppid", async () => {
     expect(chromium).toBeDefined();
@@ -43,14 +41,14 @@ describe.skipIf(!isChromiumAvailable)("instance-discovery packages (integration)
 
   it("listListeningTcpPorts should include the Chromium CDP port", async () => {
     expect(chromium).toBeDefined();
-    const pid = await portToPid({ port: chromium.port, host: "*" });
-    if (pid === undefined) {
-      throw new Error("Expected portToPid to return a PID");
-    }
+    const pid = chromium.process.pid;
+    if (pid === undefined) throw new Error("Expected the test Chromium PID");
 
     const ports = await listListeningTcpPorts(pid);
 
     expect(Array.isArray(ports)).toBe(true);
     expect(ports).toContain(chromium.port);
-  });
+    // Windows may need both netstat and a cold PowerShell TCP-provider query;
+    // each has a 15 s subprocess bound, beyond Vitest's default 5 s budget.
+  }, 35_000);
 });

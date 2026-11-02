@@ -4,7 +4,7 @@
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 
-import { pidToPorts } from "pid-port";
+import { pidToPorts, portToPid } from "pid-port";
 
 const execFileAsync = promisify(execFile);
 
@@ -20,6 +20,37 @@ const COMMAND_MAX_BUFFER = 16 * 1024 * 1024;
  * Used instead of the State column, which is localized on non-English Windows.
  */
 const WINDOWS_LISTENER_FOREIGN_ADDRESSES = new Set(["0.0.0.0:0", "[::]:0"]);
+
+async function queryWindowsTcpValues(
+  filter: string,
+  property: "LocalPort" | "OwningProcess",
+  maximum = Number.MAX_SAFE_INTEGER,
+): Promise<number[]> {
+  const { stdout } = await execFileAsync("powershell.exe", [
+    "-NoProfile", "-NonInteractive", "-Command",
+    "[Console]::OutputEncoding = [System.Text.Encoding]::UTF8; " +
+      `ConvertTo-Json -Compress -InputObject @(Get-NetTCPConnection ${filter} ` +
+      "-ErrorAction SilentlyContinue | Where-Object { $_.RemotePort -eq 0 -and " +
+      "$_.RemoteAddress -in @('0.0.0.0', '::') } | " +
+      `Select-Object -ExpandProperty ${property})`,
+  ], { timeout: COMMAND_TIMEOUT, maxBuffer: COMMAND_MAX_BUFFER, windowsHide: true });
+  const values: unknown = JSON.parse(stdout.trim());
+  if (!Array.isArray(values) || !values.every((value: unknown) =>
+    typeof value === "number" && Number.isSafeInteger(value) && value > 0 && value <= maximum)) {
+    throw new TypeError("Invalid TCP listener response from PowerShell");
+  }
+  return [...new Set(values as number[])].sort((a, b) => a - b);
+}
+
+/** Resolve only an actual listener; fail closed when a port has ambiguous owners. */
+export async function findListeningTcpPid(port: number): Promise<number | null> {
+  if (!Number.isInteger(port) || port <= 0 || port > 65535) throw new TypeError("Invalid TCP port");
+  if (process.platform === "win32") {
+    const owners = await queryWindowsTcpValues(`-LocalPort ${String(port)}`, "OwningProcess");
+    return owners.length === 1 ? owners[0] ?? null : null;
+  }
+  return await portToPid({ port, host: "*" }) ?? null;
+}
 
 /** Extract the trailing port number from an `addr:port` string, or null. */
 function extractPort(address: string): number | null {
@@ -98,12 +129,30 @@ export async function listListeningTcpPorts(pid: number): Promise<number[]> {
   }
 
   if (process.platform === "win32") {
-    const { stdout } = await execFileAsync("netstat", ["-ano"], {
-      timeout: COMMAND_TIMEOUT,
-      maxBuffer: COMMAND_MAX_BUFFER,
-      windowsHide: true,
-    });
-    return parseWindowsNetstatListeners(stdout, pid);
+    let netstatError: unknown;
+    try {
+      const { stdout } = await execFileAsync("netstat", ["-ano"], {
+        timeout: COMMAND_TIMEOUT,
+        maxBuffer: COMMAND_MAX_BUFFER,
+        windowsHide: true,
+      });
+      const ports = parseWindowsNetstatListeners(stdout, pid);
+      if (ports.length > 0) return ports;
+    } catch (error) {
+      netstatError = error;
+    }
+
+    // Some Windows networking stacks expose listener State=0 (unknown), so
+    // netstat omits them. Query the TCP provider independently, using the
+    // wildcard remote endpoint rather than its State=Listen filter as well.
+    try {
+      return await queryWindowsTcpValues(`-OwningProcess ${String(pid)}`, "LocalPort", 65535);
+    } catch (error) {
+      // Preserve genuine enumeration failures, rather than misreporting them
+      // as an account with debugging disabled.
+      if (netstatError !== undefined) throw new AggregateError([netstatError, error], "Windows TCP enumeration failed");
+      throw error;
+    }
   }
 
   try {

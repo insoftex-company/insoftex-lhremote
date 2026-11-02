@@ -334,6 +334,25 @@ export class LauncherService {
           const liAccountsSvc = lhSvc.runningLi;
           const feSettingsSvc = lhSvc.feSettings;
 
+          // Modern launchers choose/download a workspace-compatible runner
+          // before calling the main process. Bypassing that workflow omits
+          // instanceVersion/cloud/workspace fields and can open a newer DB
+          // with the older bundled runner (e.g. schema 228 vs supported 227).
+          if (typeof liAccountsSvc.startLinkedInAccountLocal === 'function') {
+            const state = liAccountsSvc.extendedLinkedInAccountsMapBS?.value
+              ?.get(${String(accountId)})?.instanceRunDetails?.localExternalState;
+            if (state === 'running' || state === 'starting') {
+              return { success: false, error: 'account is already running' };
+            }
+            await liAccountsSvc.startLinkedInAccountLocal({
+              id: ${String(accountId)},
+              shouldStartRunningCampaigns: false,
+              shouldBringToFront: true,
+              emittedFromLauncher: true,
+            });
+            return { success: true };
+          }
+
           // 2. Get the account object from the service cache.
           //    Using refetch: false because the LH backend API now
           //    rejects the embed format used by refetchLinkedInAccounts.

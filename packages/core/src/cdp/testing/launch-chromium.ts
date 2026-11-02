@@ -104,7 +104,9 @@ export async function launchChromium(options?: {
     }
     try {
       const targets = await discoverTargets(port);
-      if (targets.length > 0) {
+      // Chromium can advertise a startup/worker target before its first page.
+      // Callers immediately connect to a page, so a non-page target is not ready.
+      if (targets.some((target) => target.type === "page")) {
         ready = true;
         break;
       }

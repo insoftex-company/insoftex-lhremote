@@ -4,6 +4,17 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+## [0.28.0] — 2026-11-02
+
+### Windows discovery and account startup
+
+- Fixed missing account CDP ports on Windows TCP providers reporting listener state zero. PID-to-port discovery falls back to the TCP provider; reverse lookup validates listener ownership and refuses ambiguous results.
+- Start accounts through LinkedHelper's native workspace/version-aware workflow when available, avoiding incompatible bundled runners and database-version initialization errors. Preserve the legacy fallback for older launchers and keep automatic campaign startup disabled.
+- Added executable startup regression cases, native listener coverage, relative-path Windows entry wrappers, and deployment guidance for stale upstream MCP caches.
+- Wait for Chromium's first page target before starting browser integration tests, avoiding startup races on busy Windows hosts.
+- Verified 4,243 unit/integration tests, native Windows process/socket checks, CLI/MCP startup, and an authorized live account restart. See `docs/reviews/2026-11-02-windows-runtime-verification.md` for scoped evidence and data-safety limits.
+- Synchronized all workspace package, MCP registry, and Claude plugin metadata to 0.28.0. This release includes the upstream integration and compatibility changes below.
+
 ### Windows stability (2026-11-01)
 
 - Coalesced slow process scans, prevented stale cache overwrite, and bounded hidden CIM queries with a larger output buffer.
