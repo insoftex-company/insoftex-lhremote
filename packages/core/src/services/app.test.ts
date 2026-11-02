@@ -364,7 +364,7 @@ describe("AppService", () => {
           "-Command",
           expect.stringContaining("111,222"),
         ]),
-        { windowsHide: true },
+        expect.objectContaining({ windowsHide: true, timeout: 15000, maxBuffer: 4 * 1024 * 1024 }),
         expect.any(Function),
       );
     });
@@ -411,7 +411,7 @@ describe("AppService", () => {
           "-Command",
           expect.stringContaining("111,222"),
         ]),
-        { windowsHide: true },
+        expect.objectContaining({ windowsHide: true, timeout: 15000, maxBuffer: 4 * 1024 * 1024 }),
         expect.any(Function),
       );
     });
@@ -444,7 +444,7 @@ describe("AppService", () => {
 
     beforeEach(() => {
       mockedProcessKill = vi.fn().mockImplementation((_pid: number, signal: string | number) => {
-        if (signal === 0) throw new Error("ESRCH");
+        if (signal === 0) throw Object.assign(new Error("ESRCH"), { code: "ESRCH" });
       });
       vi.stubGlobal("process", {
         ...process,
@@ -453,6 +453,25 @@ describe("AppService", () => {
         kill: mockedProcessKill,
       });
       mockedFindApp.mockResolvedValue([]);
+    });
+
+    it("refuses a duplicate launch when Windows denies process termination", async () => {
+      vi.useFakeTimers();
+      try {
+        mockedProcessKill.mockImplementation(() => {
+          throw Object.assign(new Error("Access denied"), { code: "EPERM" });
+        });
+        mockedFindApp.mockResolvedValue([{ pid: 111, cdpPort: null, connectable: false, role: "launcher" }]);
+        mockedAccessSync.mockReturnValue(undefined);
+        mockedSpawn.mockReturnValue(makeMockChild());
+        const service = new AppService(9222, { ...FAST_OPTIONS, force: true });
+        const pending = service.launch().catch((error: unknown) => error);
+        await vi.advanceTimersByTimeAsync(6000);
+        expect(await pending).toBeInstanceOf(AppLaunchError);
+        expect(mockedSpawn).not.toHaveBeenCalled();
+      } finally {
+        vi.useRealTimers();
+      }
     });
 
     it("kills all processes when connectable app exists", async () => {
@@ -513,6 +532,41 @@ describe("AppService", () => {
     beforeEach(() => {
       vi.stubGlobal("process", { ...process, platform: "darwin", env: {} });
       mockedFindApp.mockResolvedValue([]);
+    });
+
+    it("closes the owned Windows GUI after the Squirrel bootstrap process already exited", async () => {
+      vi.useFakeTimers();
+      try {
+        vi.stubGlobal("process", { ...process, platform: "win32", env: {} });
+        mockedAccessSync.mockReturnValue(undefined);
+        const child = makeMockChild();
+        mockedSpawn.mockReturnValue(child);
+        const service = new AppService(9222, { ...FAST_OPTIONS, visible: false });
+        const launch = service.launch();
+        await vi.advanceTimersByTimeAsync(2000);
+        await launch;
+        (child as unknown as { _emitExit: (code: number) => void })._emitExit(0);
+        mockedDiscoverTargets.mockResolvedValue([
+          {
+            id: "owned-launcher",
+            type: "page",
+            url: "file:///index.html",
+            title: "LinkedHelper",
+            description: "",
+            devtoolsFrontendUrl: "",
+          },
+        ]);
+        const fetchMock = vi.fn().mockResolvedValue({ ok: true });
+        vi.stubGlobal("fetch", fetchMock);
+        await service.quit();
+        expect(fetchMock).toHaveBeenCalledWith(
+          "http://127.0.0.1:9222/json/close/owned-launcher",
+          expect.objectContaining({ signal: expect.any(AbortSignal) }),
+        );
+        expect(child.kill).not.toHaveBeenCalled();
+      } finally {
+        vi.useRealTimers();
+      }
     });
 
     it("sends SIGTERM and waits for exit", async () => {
@@ -623,7 +677,10 @@ describe("AppService", () => {
 
       await service.quit();
 
-      expect(mockFetch).toHaveBeenCalledWith("http://127.0.0.1:9222/json/close/T1");
+      expect(mockFetch).toHaveBeenCalledWith(
+        "http://127.0.0.1:9222/json/close/T1",
+        expect.objectContaining({ signal: expect.any(AbortSignal) }),
+      );
     });
 
     it("closes the browser-level CDP target when no page targets exist", async () => {
@@ -678,7 +735,10 @@ describe("AppService", () => {
 
       await service.quit();
 
-      expect(mockFetch).toHaveBeenCalledWith("http://127.0.0.1:9222/json/version");
+      expect(mockFetch).toHaveBeenCalledWith(
+        "http://127.0.0.1:9222/json/version",
+        expect.objectContaining({ signal: expect.any(AbortSignal) }),
+      );
       expect(MockWebSocket.instances[0]?.url).toBe("ws://127.0.0.1:9222/devtools/browser/abc");
       expect(MockWebSocket.instances[0]?.sent).toEqual([JSON.stringify({ id: 1, method: "Browser.close" })]);
     });

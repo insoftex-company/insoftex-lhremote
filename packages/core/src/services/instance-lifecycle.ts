@@ -11,7 +11,7 @@ import {
 import type { RunningInstance } from "../cdp/index.js";
 import type { CdpTarget } from "../types/cdp.js";
 import { delay } from "../utils/delay.js";
-import { StartInstanceError } from "./errors.js";
+import { ServiceError, StartInstanceError } from "./errors.js";
 import { InstanceService } from "./instance.js";
 import type { LauncherService } from "./launcher.js";
 
@@ -328,6 +328,12 @@ export async function waitForPidExit(pid: number, timeoutMs = PID_EXIT_TIMEOUT, 
     if (!pidExists(pid)) return;
     await delay(PID_EXIT_INTERVAL, signal);
   }
+  // On Windows shutdown can outlast the stop RPC. A timeout is not evidence
+  // that the PID exited, and starting a replacement here can duplicate it.
+  if (pidExists(pid))
+    throw new ServiceError(
+      `Process ${pid} is still running after ${timeoutMs}ms; refusing to start a duplicate instance.`,
+    );
 }
 
 /**

@@ -31,6 +31,8 @@ afterEach(() => {
   setPlatform(originalPlatform);
   vi.clearAllMocks();
   invalidateProcessCache();
+  vi.useRealTimers();
+  vi.unstubAllEnvs();
 });
 
 // ---------------------------------------------------------------------------
@@ -65,9 +67,9 @@ describe("gatherRawProcesses — non-Windows (ps-list cmd field)", () => {
   });
 
   it("maps cmd field to cmdline", async () => {
-    mockedPsList.mockResolvedValue([
-      { pid: 100, ppid: 1, name: "node", cmd: "/usr/bin/node server.js" },
-    ] as Awaited<ReturnType<typeof psList>>);
+    mockedPsList.mockResolvedValue([{ pid: 100, ppid: 1, name: "node", cmd: "/usr/bin/node server.js" }] as Awaited<
+      ReturnType<typeof psList>
+    >);
 
     const result = await gatherRawProcesses();
 
@@ -76,9 +78,7 @@ describe("gatherRawProcesses — non-Windows (ps-list cmd field)", () => {
   });
 
   it("sets cmdline to null when cmd is absent", async () => {
-    mockedPsList.mockResolvedValue([
-      { pid: 200, ppid: 5, name: "kernel" },
-    ] as Awaited<ReturnType<typeof psList>>);
+    mockedPsList.mockResolvedValue([{ pid: 200, ppid: 5, name: "kernel" }] as Awaited<ReturnType<typeof psList>>);
 
     const [proc] = await gatherRawProcesses();
 
@@ -86,9 +86,7 @@ describe("gatherRawProcesses — non-Windows (ps-list cmd field)", () => {
   });
 
   it("defaults ppid to 0 when undefined", async () => {
-    mockedPsList.mockResolvedValue([
-      { pid: 300, name: "orphan" } as Awaited<ReturnType<typeof psList>>[number],
-    ]);
+    mockedPsList.mockResolvedValue([{ pid: 300, name: "orphan" } as Awaited<ReturnType<typeof psList>>[number]]);
 
     const [proc] = await gatherRawProcesses();
 
@@ -122,13 +120,11 @@ describe("gatherRawProcesses — Windows (Win32_Process via PowerShell)", () => 
   });
 
   it("merges cmdline from PowerShell Win32_Process output (array)", async () => {
-    mockedPsList.mockResolvedValue([
-      { pid: 13004, ppid: 1, name: "linked-helper.exe" },
-    ] as Awaited<ReturnType<typeof psList>>);
+    mockedPsList.mockResolvedValue([{ pid: 13004, ppid: 1, name: "linked-helper.exe" }] as Awaited<
+      ReturnType<typeof psList>
+    >);
 
-    stubPowerShell(
-      JSON.stringify([{ ProcessId: 13004, CommandLine: "C:\\lh\\linked-helper.exe --app-id=347559" }]),
-    );
+    stubPowerShell(JSON.stringify([{ ProcessId: 13004, CommandLine: "C:\\lh\\linked-helper.exe --app-id=347559" }]));
 
     const result = await gatherRawProcesses();
 
@@ -143,9 +139,9 @@ describe("gatherRawProcesses — Windows (Win32_Process via PowerShell)", () => 
   it("handles ConvertTo-Json single-object output (not an array)", async () => {
     // PowerShell's ConvertTo-Json returns a bare object (not an array) when exactly
     // one Win32_Process row is returned. The code wraps it with [raw] to force an array.
-    mockedPsList.mockResolvedValue([
-      { pid: 7044, ppid: 1, name: "linked-helper.exe" },
-    ] as Awaited<ReturnType<typeof psList>>);
+    mockedPsList.mockResolvedValue([{ pid: 7044, ppid: 1, name: "linked-helper.exe" }] as Awaited<
+      ReturnType<typeof psList>
+    >);
 
     stubPowerShell(
       JSON.stringify({ ProcessId: 7044, CommandLine: "C:\\lh\\resources\\out\\linked-helper.exe --app-id=331874" }),
@@ -157,9 +153,7 @@ describe("gatherRawProcesses — Windows (Win32_Process via PowerShell)", () => 
   });
 
   it("sets cmdline to null for PIDs absent from Win32_Process output", async () => {
-    mockedPsList.mockResolvedValue([
-      { pid: 999, ppid: 0, name: "System" },
-    ] as Awaited<ReturnType<typeof psList>>);
+    mockedPsList.mockResolvedValue([{ pid: 999, ppid: 0, name: "System" }] as Awaited<ReturnType<typeof psList>>);
 
     stubPowerShell(JSON.stringify([]));
 
@@ -169,9 +163,7 @@ describe("gatherRawProcesses — Windows (Win32_Process via PowerShell)", () => 
   });
 
   it("sets cmdline to null when Win32_Process CommandLine field is null (system processes)", async () => {
-    mockedPsList.mockResolvedValue([
-      { pid: 4, ppid: 0, name: "System" },
-    ] as Awaited<ReturnType<typeof psList>>);
+    mockedPsList.mockResolvedValue([{ pid: 4, ppid: 0, name: "System" }] as Awaited<ReturnType<typeof psList>>);
 
     stubPowerShell(JSON.stringify([{ ProcessId: 4, CommandLine: null }]));
 
@@ -181,9 +173,9 @@ describe("gatherRawProcesses — Windows (Win32_Process via PowerShell)", () => 
   });
 
   it("returns procs with null cmdlines when PowerShell throws", async () => {
-    mockedPsList.mockResolvedValue([
-      { pid: 13004, ppid: 1, name: "linked-helper.exe" },
-    ] as Awaited<ReturnType<typeof psList>>);
+    mockedPsList.mockResolvedValue([{ pid: 13004, ppid: 1, name: "linked-helper.exe" }] as Awaited<
+      ReturnType<typeof psList>
+    >);
 
     stubPowerShellError();
 
@@ -197,9 +189,9 @@ describe("gatherRawProcesses — Windows (Win32_Process via PowerShell)", () => 
     const emojiName = "🇺🇦 Mike Florko";
     const cmdline = `C:\\lh\\resources\\out\\linked-helper.exe --app-id=329925 --user-li={"fullName":"${emojiName}"}`;
 
-    mockedPsList.mockResolvedValue([
-      { pid: 13640, ppid: 1, name: "linked-helper.exe" },
-    ] as Awaited<ReturnType<typeof psList>>);
+    mockedPsList.mockResolvedValue([{ pid: 13640, ppid: 1, name: "linked-helper.exe" }] as Awaited<
+      ReturnType<typeof psList>
+    >);
 
     stubPowerShell(JSON.stringify([{ ProcessId: 13640, CommandLine: cmdline }]));
 
@@ -215,14 +207,14 @@ describe("gatherRawProcesses — Windows (Win32_Process via PowerShell)", () => 
     mockedPsList.mockResolvedValue([
       { pid: 13004, ppid: 1, name: "linked-helper.exe" },
       { pid: 13640, ppid: 1, name: "linked-helper.exe" },
-      { pid: 7044,  ppid: 1, name: "linked-helper.exe" },
+      { pid: 7044, ppid: 1, name: "linked-helper.exe" },
     ] as Awaited<ReturnType<typeof psList>>);
 
     stubPowerShell(
       JSON.stringify([
         { ProcessId: 13004, CommandLine: "linked-helper.exe --app-id=347559" },
         { ProcessId: 13640, CommandLine: "linked-helper.exe --app-id=329925" },
-        { ProcessId: 7044,  CommandLine: "linked-helper.exe --app-id=331874" },
+        { ProcessId: 7044, CommandLine: "linked-helper.exe --app-id=331874" },
       ]),
     );
 
@@ -233,5 +225,77 @@ describe("gatherRawProcesses — Windows (Win32_Process via PowerShell)", () => 
     expect(byPid[13004]).toContain("--app-id=347559");
     expect(byPid[13640]).toContain("--app-id=329925");
     expect(byPid[7044]).toContain("--app-id=331874");
+  });
+});
+
+describe("Windows slow-scan and cache races", () => {
+  beforeEach(() => {
+    setPlatform("win32");
+    vi.stubEnv("LHREMOTE_INSPECTION_CACHE_TTL_MS", "1500");
+    stubPowerShell("[]");
+  });
+
+  it("coalesces concurrent inspections instead of launching multiple WMI scans", async () => {
+    let complete!: (rows: Awaited<ReturnType<typeof psList>>) => void;
+    mockedPsList.mockImplementation(
+      () =>
+        new Promise((resolve) => {
+          complete = resolve;
+        }),
+    );
+    const first = gatherRawProcesses();
+    const second = gatherRawProcesses();
+    expect(mockedPsList).toHaveBeenCalledTimes(1);
+    complete([]);
+    await Promise.all([first, second]);
+    expect(mockedExecFile).toHaveBeenCalledTimes(1);
+  });
+
+  it("starts the cache TTL when a slow scan completes", async () => {
+    vi.useFakeTimers();
+    let complete!: (rows: Awaited<ReturnType<typeof psList>>) => void;
+    mockedPsList
+      .mockImplementationOnce(
+        () =>
+          new Promise((resolve) => {
+            complete = resolve;
+          }),
+      )
+      .mockResolvedValue([]);
+    const pending = gatherRawProcesses();
+    await vi.advanceTimersByTimeAsync(2000);
+    complete([]);
+    await pending;
+    await gatherRawProcesses();
+    expect(mockedPsList).toHaveBeenCalledTimes(1);
+  });
+
+  it("does not let a pre-invalidation scan overwrite a newer snapshot", async () => {
+    let complete!: (rows: Awaited<ReturnType<typeof psList>>) => void;
+    mockedPsList
+      .mockImplementationOnce(
+        () =>
+          new Promise((resolve) => {
+            complete = resolve;
+          }),
+      )
+      .mockResolvedValue([{ pid: 2, ppid: 0, name: "linked-helper.exe" }]);
+    const stale = gatherRawProcesses();
+    invalidateProcessCache();
+    await gatherRawProcesses();
+    complete([{ pid: 1, ppid: 0, name: "linked-helper.exe" }]);
+    await stale;
+    expect((await gatherRawProcesses())[0]?.pid).toBe(2);
+  });
+
+  it("bounds WMI execution, hides its console, and permits large process tables", async () => {
+    mockedPsList.mockResolvedValue([]);
+    await gatherRawProcesses();
+    expect(mockedExecFile).toHaveBeenCalledWith(
+      "powershell.exe",
+      expect.any(Array),
+      expect.objectContaining({ timeout: 15000, windowsHide: true, maxBuffer: 16 * 1024 * 1024 }),
+      expect.any(Function),
+    );
   });
 });

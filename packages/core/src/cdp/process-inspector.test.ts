@@ -791,3 +791,21 @@ describe("orphan composition and revalidation", () => {
     expect(kill).not.toHaveBeenCalled();
   });
 });
+
+describe("Windows identity quoting edge cases", () => {
+  it("preserves quotes, braces, backslashes and Unicode in ordinary JSON", () => {
+    const fullName = 'A "Quoted" } \\user 🇺🇦';
+    expect(parseIdentityFromCmdline(instanceCmdline({ fullName }))).toMatchObject({ name: fullName });
+  });
+  it("decodes a Windows-quoted argument before balancing JSON braces", () => {
+    const fullName = 'A } "Quoted" \\user 🇺🇦';
+    const payload = JSON.stringify({ id: 42, fullName, email: "test@example.com" });
+    const encoded = payload.replace(/(\\*)"/g, (_match, slashes: string) => slashes + slashes + '\\"');
+    const cmdline = `linked-helper.exe --app-id=42 "--user-li=${encoded}"`;
+    expect(parseIdentityFromCmdline(cmdline)).toMatchObject({
+      accountId: 42,
+      name: fullName,
+      email: "test@example.com",
+    });
+  });
+});

@@ -4,6 +4,14 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+### Windows stability (2026-11-01)
+
+- Coalesced slow process scans, prevented stale cache overwrite, and bounded hidden CIM queries with a larger output buffer.
+- Preserved Unicode, embedded quotes, braces, and backslashes in account identity arguments; validated CDP responses before accepting a listener.
+- Refused duplicate launches after PID-exit timeouts or access-denied termination, accepted legitimate restart port reuse, and handled Squirrel bootstrap exit during shutdown.
+- Replaced hardcoded-user startup helpers with shared PowerShell discovery, a startup mutex, bounded CDP checks, and recovery without automatic process termination.
+- Added native Windows process, PowerShell parser, and deployed CLI/MCP startup checks to CI. Local macOS verification and remaining native checks are recorded in `docs/reviews/2026-11-01-windows-stability.md`.
+
 ### Insoftex integration (2026-11-01)
 
 - Imported upstream through `e162cd2` while preserving Windows discovery, launcher recovery, async lifecycle tools, and organization campaigns.

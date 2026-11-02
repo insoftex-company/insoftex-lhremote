@@ -27,7 +27,7 @@ When a commit resolves a tracked issue, put `Closes #N` in the commit message bo
 
 Single-developer repository — no PRs, no human or Copilot code review (Copilot review is not provisioned for this account anyway; requests silently no-op).
 
-- Commit directly to `main` (`main` has no branch protection). Use a short-lived branch only when work needs to stay unmerged for a while.
+- Work and commit directly on `main` (`main` has no branch protection). Do not create feature/integration branches unless explicitly requested. Delete merged local work branches after merging.
 - Run `pnpm lint` and `pnpm test` before pushing.
 - CI (`ci.yml`) runs on every push to `main` — verify it stays green after pushing.
 

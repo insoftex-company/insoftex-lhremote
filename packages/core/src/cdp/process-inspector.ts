@@ -197,28 +197,29 @@ export function parseIdentityFromCmdline(cmdline: string): InstanceIdentity {
     const valueStart = userLiFlagPos + "--user-li=".length;
     const jsonStart = cmdline.indexOf("{", valueStart);
     if (jsonStart !== -1 && jsonStart === valueStart) {
-      const jsonStr = extractBalancedJson(cmdline, jsonStart);
-      if (jsonStr) {
+      // POSIX/raw JSON must be tried unchanged. Only remove the Windows
+      // argument-quoting layer after that fails, then balance the decoded JSON.
+      // Balancing before decoding mistakes a brace inside an escaped name for
+      // the object's end; unescaping valid raw JSON destroys its own escapes.
+      const value = cmdline.slice(jsonStart);
+      for (const candidate of [
+        value,
+        value.replace(/(\\+)"/g, (_match, slashes: string) => "\\".repeat(Math.floor(slashes.length / 2)) + '"'),
+      ]) {
+        const jsonStr = extractBalancedJson(candidate, 0);
+        if (!jsonStr) continue;
         try {
-          // Windows/Electron store --user-li JSON with backslash-escaped
-          // quotes (e.g. {\"id\":...}); unescape \" and \\ before parsing.
-          const unescaped = jsonStr.replace(/\\(["\\])/g, "$1");
-          const parsed: unknown = JSON.parse(unescaped);
+          const parsed: unknown = JSON.parse(jsonStr);
           if (parsed !== null && typeof parsed === "object") {
             const obj = parsed as Record<string, unknown>;
-            // Allowlist: id, fullName, email only (avatar not exposed in output)
-            if (accountId === null && typeof obj["id"] === "number") {
-              accountId = obj["id"] as number;
-            }
-            if (typeof obj["fullName"] === "string") {
-              name = obj["fullName"] as string;
-            }
-            if (typeof obj["email"] === "string") {
-              email = obj["email"] as string;
-            }
+            if (accountId === null && typeof obj["id"] === "number" && Number.isSafeInteger(obj["id"]) && obj["id"] > 0)
+              accountId = obj["id"];
+            if (typeof obj["fullName"] === "string") name = obj["fullName"];
+            if (typeof obj["email"] === "string") email = obj["email"];
           }
+          break;
         } catch {
-          // Malformed JSON — skip
+          // Try the Windows argument layer; malformed input remains unknown.
         }
       }
     }
