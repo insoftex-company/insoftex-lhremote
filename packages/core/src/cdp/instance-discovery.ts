@@ -1,11 +1,10 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 // Copyright (C) 2026 Oleksii PELYKH
 
-import { portToPid } from "pid-port";
 import psList from "ps-list";
 import { DEFAULT_CDP_PORT } from "../constants.js";
 import { gatherRawProcesses, type RawProcess } from "./gather-raw-processes.js";
-import { listListeningTcpPorts } from "./list-listening-ports.js";
+import { findListeningTcpPid, listListeningTcpPorts } from "./list-listening-ports.js";
 import { isCdpPort, parseCmdlineDebugPort } from "../utils/cdp-port.js";
 
 /**
@@ -60,7 +59,7 @@ export async function discoverInstancePort(
  */
 async function findPidListeningOn(port: number): Promise<number | null> {
   try {
-    const pid = await portToPid({ port, host: "*" });
+    const pid = await findListeningTcpPid(port);
     return pid ?? null;
   } catch {
     return null;

@@ -5,12 +5,9 @@ vi.mock("./gather-raw-processes.js", () => ({
   gatherRawProcesses: vi.fn(),
 }));
 
-vi.mock("pid-port", () => ({
-  portToPid: vi.fn(),
-}));
-
 vi.mock("./list-listening-ports.js", () => ({
   listListeningTcpPorts: vi.fn(),
+  findListeningTcpPid: vi.fn(),
 }));
 
 // psList is still imported by killInstanceProcesses; keep the mock to prevent
@@ -22,8 +19,8 @@ vi.mock("ps-list", () => ({
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { discoverInstancePort } from "./instance-discovery.js";
 import { gatherRawProcesses } from "./gather-raw-processes.js";
-import { portToPid } from "pid-port";
-import { listListeningTcpPorts } from "./list-listening-ports.js";
+
+import { findListeningTcpPid, listListeningTcpPorts } from "./list-listening-ports.js";
 import type { RawProcess } from "./gather-raw-processes.js";
 
 const mockedGatherRawProcesses = vi.mocked(gatherRawProcesses);
@@ -45,7 +42,7 @@ describe("discoverInstancePort", () => {
   });
 
   it("should return null when launcher is not running", async () => {
-    vi.mocked(portToPid).mockRejectedValue(
+    vi.mocked(findListeningTcpPid).mockRejectedValue(
       new Error("Could not find a process that uses port `9222`"),
     );
 
@@ -53,15 +50,15 @@ describe("discoverInstancePort", () => {
     expect(port).toBeNull();
   });
 
-  it("should return null when portToPid returns undefined", async () => {
-    vi.mocked(portToPid).mockResolvedValue(undefined as never);
+  it("should return null when findListeningTcpPid returns undefined", async () => {
+    vi.mocked(findListeningTcpPid).mockResolvedValue(undefined as never);
 
     const port = await discoverInstancePort(9222);
     expect(port).toBeNull();
   });
 
   it("should return null when launcher has no children", async () => {
-    vi.mocked(portToPid).mockResolvedValue(12345 as never);
+    vi.mocked(findListeningTcpPid).mockResolvedValue(12345 as never);
     mockedGatherRawProcesses.mockResolvedValue([
       proc(99999, 1),
     ]);
@@ -71,7 +68,7 @@ describe("discoverInstancePort", () => {
   });
 
   it("should discover instance port via cmdline (authoritative path)", async () => {
-    vi.mocked(portToPid).mockResolvedValue(12345 as never);
+    vi.mocked(findListeningTcpPid).mockResolvedValue(12345 as never);
     mockedGatherRawProcesses.mockResolvedValue([
       proc(12346, 12345, "linked-helper.exe --remote-debugging-port=55123"),
       proc(99999, 1),
@@ -84,7 +81,7 @@ describe("discoverInstancePort", () => {
   });
 
   it("should return null when cmdline port does not respond to CDP", async () => {
-    vi.mocked(portToPid).mockResolvedValue(12345 as never);
+    vi.mocked(findListeningTcpPid).mockResolvedValue(12345 as never);
     mockedGatherRawProcesses.mockResolvedValue([
       proc(12346, 12345, "linked-helper.exe --remote-debugging-port=55123"),
     ]);
@@ -95,7 +92,7 @@ describe("discoverInstancePort", () => {
   });
 
   it("should fall back to listening-port enumeration when no cmdline hint is available", async () => {
-    vi.mocked(portToPid).mockResolvedValue(12345 as never);
+    vi.mocked(findListeningTcpPid).mockResolvedValue(12345 as never);
     mockedGatherRawProcesses.mockResolvedValue([
       proc(12346, 12345, null),  // no cmdline
       proc(99999, 1),
@@ -107,7 +104,7 @@ describe("discoverInstancePort", () => {
   });
 
   it("should discover instance port from grandchild process", async () => {
-    vi.mocked(portToPid).mockResolvedValue(12345 as never);
+    vi.mocked(findListeningTcpPid).mockResolvedValue(12345 as never);
     mockedGatherRawProcesses.mockResolvedValue([
       // Direct child (helper/renderer) — no CDP port
       proc(12346, 12345, null),
@@ -121,7 +118,7 @@ describe("discoverInstancePort", () => {
   });
 
   it("should skip cmdline port matching the launcher port", async () => {
-    vi.mocked(portToPid).mockResolvedValue(12345 as never);
+    vi.mocked(findListeningTcpPid).mockResolvedValue(12345 as never);
     mockedGatherRawProcesses.mockResolvedValue([
       // cmdline specifies the launcher port — should be excluded
       proc(12346, 12345, "linked-helper.exe --remote-debugging-port=9222"),
@@ -132,18 +129,18 @@ describe("discoverInstancePort", () => {
   });
 
   it("should use default launcher port 9222", async () => {
-    vi.mocked(portToPid).mockResolvedValue(12345 as never);
+    vi.mocked(findListeningTcpPid).mockResolvedValue(12345 as never);
     mockedGatherRawProcesses.mockResolvedValue([
       proc(12346, 12345, "linked-helper.exe --remote-debugging-port=44444"),
     ]);
 
     const port = await discoverInstancePort();
     expect(port).toBe(44444);
-    expect(portToPid).toHaveBeenCalledWith({ port: 9222, host: "*" });
+    expect(findListeningTcpPid).toHaveBeenCalledWith(9222);
   });
 
   it("should return null when listening-port enumeration throws (fallback path, no cmdline)", async () => {
-    vi.mocked(portToPid).mockResolvedValue(12345 as never);
+    vi.mocked(findListeningTcpPid).mockResolvedValue(12345 as never);
     mockedGatherRawProcesses.mockResolvedValue([
       proc(12346, 12345, null),
     ]);
@@ -154,7 +151,7 @@ describe("discoverInstancePort", () => {
   });
 
   it("should return null when gatherRawProcesses fails (treated as no descendants)", async () => {
-    vi.mocked(portToPid).mockResolvedValue(12345 as never);
+    vi.mocked(findListeningTcpPid).mockResolvedValue(12345 as never);
     mockedGatherRawProcesses.mockRejectedValue(new Error("failed"));
 
     const port = await discoverInstancePort(9222);
@@ -162,7 +159,7 @@ describe("discoverInstancePort", () => {
   });
 
   it("should skip ports that do not respond to CDP (fallback path)", async () => {
-    vi.mocked(portToPid).mockResolvedValue(12345 as never);
+    vi.mocked(findListeningTcpPid).mockResolvedValue(12345 as never);
     mockedGatherRawProcesses.mockResolvedValue([
       proc(12346, 12345, null),
     ]);
@@ -182,7 +179,7 @@ describe("discoverInstancePort", () => {
   });
 
   it("should return null when no port responds to CDP (fallback path)", async () => {
-    vi.mocked(portToPid).mockResolvedValue(12345 as never);
+    vi.mocked(findListeningTcpPid).mockResolvedValue(12345 as never);
     mockedGatherRawProcesses.mockResolvedValue([
       proc(12346, 12345, null),
     ]);

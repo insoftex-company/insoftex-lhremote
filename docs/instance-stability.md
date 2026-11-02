@@ -204,3 +204,21 @@ Use `readiness` to distinguish `starting` (normal initialisation) from `stuck` (
 `scripts/launch-linkedhelper.cmd` and `launch-linkedhelper-silent.cmd` invoke the adjacent `launch-linkedhelper.ps1` through Windows PowerShell. Keep these files together. Paths containing spaces are quoted; the executable is discovered from the current user's installation or `LINKEDHELPER_PATH`. `CDP_PORT` defaults to 9222. Direct PowerShell invocation also accepts `-Port`, `-LinkedHelperPath`, `-WaitSeconds` (default 60), and `-Silent`.
 
 The helper takes a per-session, per-port startup mutex. Existing LinkedHelper processes are given time to recover; the helper never automatically kills them. Success requires both a launcher command line declaring the requested port and a valid CDP response. Silent mode writes to `%TEMP%\lh-cdp-startup.log`; interactive mode also runs `list-accounts`. Failure exits with code 2. Use `launch-app --force` only when deliberately restarting the entire application.
+
+### Windows TCP-provider compatibility
+
+On some Windows systems, `Get-NetTCPConnection` exposes a live TCP listener with raw state zero. `netstat -ano` omits that socket and `Get-NetTCPConnection -State Listen` also filters it out. Account runners may already expose a working dynamic CDP endpoint while `find-app` reports no port. Absence of `--remote-debugging-port` on an account runner's command line does not establish that CDP is disabled.
+
+When netstat finds no listeners for a PID or fails, lhremote queries `Get-NetTCPConnection -OwningProcess <pid>` and selects wildcard remote addresses (`0.0.0.0` or `::`) with remote port zero. It validates and deduplicates the returned ports, then the existing discovery code probes `/json/list` before marking an instance connectable. The fallback does not start/stop processes, modify LinkedHelper files, or change account settings. Both enumeration commands are hidden and bounded to 15 seconds each.
+
+The reverse lookup used by legacy instance discovery also queries the TCP provider on Windows, filtering by local port and the same listener endpoint fields. An absent or ambiguous owner returns no PID. Other platforms retain their existing `pid-port` lookup.
+
+### Local deployment and MCP clients
+
+The production package can be deployed to `~/scripts/lhremote/` with the adjacent `scripts/lhremote.cmd` and `scripts/lhremote.ps1` wrappers. Keep the three `launch-linkedhelper` CMD/PowerShell files together; the optional VBS wrapper resolves its sibling silent CMD without a hardcoded user path. Do not replace the other CRM scripts or their `package.json` when deploying lhremote.
+
+The Insoftex package is `@insoftex/lhremote`. A client configured with `npx lhremote mcp` can run a cached, unscoped upstream package instead. Configure local clients with the absolute Node executable and `C:/Users/<user>/scripts/lhremote/dist/cli.js`, followed by `mcp`. Reconnect the client after updating an already running MCP server. Release `0.28.0` includes the Windows discovery and native startup fixes; retain the deployment manifest for the exact source commit and runtime hashes.
+
+### Workspace-aware account startup
+
+On launchers exposing `runningLi.startLinkedInAccountLocal`, lhremote uses that native frontend workflow. It selects and downloads the workspace-compatible instance version and supplies workspace/cloud parameters before starting the runner. Reconstructing only the older `mainWindow.startInstance` arguments can select an incompatible bundled runner and fail with a newer-database-schema error. Native workflow failures are surfaced without retrying the legacy argument shape. Already-running/starting state keeps the existing recovery path, and automatic campaign startup remains disabled. Older launchers without the native method retain the legacy startup implementation.
