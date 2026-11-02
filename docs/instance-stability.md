@@ -4,7 +4,7 @@
 
 ## Problem Background
 
-LinkedHelper runs one launcher process and zero-or-more account instances. Each instance starts via a `--lh-account <id>` flag and communicates over a dynamically assigned CDP port. Rapid lifecycle operations (back-to-back starts, parallel ensure-instances calls) caused a cascade:
+LinkedHelper runs one launcher process and zero-or-more account instances. Each instance carries an `--app-id=<id>` flag and communicates over a dynamically assigned CDP port. Rapid lifecycle operations (back-to-back starts, parallel ensure-instances calls) caused a cascade:
 
 1. First `start` causes the launcher's CDP to blip (~2-3 s)
 2. Second `start` arrives during the blip → fails with "launcher not reachable"
@@ -29,7 +29,7 @@ op1 → [settle] → op2 → [settle] → op3 ...
 
 Both steps are best-effort (errors swallowed). The cache is invalidated in `finally` regardless.
 
-**Reads are not queued**: `check-status`, `find-app`, `query-*` and similar inspection tools never enter the queue. They rely on process inspection only, so launcher CDP state is irrelevant.
+**Reads do not take the lifecycle queue**. Process inspection remains available during launcher recovery. Launcher reads such as `list-accounts`, and the best-effort launcher probe in `check-status`, take a serialized launcher session lease. Database queries with explicit account selection can work offline; automatic account selection can require launcher discovery.
 
 ### 2. Instance Readiness Model (`instance-readiness.ts`)
 
@@ -51,10 +51,9 @@ The tracker remembers two sets per PID:
 ```
 connectable?    → state = "connectable"  (clear unreachableSince entry)
 not connectable:
-  seenConnectable?
-    elapsed ≥ graceWindowMs → state = "stuck"
-    else                    → state = "degraded"
-  never seen connectable    → state = "starting"
+  elapsed ≥ graceWindowMs   → state = "stuck"
+  seenConnectable           → state = "degraded"
+  otherwise                 → state = "starting"
 ```
 
 Stale PIDs (no longer in the scan) are pruned automatically. `invalidate(pid)` clears history for a single PID (used after restart).
@@ -63,14 +62,14 @@ Stale PIDs (no longer in the scan) are pruned automatically. `invalidate(pid)` c
 
 Polls until the target account's instance is connectable, using a two-path strategy:
 
-1. **Cheap path** (when `knownPort` is supplied): `isCdpPort(knownPort)` — single TCP connect, no WMI. Returns in ~5 ms when the port is up.
+1. **Cheap path** (when `knownPort` is supplied): `isCdpPort(knownPort)` — an HTTP `/json/list` probe that validates a CDP target array, without WMI.
 2. **Full scan path**: `scanRunningInstances()` — full WMI inspection. Used when cheap path fails or no known port.
 
 Returns `WaitForConnectableResult { cdpPort, pid, verified }`. `verified:false` means the deadline was reached without observing the account as connectable.
 
 ### 4. Process Inspection Cache (`gather-raw-processes.ts`)
 
-`gatherRawProcesses()` caches its result for `LHREMOTE_INSPECTION_CACHE_TTL_MS` (default 1 500 ms). During tight poll loops this eliminates redundant WMI calls. The cache is invalidated:
+`gatherRawProcesses()` caches its result for `LHREMOTE_INSPECTION_CACHE_TTL_MS` (default 1 500 ms), measured from scan completion. Concurrent callers share one scan. Invalidating the cache prevents an older in-flight scan from overwriting newer data. Windows command lines are read using bounded, hidden PowerShell/CIM calls with UTF-8 output and a 16 MiB output limit. The cache is invalidated:
 
 - In `withLauncherQueue`'s `finally` block (after every lifecycle op)
 - In `waitForPidExit` before each poll iteration
@@ -114,6 +113,8 @@ future fix here only has to happen once.
 
 Polls `process.kill(pid, 0)` (signal-0: checks existence without sending a signal). `ESRCH` error → process is gone. `EPERM` or no error → still alive. Used by `restart-instance` and the hardened `stop-instance` to ensure the old process is fully gone before starting a replacement.
 
+A still-live PID at the deadline raises `ServiceError`; cancellation also throws. Neither condition permits starting a replacement.
+
 ## `restart-instance` Operation Sequence
 
 ```
@@ -124,13 +125,13 @@ withLauncherQueue(
   4. waitForPidExit(oldPid)
   5. withLauncherRecovery(startInstanceWithRecovery)
   6. waitForConnectable(accountId, {knownPort})
-  7. distinct-port check (new port ≠ old port)
+  7. verify a new PID (a released port may legitimately be reused)
   8. return result
 , settle={type:"start", accountId, launcherPort}
 )
 ```
 
-No other account's process is stopped or signalled. Distinct-port check guards against phantom port reporting.
+No other account's process is stopped or signalled. Confirmed old-PID exit and new-PID verification guard against phantom restarts.
 
 ## `ensure-instances` Two-Phase Flow
 
@@ -157,11 +158,11 @@ Phase 2 gives every account the full connectable timeout to settle after the que
 | `query-profiles`, `query-messages`, etc. | No | No |
 | `start-instance`, `stop-instance`, `restart-instance` | Yes | Yes |
 | `launch-app`, `quit-app` | Yes | Yes |
-| `list-accounts` | Yes | Yes |
+| `list-accounts` | Yes | Session lease only |
 | `ensure-instances` (Phase 1) | Yes | Yes (per account) |
 | `ensure-instances` (Phase 2, `waitForConnectable`) | No | No |
 
-Reads work even during launcher recovery. Writes wait for the queue and the settle barrier.
+Process inspection works during launcher recovery. Launcher reads may wait for a session lease; writes wait for the lifecycle queue and the settle barrier. `check-status` also attempts a best-effort launcher probe.
 
 ## Configuration Knobs
 
@@ -174,7 +175,7 @@ All timing constants have sane defaults and are overridable via environment vari
 | `LHREMOTE_CONNECTABLE_INTERVAL_MS` | `1500` | Matches cache TTL — no faster polling than cache refresh |
 | `LHREMOTE_SETTLE_BARRIER_TIMEOUT_MS` | `30000` | Same as grace window; after 30 s the next op won't benefit from more waiting |
 | `LHREMOTE_INSPECTION_CACHE_TTL_MS` | `1500` | Amortises WMI cost across poll loops without becoming stale |
-| `LHREMOTE_LAUNCHER_RECOVERY_TIMEOUT_MS` | `30000` | (existing) Cap for auto-reconnect on CDP drop |
+| `LHREMOTE_LAUNCHER_RECOVERY_TIMEOUT_MS` | `60000` | Cap for auto-reconnect on CDP drop |
 | `LHREMOTE_CMDLINE_RETRY_DELAY_MS` | `500` | Wait before re-scanning when a LinkedHelper process was seen with `cmdline: null` (WMI hasn't populated `CommandLine` yet for a just-spawned process) |
 
 Reduce all values in integration test environments to speed up test runs. Increase `LHREMOTE_CONNECTABLE_TIMEOUT_MS` on machines with very slow disk/startup (e.g. under heavy I/O load).
@@ -197,3 +198,9 @@ Reduce all values in integration test environments to speed up test runs. Increa
 ```
 
 Use `readiness` to distinguish `starting` (normal initialisation) from `stuck` (needs `restart-instance`). Do not restart on `degraded` — wait out the grace window first.
+
+## Windows startup helpers
+
+`scripts/launch-linkedhelper.cmd` and `launch-linkedhelper-silent.cmd` invoke the adjacent `launch-linkedhelper.ps1` through Windows PowerShell. Keep these files together. Paths containing spaces are quoted; the executable is discovered from the current user's installation or `LINKEDHELPER_PATH`. `CDP_PORT` defaults to 9222. Direct PowerShell invocation also accepts `-Port`, `-LinkedHelperPath`, `-WaitSeconds` (default 60), and `-Silent`.
+
+The helper takes a per-session, per-port startup mutex. Existing LinkedHelper processes are given time to recover; the helper never automatically kills them. Success requires both a launcher command line declaring the requested port and a valid CDP response. Silent mode writes to `%TEMP%\lh-cdp-startup.log`; interactive mode also runs `list-accounts`. Failure exits with code 2. Use `launch-app --force` only when deliberately restarting the entire application.

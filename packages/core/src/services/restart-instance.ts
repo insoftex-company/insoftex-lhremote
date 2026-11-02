@@ -68,7 +68,7 @@ export interface RestartInstanceResult {
   cdpPort: number | null;
   /**
    * `true` when the new process's `--app-id` matches `accountId` AND it is
-   * connectable on a distinct port (not a phantom/duplicate).
+   * connectable under a new PID after the old PID exited (ports may be reused).
    * `false` if verification failed or timed out.
    */
   verified: boolean;
@@ -251,16 +251,17 @@ export async function restartInstance(
         };
       }
 
-      // Phantom/duplicate port guard: new port must differ from the old one,
-      // or the old instance must have exited (oldPid is gone).
-      const distinctPort =
+      // Windows may legitimately reuse a released listening port. Identity and
+      // confirmed PID turnover distinguish a restart from the old process.
+      const distinctProcess =
         waitResult.cdpPort !== null &&
-        (existing === undefined || waitResult.cdpPort !== existing.cdpPort || oldPid === undefined);
+        waitResult.pid !== undefined &&
+        (oldPid === undefined || waitResult.pid !== oldPid);
 
       emit(
-        distinctPort
+        distinctProcess
           ? `verified — newPid ${waitResult.pid ?? "?"}, port ${waitResult.cdpPort ?? "none"}`
-          : "verified=false — duplicate port detected",
+          : "verified=false — old or unidentified process detected",
       );
 
       return {
@@ -269,7 +270,7 @@ export async function restartInstance(
         oldPid,
         newPid: waitResult.pid,
         cdpPort: waitResult.cdpPort,
-        verified: distinctPort,
+        verified: distinctProcess,
         launcherRecovered,
       };
     },

@@ -37,7 +37,9 @@ describe("waitForPidExit", () => {
 
   it("returns immediately when the process does not exist (ESRCH)", async () => {
     const esrch = Object.assign(new Error("No such process"), { code: "ESRCH" });
-    killSpy.mockImplementation(() => { throw esrch; });
+    killSpy.mockImplementation(() => {
+      throw esrch;
+    });
 
     await expect(waitForPidExit(12345, 5_000)).resolves.toBeUndefined();
     expect(invalidateProcessCache).toHaveBeenCalled();
@@ -45,10 +47,12 @@ describe("waitForPidExit", () => {
 
   it("treats EPERM as still alive (no permission to signal)", async () => {
     const eperm = Object.assign(new Error("Operation not permitted"), { code: "EPERM" });
-    killSpy.mockImplementation(() => { throw eperm; });
+    killSpy.mockImplementation(() => {
+      throw eperm;
+    });
 
-    // With a 0 timeout, it should time out and still be alive (EPERM = alive)
-    await expect(waitForPidExit(12345, 0)).resolves.toBeUndefined();
+    // A timeout must not be mistaken for observed process exit.
+    await expect(waitForPidExit(12345, 0)).rejects.toThrow("still running");
   });
 
   it("polls until ESRCH on the second call", async () => {
@@ -69,7 +73,9 @@ describe("waitForPidExit", () => {
 
   it("calls invalidateProcessCache before each check", async () => {
     const esrch = Object.assign(new Error("No such process"), { code: "ESRCH" });
-    killSpy.mockImplementation(() => { throw esrch; });
+    killSpy.mockImplementation(() => {
+      throw esrch;
+    });
 
     await waitForPidExit(12345, 5_000);
 
@@ -78,7 +84,9 @@ describe("waitForPidExit", () => {
 
   it("uses signal 0 (existence check, no actual signal sent)", async () => {
     const esrch = Object.assign(new Error("No such process"), { code: "ESRCH" });
-    killSpy.mockImplementation(() => { throw esrch; });
+    killSpy.mockImplementation(() => {
+      throw esrch;
+    });
 
     await waitForPidExit(99999, 5_000);
 
@@ -90,6 +98,6 @@ describe("waitForPidExit", () => {
     killSpy.mockReturnValue(undefined);
 
     // timeoutMs: 0 → deadline already passed, exits immediately
-    await expect(waitForPidExit(12345, 0)).resolves.toBeUndefined();
+    await expect(waitForPidExit(12345, 0)).rejects.toThrow("still running");
   });
 });

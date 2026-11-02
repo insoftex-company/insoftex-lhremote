@@ -56,7 +56,7 @@ export class AppService {
     this.launchProbeDelay = options?.launchProbeDelay ?? DEFAULT_LAUNCH_PROBE_DELAY;
     this.force = options?.force ?? false;
     this.onLog = options?.onLog;
-    this.visible = options?.visible ?? (process.platform === "win32");
+    this.visible = options?.visible ?? process.platform === "win32";
   }
 
   /**
@@ -82,7 +82,7 @@ export class AppService {
    * @throws {AppLaunchError} if the process fails to start.
    */
   async launch(): Promise<void> {
-    if (this.assignedPort !== null && !this.force && await this.isRunning()) {
+    if (this.assignedPort !== null && !this.force && (await this.isRunning())) {
       if (this.visible) {
         await this.bringLinkedHelperToFront();
       }
@@ -96,9 +96,7 @@ export class AppService {
         // Only reuse a launcher process — connecting to an instance port
         // as a launcher yields WrongPortError because the instance lacks
         // the electronStore / mainWindow globals.
-        const connectableLauncher = existingApps.find(
-          (a) => a.connectable && a.role === "launcher",
-        );
+        const connectableLauncher = existingApps.find((a) => a.connectable && a.role === "launcher");
         if (connectableLauncher) {
           this.assignedPort = connectableLauncher.cdpPort;
           this.detectedExternal = true;
@@ -215,15 +213,17 @@ export class AppService {
       const child = this.childProcess;
       this.childProcess = null;
 
-      child.kill("SIGTERM");
-
-      const exited = await waitForExit(child, QUIT_GRACEFUL_TIMEOUT);
-      if (!exited) {
-        child.kill("SIGKILL");
-        await waitForExit(child, QUIT_FORCE_TIMEOUT);
+      if (child.exitCode === null && child.signalCode == null) {
+        child.kill("SIGTERM");
+        const exited = await waitForExit(child, QUIT_GRACEFUL_TIMEOUT);
+        if (!exited) {
+          child.kill("SIGKILL");
+          await waitForExit(child, QUIT_FORCE_TIMEOUT);
+        }
       }
-
-      return;
+      // Squirrel's bootstrap can exit while its replacement GUI still owns
+      // our CDP port. Closing only the original ChildProcess leaves LH alive.
+      if (process.platform !== "win32") return;
     }
 
     // Never close an externally-detected instance we did not spawn
@@ -242,9 +242,9 @@ export class AppService {
       const targets = await discoverTargets(this.assignedPort);
       const first = targets[0];
       if (first) {
-        await fetch(
-          `http://127.0.0.1:${String(this.assignedPort)}/json/close/${first.id}`,
-        );
+        await fetch(`http://127.0.0.1:${String(this.assignedPort)}/json/close/${first.id}`, {
+          signal: AbortSignal.timeout(5000),
+        });
       } else {
         await closeBrowserViaCdp(this.assignedPort);
       }
@@ -393,8 +393,8 @@ $shown -join ', '
   return new Promise<string>((resolve, reject) => {
     execFile(
       "powershell.exe",
-      ["-NoProfile", "-ExecutionPolicy", "Bypass", "-Command", script],
-      { windowsHide: true },
+      ["-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-Command", script],
+      { windowsHide: true, timeout: 15000, maxBuffer: 4 * 1024 * 1024 },
       (error, stdout, stderr) => {
         if (error) {
           const message = stderr.trim() || error.message;
@@ -416,7 +416,7 @@ function closeBrowserViaCdp(port: number): Promise<void> {
     void (async () => {
       let response: Response;
       try {
-        response = await fetch(`http://127.0.0.1:${String(port)}/json/version`);
+        response = await fetch(`http://127.0.0.1:${String(port)}/json/version`, { signal: AbortSignal.timeout(5000) });
       } catch (error) {
         reject(error instanceof Error ? error : new Error(String(error)));
         return;
@@ -427,8 +427,14 @@ function closeBrowserViaCdp(port: number): Promise<void> {
         return;
       }
 
-      const version = await response.json() as CdpVersionResponse;
-      if (!version.webSocketDebuggerUrl) {
+      let version: CdpVersionResponse;
+      try {
+        version = (await response.json()) as CdpVersionResponse;
+      } catch (error) {
+        reject(error);
+        return;
+      }
+      if (!version || typeof version.webSocketDebuggerUrl !== "string") {
         reject(new Error("CDP browser WebSocket URL not available"));
         return;
       }
@@ -436,6 +442,7 @@ function closeBrowserViaCdp(port: number): Promise<void> {
       const ws = new WebSocket(version.webSocketDebuggerUrl);
       const timeout = setTimeout(() => {
         cleanup();
+        ws.close();
         reject(new Error("Timed out closing browser via CDP"));
       }, 5000);
 
@@ -478,6 +485,7 @@ function closeBrowserViaCdp(port: number): Promise<void> {
 
       const onError = () => {
         cleanup();
+        ws.close();
         reject(new Error("Browser CDP WebSocket error"));
       };
 
@@ -502,8 +510,7 @@ function getDefaultBinaryPath(): string {
 
 function getWindowsBinaryPath(): string {
   const localAppData =
-    process.env["LOCALAPPDATA"] ??
-    join(process.env["USERPROFILE"] ?? "C:\\Users\\Default", "AppData", "Local");
+    process.env["LOCALAPPDATA"] ?? join(process.env["USERPROFILE"] ?? "C:\\Users\\Default", "AppData", "Local");
   const programFiles = process.env["PROGRAMFILES"] ?? "C:\\Program Files";
   const programFilesX86 = process.env["PROGRAMFILES(X86)"] ?? "C:\\Program Files (x86)";
 
@@ -551,7 +558,7 @@ function fileExists(path: string): boolean {
  * @returns `true` if the process exited within the timeout, `false` otherwise.
  */
 function waitForExit(child: ChildProcess, timeout: number): Promise<boolean> {
-  if (child.exitCode !== null) {
+  if (child.exitCode !== null || child.signalCode != null) {
     return Promise.resolve(true);
   }
 
@@ -582,30 +589,32 @@ async function killProcesses(pids: number[]): Promise<void> {
   for (const pid of pids) {
     try {
       process.kill(pid, "SIGKILL");
-    } catch {
-      // Process may have already exited
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== "ESRCH") {
+        throw new AppLaunchError(`Cannot terminate LinkedHelper PID ${pid}; refusing a duplicate launch.`, {
+          cause: error,
+        });
+      }
     }
   }
-
+  const alive = (pid: number): boolean => {
+    try {
+      process.kill(pid, 0);
+      return true;
+    } catch (error) {
+      return (error as NodeJS.ErrnoException).code !== "ESRCH";
+    }
+  };
   const deadline = Date.now() + QUIT_FORCE_TIMEOUT;
   while (Date.now() < deadline) {
-    const alive = pids.filter((pid) => {
-      try {
-        process.kill(pid, 0);
-        return true;
-      } catch {
-        return false;
-      }
-    });
-    if (alive.length === 0) return;
+    if (!pids.some(alive)) return;
     await new Promise((resolve) => setTimeout(resolve, 100));
   }
+  if (pids.some(alive)) throw new AppLaunchError("LinkedHelper processes did not exit; refusing a duplicate launch.");
 }
 
 function assertFileExists(path: string): void {
   if (!fileExists(path)) {
-    throw new AppNotFoundError(
-      `LinkedHelper binary not found at ${path}. Set LINKEDHELPER_PATH to override.`,
-    );
+    throw new AppNotFoundError(`LinkedHelper binary not found at ${path}. Set LINKEDHELPER_PATH to override.`);
   }
 }

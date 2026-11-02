@@ -17,8 +17,8 @@ describe("isCdpPort", () => {
     vi.unstubAllGlobals();
   });
 
-  it("should return true when the port responds with ok", async () => {
-    vi.stubGlobal("fetch", vi.fn().mockResolvedValue({ ok: true }));
+  it("should return true for an empty CDP target list", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue({ ok: true, json: async () => [] }));
 
     expect(await isCdpPort(9222)).toBe(true);
     expect(fetch).toHaveBeenCalledWith(
@@ -38,6 +38,20 @@ describe("isCdpPort", () => {
 
     expect(await isCdpPort(9222)).toBe(false);
   });
+});
+
+describe("CDP protocol validation", () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    vi.restoreAllMocks();
+  });
+  it.each([{ status: "ok" }, "not CDP", [{ id: 42 }]])(
+    "refuses HTTP 200 with a non-CDP payload (%j)",
+    async (payload) => {
+      vi.stubGlobal("fetch", vi.fn().mockResolvedValue({ ok: true, json: async () => payload }));
+      expect(await isCdpPort(11111)).toBe(false);
+    },
+  );
 });
 
 describe("parseCmdlineDebugPort", () => {

@@ -1,6 +1,7 @@
 name: CI
 
 on:
+  workflow_dispatch:
   push:
     branches: [main]
   pull_request:
@@ -29,6 +30,25 @@ jobs:
       - run: pnpm lint
       - run: pnpm license-check
       - run: pnpm exec turbo run test ${{ matrix.os == 'ubuntu-latest' && '-- --coverage' || '' }}
+
+      - name: Native Windows process and PowerShell smoke
+        if: matrix.os == 'windows-latest'
+        run: node scripts/check-windows-runtime.mjs
+
+      - name: Windows production package startup
+        if: matrix.os == 'windows-latest'
+        shell: pwsh
+        run: |
+          $stage = Join-Path $env:RUNNER_TEMP 'lhremote package Unicode ü'
+          try {
+            pnpm --filter ./packages/lhremote deploy --legacy --prod $stage
+            if ($LASTEXITCODE -ne 0) { throw 'Production deploy failed' }
+            node scripts/smoke-package.mjs $stage
+            if ($LASTEXITCODE -ne 0) { throw 'Packaged CLI/MCP startup failed' }
+          } finally {
+            pnpm install --frozen-lockfile --ignore-scripts --prod=false
+            if ($LASTEXITCODE -ne 0) { throw 'Development dependency restore failed' }
+          }
 
       # The action-budget query filters on `date('now', 'localtime')`, so its
       # fixture must build the same local calendar day.  A UTC runner cannot

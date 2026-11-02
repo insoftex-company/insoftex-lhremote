@@ -9,11 +9,26 @@ const PROBE_TIMEOUT = 3_000;
  */
 export async function isCdpPort(port: number): Promise<boolean> {
   try {
-    const response = await fetch(
-      `http://127.0.0.1:${String(port)}/json/list`,
-      { signal: AbortSignal.timeout(PROBE_TIMEOUT) },
+    const response = await fetch(`http://127.0.0.1:${String(port)}/json/list`, {
+      signal: AbortSignal.timeout(PROBE_TIMEOUT),
+    });
+    if (!response.ok) return false;
+    const targets: unknown = await response.json();
+    // LH can also own ordinary HTTP listeners. HTTP 200 alone is not CDP.
+    return (
+      Array.isArray(targets) &&
+      targets.every(
+        (target: unknown) =>
+          target !== null &&
+          typeof target === "object" &&
+          "id" in target &&
+          typeof target.id === "string" &&
+          "type" in target &&
+          typeof target.type === "string" &&
+          "url" in target &&
+          typeof target.url === "string",
+      )
     );
-    return response.ok;
   } catch {
     return false;
   }

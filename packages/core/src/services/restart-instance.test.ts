@@ -28,12 +28,10 @@ vi.mock("./instance-lifecycle.js", () => ({
 
 vi.mock("./launcher-recovery.js", () => ({
   acquireLauncherWithRecovery: vi.fn(),
-  withLauncherRecovery: vi.fn(
-    async (_launcher: unknown, op: () => Promise<unknown>) => ({
-      result: await op(),
-      launcherRecovered: false,
-    }),
-  ),
+  withLauncherRecovery: vi.fn(async (_launcher: unknown, op: () => Promise<unknown>) => ({
+    result: await op(),
+    launcherRecovered: false,
+  })),
 }));
 
 import { scanRunningInstances, waitForConnectable } from "../cdp/index.js";
@@ -123,9 +121,7 @@ describe("restartInstance", () => {
 
   it("happy path: stop→exit→start→connectable", async () => {
     // Initial scan: instance running
-    vi.mocked(scanRunningInstances).mockResolvedValue([
-      makeInstance({ accountId: 42, connectable: false, pid: 100 }),
-    ]);
+    vi.mocked(scanRunningInstances).mockResolvedValue([makeInstance({ accountId: 42, connectable: false, pid: 100 })]);
     vi.mocked(startInstanceWithRecovery).mockResolvedValue({
       status: "started",
       port: 55002,
@@ -149,9 +145,7 @@ describe("restartInstance", () => {
   });
 
   it("returns verified:false when start times out AND process inspection finds nothing", async () => {
-    vi.mocked(scanRunningInstances).mockResolvedValue([
-      makeInstance({ accountId: 42, connectable: false, pid: 100 }),
-    ]);
+    vi.mocked(scanRunningInstances).mockResolvedValue([makeInstance({ accountId: 42, connectable: false, pid: 100 })]);
     vi.mocked(startInstanceWithRecovery).mockResolvedValue({ status: "timeout" });
     // Process inspection also finds nothing — genuinely failed.
     vi.mocked(waitForConnectable).mockResolvedValue({
@@ -196,9 +190,7 @@ describe("restartInstance", () => {
   // F1: launcher drops so hard that withLauncherRecovery throws (cap exceeded)
   // — process inspection still confirms the new instance → verified:true.
   it("returns verified:true via process inspection when withLauncherRecovery throws after cap", async () => {
-    vi.mocked(scanRunningInstances).mockResolvedValue([
-      makeInstance({ accountId: 42, connectable: false, pid: 100 }),
-    ]);
+    vi.mocked(scanRunningInstances).mockResolvedValue([makeInstance({ accountId: 42, connectable: false, pid: 100 })]);
 
     // Stop call passes; start call throws (simulates cap exceeded).
     let callCount = 0;
@@ -284,7 +276,7 @@ describe("restartInstance", () => {
     expect(vi.mocked(mockLauncher.stopInstance)).toHaveBeenCalledWith(42);
   });
 
-  it("marks verified:false when new port is phantom duplicate of old port", async () => {
+  it("marks verified:false when verification still sees the old PID", async () => {
     vi.mocked(scanRunningInstances).mockResolvedValue([
       makeInstance({ accountId: 42, connectable: true, pid: 100, cdpPort: 55001 }),
     ]);
@@ -296,13 +288,32 @@ describe("restartInstance", () => {
     });
     vi.mocked(waitForConnectable).mockResolvedValue({
       cdpPort: 55001, // Same port
-      pid: 200,
+      pid: 100,
       verified: true,
     });
 
     const result = await restartInstance(9222, {}, 42, { force: true });
 
-    // Port is the same as the old one — consider phantom (not distinct)
+    // A matching port cannot prove restart if process inspection still sees the old PID.
     expect(result.verified).toBe(false);
+  });
+  it("never issues a replacement start when the Windows process has not exited", async () => {
+    vi.mocked(scanRunningInstances).mockResolvedValue([makeInstance()]);
+    vi.mocked(waitForPidExit).mockRejectedValueOnce(new Error("Process 100 is still running"));
+    await expect(restartInstance(9222, {}, 42, { force: true })).rejects.toThrow("still running");
+    expect(startInstanceWithRecovery).not.toHaveBeenCalled();
+  });
+
+  it("accepts a reused port when process inspection confirms a new PID", async () => {
+    vi.mocked(scanRunningInstances).mockResolvedValue([makeInstance({ pid: 100, cdpPort: 55001 })]);
+    vi.mocked(startInstanceWithRecovery).mockResolvedValue({
+      status: "started",
+      port: 55001,
+      pid: 200,
+      verified: true,
+    });
+    vi.mocked(waitForConnectable).mockResolvedValue({ cdpPort: 55001, pid: 200, verified: true });
+    const result = await restartInstance(9222, {}, 42, { force: true });
+    expect(result).toMatchObject({ restarted: true, verified: true, oldPid: 100, newPid: 200, cdpPort: 55001 });
   });
 });

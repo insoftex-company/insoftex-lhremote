@@ -38,6 +38,8 @@ function getCacheTtlMs(): number {
 
 let _cachedResult: RawProcess[] | null = null;
 let _cachedAt = 0;
+let cacheGeneration = 0;
+let inFlight: Promise<RawProcess[]> | null = null;
 
 /**
  * Invalidate the process-inspection cache.
@@ -48,6 +50,8 @@ let _cachedAt = 0;
 export function invalidateProcessCache(): void {
   _cachedResult = null;
   _cachedAt = 0;
+  cacheGeneration++;
+  inFlight = null;
 }
 
 /**
@@ -70,10 +74,22 @@ export async function gatherRawProcesses(): Promise<RawProcess[]> {
     return _cachedResult;
   }
 
-  const fresh = await gatherRawProcessesFresh();
-  _cachedResult = fresh;
-  _cachedAt = now;
-  return fresh;
+  if (inFlight !== null) return inFlight;
+  const generation = cacheGeneration;
+  const pending = gatherRawProcessesFresh()
+    .then((fresh) => {
+      if (generation === cacheGeneration) {
+        _cachedResult = fresh;
+        // Slow WMI calls can exceed the TTL themselves; age only completed data.
+        _cachedAt = Date.now();
+      }
+      return fresh;
+    })
+    .finally(() => {
+      if (inFlight === pending) inFlight = null;
+    });
+  inFlight = pending;
+  return pending;
 }
 
 async function gatherRawProcessesFresh(): Promise<RawProcess[]> {
@@ -113,23 +129,18 @@ async function queryWin32CommandLines(): Promise<Map<number, string>> {
         // ConvertTo-Json may return a single object (not array) when there is
         // exactly one result, so we wrap in @() to force an array.
         "[Console]::OutputEncoding = $OutputEncoding = [System.Text.Encoding]::UTF8; " +
-          "Get-WmiObject -Query 'SELECT ProcessId,CommandLine FROM Win32_Process' | " +
+          "Get-CimInstance -Query 'SELECT ProcessId,CommandLine FROM Win32_Process' | " +
           "Select-Object ProcessId,CommandLine | " +
           "ConvertTo-Json -Compress",
       ],
-      { timeout: 15_000 },
+      { timeout: 15_000, maxBuffer: 16 * 1024 * 1024, windowsHide: true },
     );
 
     const raw: unknown = JSON.parse(stdout.trim());
     const rows = Array.isArray(raw) ? raw : [raw];
 
     for (const row of rows) {
-      if (
-        row !== null &&
-        typeof row === "object" &&
-        "ProcessId" in row &&
-        "CommandLine" in row
-      ) {
+      if (row !== null && typeof row === "object" && "ProcessId" in row && "CommandLine" in row) {
         const pid = (row as { ProcessId: number }).ProcessId;
         const cmd = (row as { CommandLine: string | null }).CommandLine;
         if (typeof pid === "number" && typeof cmd === "string" && cmd) {
