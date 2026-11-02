@@ -41,18 +41,19 @@ export async function handleEndorseSkills(options: {
       options.allowRemote ?? false,
       () =>
         endorseSkills({
-      personId: options.personId,
-      url: options.url,
-      skillNames: options.skillNames,
-      limit: options.limit,
-      skipIfNotEndorsable: options.skipIfNotEndorsable,
-      keepCampaign: options.keepCampaign,
-      timeout: options.timeout,
-      cdpPort: options.cdpPort,
-      cdpHost: options.cdpHost,
-      allowRemote: options.allowRemote,
-      accountId: options.accountId,
-      }),
+          personId: options.personId,
+          url: options.url,
+          skillNames: options.skillNames,
+          limit: options.limit,
+          skipIfNotEndorsable: options.skipIfNotEndorsable,
+          keepCampaign: options.keepCampaign,
+          timeout: options.timeout,
+          cdpPort: options.cdpPort,
+          cdpHost: options.cdpHost,
+          allowRemote: options.allowRemote,
+          accountId: options.accountId,
+        }),
+      { accountId: options.accountId },
     );
   } catch (error) {
     if (error instanceof CampaignExecutionError || error instanceof CampaignTimeoutError) {

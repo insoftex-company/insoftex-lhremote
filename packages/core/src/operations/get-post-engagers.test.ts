@@ -56,8 +56,7 @@ const DEFAULT_ENGAGERS = [
 
 describe("getPostEngagers", () => {
   const CDP_PORT = 9222;
-  const POST_URL =
-    "https://www.linkedin.com/feed/update/urn:li:activity:1234567890/";
+  const POST_URL = "https://www.linkedin.com/feed/update/urn:li:activity:1234567890/";
 
   /**
    * Set up CDP mocks for the standard flow:
@@ -161,9 +160,9 @@ describe("getPostEngagers", () => {
   it("throws when no LinkedIn page found", async () => {
     vi.mocked(discoverTargets).mockResolvedValue([]);
 
-    await expect(
-      getPostEngagers({ postUrl: POST_URL, cdpPort: CDP_PORT }),
-    ).rejects.toThrow("No LinkedIn page found in LinkedHelper");
+    await expect(getPostEngagers({ postUrl: POST_URL, cdpPort: CDP_PORT })).rejects.toThrow(
+      "No LinkedIn page found in LinkedHelper",
+    );
   });
 
   it("navigates to post detail URL and extracts engagers from DOM", async () => {
@@ -174,9 +173,7 @@ describe("getPostEngagers", () => {
       cdpPort: CDP_PORT,
     });
 
-    expect(navigate).toHaveBeenCalledWith(
-      "https://www.linkedin.com/feed/update/urn:li:activity:1234567890/",
-    );
+    expect(navigate).toHaveBeenCalledWith("https://www.linkedin.com/feed/update/urn:li:activity:1234567890/");
 
     expect(result.postUrn).toBe("urn:li:activity:1234567890");
     expect(result.engagers).toHaveLength(2);
@@ -234,15 +231,52 @@ describe("getPostEngagers", () => {
     expect(result.paging.count).toBe(0);
   });
 
-  it("handles null evaluate result for engagers", async () => {
-    setupMocks({ scrapeSequence: [null] });
+  // ───────────────────────────────────────────────────────────────────────────
+  // ORACLE — extraction contract (#827). Pre-authored; executor-uneditable.
+  // See the matching block in get-post.test.ts for the full rationale and the
+  // one permitted transition:  it.fails(...)  ->  it(...)
+  //
+  // The inversion below REPLACES the previous test that asserted the opposite
+  // for the same fixture. The suite must encode ONE contract, not two. The
+  // plain `it(...)` case is a CONTROL and is green today; it must stay green.
+  // ───────────────────────────────────────────────────────────────────────────
+  describe("ORACLE: corroborated emptiness (#827)", () => {
+    // Cardinal corroborator: the modal reported 2 reactions, so scraping zero
+    // of them is self-contradictory — extraction failed.
+    it("throws when engagers evaluate to null but totalReactions contradicts it", async () => {
+      setupMocks({ scrapeSequence: [null], totalReactions: 2 });
 
-    const result = await getPostEngagers({
-      postUrl: POST_URL,
-      cdpPort: CDP_PORT,
+      await expect(getPostEngagers({ postUrl: POST_URL, cdpPort: CDP_PORT })).rejects.toThrow();
     });
 
-    expect(result.engagers).toEqual([]);
+    // CONTROL — MUST STAY GREEN. A post with genuinely zero reactions is legal
+    // and must return normally. This is the safeguard against the fix
+    // degenerating into always-throw-on-empty.
+    it("does NOT throw when engagers are empty and totalReactions agrees", async () => {
+      setupMocks({ scrapeSequence: [[]], totalReactions: 0 });
+
+      const result = await getPostEngagers({
+        postUrl: POST_URL,
+        cdpPort: CDP_PORT,
+      });
+
+      expect(result.engagers).toEqual([]);
+      expect(result.paging.count).toBe(0);
+    });
+
+    // HELD — `reactionsFound: false`.
+    //
+    // Today's behaviour IS asserted, by the existing test earlier in this file
+    // ("returns empty engagers when no reactions button found"): it returns an
+    // empty list and does not throw. That test is deliberately left ALONE.
+    //
+    // What is held is not whether the behaviour is asserted, but whether it
+    // should INVERT. That turns on whether the reactions modal has a container
+    // tier equivalent to the post-detail one — never probed, because opening
+    // the modal exceeds a read against a live licensed account. SPIKE #830
+    // resolves it; #840 then either inverts that test or confirms it as a
+    // third control. Pre-empting either way here would encode a guess as a
+    // contract, so this oracle stays silent on it.
   });
 
   it("scrolls modal for pagination", async () => {
@@ -327,6 +361,24 @@ describe("getPostEngagers", () => {
     expect(result.paging.start).toBe(1);
   });
 
+  // Corroboration is measured on the whole scrape, never on the pagination
+  // window. A `start` past the end of a SUCCESSFUL scrape legitimately yields
+  // no rows — that is the caller's offset, not a failed extraction — so this
+  // must not throw even though the modal reports a positive total.
+  it("returns an empty window for a start past the end without throwing", async () => {
+    setupMocks({ totalReactions: 2 });
+
+    const result = await getPostEngagers({
+      postUrl: POST_URL,
+      cdpPort: CDP_PORT,
+      start: 5,
+      count: 10,
+    });
+
+    expect(result.engagers).toEqual([]);
+    expect(result.paging).toEqual({ start: 5, count: 0, total: 2 });
+  });
+
   it("waits for post to load with polling", async () => {
     const { evaluateMock } = setupMocks({
       postReadySequence: [false, false, true],
@@ -380,9 +432,7 @@ describe("getPostEngagers", () => {
       } as unknown as CDPClient;
     });
 
-    await expect(
-      getPostEngagers({ postUrl: POST_URL, cdpPort: CDP_PORT }),
-    ).rejects.toThrow();
+    await expect(getPostEngagers({ postUrl: POST_URL, cdpPort: CDP_PORT })).rejects.toThrow();
 
     expect(disconnect).toHaveBeenCalled();
   });

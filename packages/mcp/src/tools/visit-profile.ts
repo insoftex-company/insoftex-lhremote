@@ -2,10 +2,7 @@
 // Copyright (C) 2026 Oleksii PELYKH
 
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
-import {
-  visitProfile,
-  withLoggedInStateRetryAtPort,
-} from "@insoftex/lhremote-core";
+import { visitProfile, withLoggedInStateRetryAtPort } from "@insoftex/lhremote-core";
 import { z } from "zod";
 import { cdpConnectionSchema, mcpCatchAll, mcpError, mcpSuccess } from "../helpers.js";
 
@@ -15,28 +12,15 @@ export function registerVisitProfile(server: McpServer): void {
     "visit-profile",
     "Visit a LinkedIn profile via LinkedHelper's VisitAndExtract action and return the extracted profile data. Accepts either a person ID or a LinkedIn profile URL. Deducts from the daily action budget.",
     {
-      personId: z
-        .number()
-        .int()
-        .positive()
-        .optional()
-        .describe("Internal person ID to visit"),
+      personId: z.number().int().positive().optional().describe("Internal person ID to visit"),
       url: z
         .string()
         .optional()
         .describe(
           "LinkedIn profile URL (e.g. https://www.linkedin.com/in/jane-doe-123). The person will be imported if not already in the database.",
         ),
-      extractCurrentOrganizations: z
-        .boolean()
-        .optional()
-        .describe(
-          "Extract current company info during profile visit",
-        ),
-      keepCampaign: z
-        .boolean()
-        .optional()
-        .describe("Archive the ephemeral campaign instead of deleting it"),
+      extractCurrentOrganizations: z.boolean().optional().describe("Extract current company info during profile visit"),
+      keepCampaign: z.boolean().optional().describe("Archive the ephemeral campaign instead of deleting it"),
       timeout: z
         .number()
         .int()
@@ -45,11 +29,19 @@ export function registerVisitProfile(server: McpServer): void {
         .describe("Maximum time to wait for action completion in milliseconds (default: 5 min)"),
       ...cdpConnectionSchema,
     },
-    async ({ personId, url, extractCurrentOrganizations, keepCampaign, timeout, cdpPort, cdpHost, allowRemote, accountId }) => {
+    async ({
+      personId,
+      url,
+      extractCurrentOrganizations,
+      keepCampaign,
+      timeout,
+      cdpPort,
+      cdpHost,
+      allowRemote,
+      accountId,
+    }) => {
       if ((personId == null) === (url == null)) {
-        return mcpError(
-          "Exactly one of personId or url must be provided.",
-        );
+        return mcpError("Exactly one of personId or url must be provided.");
       }
 
       try {
@@ -57,7 +49,19 @@ export function registerVisitProfile(server: McpServer): void {
           cdpPort,
           cdpHost ?? "127.0.0.1",
           allowRemote ?? false,
-          () => visitProfile({ personId, url, extractCurrentOrganizations, keepCampaign, timeout, cdpPort, cdpHost, allowRemote, accountId }),
+          () =>
+            visitProfile({
+              personId,
+              url,
+              extractCurrentOrganizations,
+              keepCampaign,
+              timeout,
+              cdpPort,
+              cdpHost,
+              allowRemote,
+              accountId,
+            }),
+          { accountId: accountId },
         );
         return mcpSuccess(JSON.stringify(result, null, 2));
       } catch (error) {

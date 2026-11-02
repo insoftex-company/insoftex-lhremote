@@ -9,9 +9,9 @@
  * list-accounts while restart-instance is in its stop phase) produce
  * CDPConnectionError because the target is already taken.
  *
- * All code that opens a launcher CDP connection MUST wrap the full
- * acquire → use → disconnect cycle in {@link withLauncherCDPGate} so that
- * at most one such session is open at any moment.
+ * LauncherService automatically leases this gate for connect → disconnect.
+ * {@link withLauncherCDPGate} also groups recovery/RPC phases under one lease;
+ * nested service sessions are serialized inside that scope.
  *
  * Lock ordering (deadlock-free):
  *   launcher-queue (write-op exclusive) → launcher-CDP-gate (session-scoped)
@@ -27,8 +27,32 @@
  * contention is handled by the backoff retry in `acquireLauncherWithRecovery`.
  */
 
+import { AsyncLocalStorage } from "node:async_hooks";
+
+const gateScope = new AsyncLocalStorage<{ active: boolean; sessionTail: Promise<void> }>();
+
 /** Tail of the promise chain — the next acquire blocks on this. */
 let _gateTail: Promise<void> = Promise.resolve();
+
+/** Acquire a session lease; LauncherService releases it on disconnect or failure. */
+export async function acquireLauncherCDPLease(): Promise<() => void> {
+  const scope = gateScope.getStore();
+  let release!: () => void;
+  const previous = scope?.active ? scope.sessionTail : _gateTail;
+  const next = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  if (scope?.active) scope.sessionTail = next;
+  else _gateTail = next;
+  await previous;
+  let released = false;
+  return () => {
+    if (!released) {
+      released = true;
+      release();
+    }
+  };
+}
 
 /**
  * Run `op` with exclusive in-process access to a launcher CDP session.
@@ -40,19 +64,14 @@ let _gateTail: Promise<void> = Promise.resolve();
  * @returns The value returned by `op`.
  */
 export async function withLauncherCDPGate<T>(op: () => Promise<T>): Promise<T> {
-  let resolveGate!: () => void;
-  const gate = new Promise<void>((r) => {
-    resolveGate = r;
-  });
-  const prev = _gateTail;
-  _gateTail = gate;
-
-  // Block until the previous session has finished.
-  await prev;
-
+  if (gateScope.getStore()?.active) return op();
+  const release = await acquireLauncherCDPLease();
+  const scope = { active: true, sessionTail: Promise.resolve() };
   try {
-    return await op();
+    return await gateScope.run(scope, op);
   } finally {
-    resolveGate();
+    await scope.sessionTail;
+    scope.active = false;
+    release();
   }
 }

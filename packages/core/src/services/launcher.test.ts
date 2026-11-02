@@ -3,13 +3,9 @@
 
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import {
-  LinkedHelperNotRunningError,
-  ServiceError,
-  StartInstanceError,
-  WrongPortError,
-} from "./errors.js";
+import { LinkedHelperNotRunningError, ServiceError, StartInstanceError, WrongPortError } from "./errors.js";
 import { LauncherService } from "./launcher.js";
+import { withLauncherCDPGate } from "../cdp/launcher-cdp-gate.js";
 
 /**
  * Shared CDPClient mocks — LauncherService creates exactly one CDPClient,
@@ -76,6 +72,47 @@ describe("LauncherService", () => {
     });
   });
 
+  afterEach(() => service.disconnect());
+
+  it("serializes direct service sessions even when callers omit the gate wrapper", async () => {
+    const second = new LauncherService(9222);
+    let connected = false;
+    try {
+      await service.connect();
+      const pending = second.connect().then(() => {
+        connected = true;
+      });
+      await Promise.resolve();
+      await Promise.resolve();
+      expect(connected).toBe(false);
+      service.disconnect();
+      await pending;
+      expect(connected).toBe(true);
+    } finally {
+      second.disconnect();
+    }
+  });
+
+  it("serializes services inside an existing gate without recursive deadlock", async () => {
+    const second = new LauncherService(9222);
+    await withLauncherCDPGate(async () => {
+      try {
+        await service.connect();
+        let connected = false;
+        const pending = second.connect().then(() => {
+          connected = true;
+        });
+        await Promise.resolve();
+        expect(connected).toBe(false);
+        service.disconnect();
+        await pending;
+      } finally {
+        second.disconnect();
+        service.disconnect();
+      }
+    });
+  });
+
   describe("connect", () => {
     it("creates a CDPClient and connects", async () => {
       await service.connect();
@@ -86,20 +123,14 @@ describe("LauncherService", () => {
     it("probes for require availability during connect", async () => {
       await service.connect();
 
-      expect(mockEvaluate).toHaveBeenCalledWith(
-        "typeof require === 'function'",
-      );
+      expect(mockEvaluate).toHaveBeenCalledWith("typeof require === 'function'");
     });
 
     it("wraps CDPConnectionError into LinkedHelperNotRunningError", async () => {
-      mockConnect.mockRejectedValue(
-        new CDPConnectionError("connection refused"),
-      );
+      mockConnect.mockRejectedValue(new CDPConnectionError("connection refused"));
       mockFindApp.mockResolvedValue([]);
 
-      await expect(service.connect()).rejects.toThrow(
-        LinkedHelperNotRunningError,
-      );
+      await expect(service.connect()).rejects.toThrow(LinkedHelperNotRunningError);
     });
 
     it("re-throws non-CDP errors as-is", async () => {
@@ -230,16 +261,8 @@ describe("LauncherService", () => {
 
       await service.startInstance(42);
 
-      expect(mockEvaluate).toHaveBeenCalledWith(
-        expect.stringContaining("startInstance"),
-        true,
-        undefined,
-      );
-      expect(mockEvaluate).toHaveBeenCalledWith(
-        expect.stringContaining("42"),
-        true,
-        undefined,
-      );
+      expect(mockEvaluate).toHaveBeenCalledWith(expect.stringContaining("startInstance"), true, undefined);
+      expect(mockEvaluate).toHaveBeenCalledWith(expect.stringContaining("42"), true, undefined);
     });
 
     it("throws StartInstanceError on failure", async () => {
@@ -249,12 +272,8 @@ describe("LauncherService", () => {
         error: "account is already running",
       };
 
-      await expect(service.startInstance(42)).rejects.toThrow(
-        StartInstanceError,
-      );
-      await expect(service.startInstance(42)).rejects.toThrow(
-        /account is already running/,
-      );
+      await expect(service.startInstance(42)).rejects.toThrow(StartInstanceError);
+      await expect(service.startInstance(42)).rejects.toThrow(/account is already running/);
     });
 
     it("throws ServiceError when not connected", async () => {
@@ -268,11 +287,7 @@ describe("LauncherService", () => {
 
       await service.stopInstance(42);
 
-      expect(mockEvaluate).toHaveBeenCalledWith(
-        expect.stringContaining("stopInstance"),
-        true,
-        undefined,
-      );
+      expect(mockEvaluate).toHaveBeenCalledWith(expect.stringContaining("stopInstance"), true, undefined);
     });
 
     it("throws ServiceError when not connected", async () => {
@@ -311,12 +326,8 @@ describe("LauncherService", () => {
       const accounts = await service.listAccounts();
 
       expect(accounts).toHaveLength(2);
-      expect(accounts).toContainEqual(
-        expect.objectContaining({ name: "Alice" }),
-      );
-      expect(accounts).toContainEqual(
-        expect.objectContaining({ name: "Bob" }),
-      );
+      expect(accounts).toContainEqual(expect.objectContaining({ name: "Alice" }));
+      expect(accounts).toContainEqual(expect.objectContaining({ name: "Bob" }));
     });
 
     it("returns empty array when no accounts", async () => {
@@ -334,9 +345,7 @@ describe("LauncherService", () => {
         if (expression === "typeof require === 'function'") {
           return Promise.resolve(true);
         }
-        return Promise.reject(
-          new CDPEvaluationError("ReferenceError: remote is not defined"),
-        );
+        return Promise.reject(new CDPEvaluationError("ReferenceError: remote is not defined"));
       });
 
       await expect(service.listAccounts()).rejects.toThrow(CDPEvaluationError);
@@ -417,9 +426,7 @@ describe("LauncherService", () => {
       await service.connect();
       nextEvaluateResult = { __error: "cross-workspace listing failed: boom" };
 
-      await expect(
-        service.listAccounts({ includeAllWorkspaces: true }),
-      ).rejects.toThrow(ServiceError);
+      await expect(service.listAccounts({ includeAllWorkspaces: true })).rejects.toThrow(ServiceError);
     });
   });
 
@@ -489,9 +496,7 @@ describe("LauncherService", () => {
 
       await service.listWorkspaces();
 
-      const call = mockEvaluate.mock.calls.find(
-        (c) => typeof c[0] === "string" && c[0].includes("_workspacesBS"),
-      );
+      const call = mockEvaluate.mock.calls.find((c) => typeof c[0] === "string" && c[0].includes("_workspacesBS"));
       expect(call).toBeDefined();
       expect(call?.[1]).toBe(true);
     });
@@ -503,32 +508,14 @@ describe("LauncherService", () => {
 
       await service.dismissInstanceDialog(42, "dlg-1", "btn-ok");
 
-      expect(mockEvaluate).toHaveBeenCalledWith(
-        expect.stringContaining("closeInstanceDialog"),
-        true,
-        undefined,
-      );
-      expect(mockEvaluate).toHaveBeenCalledWith(
-        expect.stringContaining("42"),
-        true,
-        undefined,
-      );
-      expect(mockEvaluate).toHaveBeenCalledWith(
-        expect.stringContaining('"dlg-1"'),
-        true,
-        undefined,
-      );
-      expect(mockEvaluate).toHaveBeenCalledWith(
-        expect.stringContaining('"btn-ok"'),
-        true,
-        undefined,
-      );
+      expect(mockEvaluate).toHaveBeenCalledWith(expect.stringContaining("closeInstanceDialog"), true, undefined);
+      expect(mockEvaluate).toHaveBeenCalledWith(expect.stringContaining("42"), true, undefined);
+      expect(mockEvaluate).toHaveBeenCalledWith(expect.stringContaining('"dlg-1"'), true, undefined);
+      expect(mockEvaluate).toHaveBeenCalledWith(expect.stringContaining('"btn-ok"'), true, undefined);
     });
 
     it("throws ServiceError when not connected", async () => {
-      await expect(
-        service.dismissInstanceDialog(42, "dlg-1", "btn-ok"),
-      ).rejects.toThrow(ServiceError);
+      await expect(service.dismissInstanceDialog(42, "dlg-1", "btn-ok")).rejects.toThrow(ServiceError);
     });
   });
 
@@ -578,27 +565,11 @@ describe("LauncherService", () => {
       await service.stopInstanceWithDialogDismissal(42);
 
       // Verify stopInstance was called
-      expect(mockEvaluate).toHaveBeenCalledWith(
-        expect.stringContaining("stopInstance"),
-        true,
-        undefined,
-      );
+      expect(mockEvaluate).toHaveBeenCalledWith(expect.stringContaining("stopInstance"), true, undefined);
       // Verify dismissInstanceDialog was called with the dialog's first button
-      expect(mockEvaluate).toHaveBeenCalledWith(
-        expect.stringContaining("closeInstanceDialog"),
-        true,
-        undefined,
-      );
-      expect(mockEvaluate).toHaveBeenCalledWith(
-        expect.stringContaining('"dlg-close"'),
-        true,
-        undefined,
-      );
-      expect(mockEvaluate).toHaveBeenCalledWith(
-        expect.stringContaining('"btn-yes"'),
-        true,
-        undefined,
-      );
+      expect(mockEvaluate).toHaveBeenCalledWith(expect.stringContaining("closeInstanceDialog"), true, undefined);
+      expect(mockEvaluate).toHaveBeenCalledWith(expect.stringContaining('"dlg-close"'), true, undefined);
+      expect(mockEvaluate).toHaveBeenCalledWith(expect.stringContaining('"btn-yes"'), true, undefined);
     });
 
     it("returns normally when no dialog appears within timeout", async () => {
@@ -631,11 +602,7 @@ describe("LauncherService", () => {
       vi.useRealTimers();
 
       // Verify stopInstance was called but dismissInstanceDialog was not
-      expect(mockEvaluate).toHaveBeenCalledWith(
-        expect.stringContaining("stopInstance"),
-        true,
-        undefined,
-      );
+      expect(mockEvaluate).toHaveBeenCalledWith(expect.stringContaining("stopInstance"), true, undefined);
       expect(mockEvaluate).not.toHaveBeenCalledWith(
         expect.stringContaining("closeInstanceDialog"),
         expect.anything(),
@@ -644,9 +611,7 @@ describe("LauncherService", () => {
     });
 
     it("throws ServiceError when not connected", async () => {
-      await expect(
-        service.stopInstanceWithDialogDismissal(42),
-      ).rejects.toThrow(ServiceError);
+      await expect(service.stopInstanceWithDialogDismissal(42)).rejects.toThrow(ServiceError);
     });
   });
 });

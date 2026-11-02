@@ -1,11 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 // Copyright (C) 2026 Oleksii PELYKH
 
-import {
-  errorMessage,
-  getPostStats,
-  type GetPostStatsOutput,
-} from "@insoftex/lhremote-core";
+import { errorMessage, getPostStats, type GetPostStatsOutput } from "@insoftex/lhremote-core";
 
 /** Handle the {@link https://github.com/insoftex-company/insoftex-lhremote#get-post-stats | get-post-stats} CLI command. */
 export async function handleGetPostStats(
@@ -14,6 +10,7 @@ export async function handleGetPostStats(
     cdpPort?: number;
     cdpHost?: string;
     allowRemote?: boolean;
+    accountId?: number;
     json?: boolean;
   },
 ): Promise<void> {
@@ -24,6 +21,7 @@ export async function handleGetPostStats(
       cdpPort: options.cdpPort,
       cdpHost: options.cdpHost,
       allowRemote: options.allowRemote,
+      accountId: options.accountId,
     });
   } catch (error) {
     const message = errorMessage(error);

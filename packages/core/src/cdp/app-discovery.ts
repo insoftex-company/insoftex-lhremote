@@ -1,7 +1,12 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 // Copyright (C) 2026 Oleksii PELYKH
 
-import { LinkedHelperNotRunningError, LinkedHelperUnreachableError } from "../services/errors.js";
+import {
+  InstanceNotRunningError,
+  LinkedHelperNotRunningError,
+  LinkedHelperUnreachableError,
+  ServiceError,
+} from "../services/errors.js";
 import { delay } from "../utils/index.js";
 import { isCdpPort, parseCmdlineDebugPort } from "../utils/cdp-port.js";
 import { isLoopbackAddress } from "../utils/loopback.js";
@@ -212,9 +217,7 @@ export async function resolveAppPort(
       throw new LinkedHelperNotRunningError();
     }
 
-    const match = apps.find(
-      (a) => a.role === role && a.connectable && a.cdpPort !== null,
-    );
+    const match = apps.find((a) => a.role === role && a.connectable && a.cdpPort !== null);
     if (match?.cdpPort !== null && match?.cdpPort !== undefined) {
       return match.cdpPort;
     }
@@ -247,11 +250,52 @@ export async function resolveInstancePort(
   cdpPort?: number,
   cdpHost?: string,
   retryTimeout = REACHABILITY_RETRY_TIMEOUT,
+  accountId?: number,
 ): Promise<number> {
+  if (accountId !== undefined) {
+    if (cdpHost !== undefined && !isLoopbackAddress(cdpHost)) {
+      throw new ServiceError(
+        "Account-bound CDP discovery requires local process inspection. Run lhremote on the target host.",
+      );
+    }
+    const apps = await findApp();
+    const endpoint = apps.find((a) => a.cdpPort === cdpPort && a.role === "instance");
+    if (cdpPort !== undefined && endpoint) {
+      if (endpoint.identity?.accountId !== accountId) {
+        throw new ServiceError(
+          `CDP port ${cdpPort} does not belong to account ${accountId}. Refusing to use another or unidentified account's session.`,
+        );
+      }
+      if (endpoint.connectable) return cdpPort;
+      throw new InstanceNotRunningError(`Account ${accountId} instance is not connectable.`);
+    }
+    // An explicit launcher port selects a child by account, never by process order.
+    if (cdpPort !== undefined && !apps.some((a) => a.role === "launcher" && a.cdpPort === cdpPort)) {
+      throw new ServiceError(
+        `Cannot verify account ${accountId} for CDP port ${cdpPort}. Refusing an unidentified session.`,
+      );
+    }
+    const matches = apps.filter(
+      (a) => a.role === "instance" && a.identity?.accountId === accountId && a.connectable && a.cdpPort !== null,
+    );
+    if (matches.length > 1)
+      throw new ServiceError(`Multiple connectable instances for account ${accountId}. Specify its CDP port.`);
+    if (matches[0]?.cdpPort != null) return matches[0].cdpPort;
+    if (apps.length === 0) throw new LinkedHelperNotRunningError();
+    throw new InstanceNotRunningError(
+      `Account ${accountId} instance is not running or connectable. Use start-instance first.`,
+    );
+  }
   if (cdpPort !== undefined) return cdpPort;
   if (cdpHost !== undefined && !isLoopbackAddress(cdpHost)) {
     throw new Error("cdpPort is required when using a non-loopback cdpHost — auto-discovery only works locally");
   }
+  // Without an account or port, choosing among several identities is unsafe.
+  const apps = await findApp();
+  const instances = apps.filter((a) => a.role === "instance" && a.connectable && a.cdpPort !== null);
+  if (instances.length > 1)
+    throw new ServiceError("Multiple LinkedHelper instances are running. Specify accountId or cdpPort.");
+  if (instances[0]?.cdpPort != null) return instances[0].cdpPort;
   return resolveAppPort("instance", retryTimeout);
 }
 
@@ -287,10 +331,7 @@ export async function resolveLauncherPort(
  * helper children; the `resources/out/` path identifies instance mains).
  * Falls back to parent-PID heuristic when no command line is available.
  */
-function classifyRole(
-  proc: Pick<RawProcess, "ppid" | "cmdline">,
-  lhPids: Set<number>,
-): AppRole {
+function classifyRole(proc: Pick<RawProcess, "ppid" | "cmdline">, lhPids: Set<number>): AppRole {
   if (proc.cmdline) {
     if (/--type=/.test(proc.cmdline)) return "helper-child";
     // --app-id= is the authoritative instance discriminator: it is present on every

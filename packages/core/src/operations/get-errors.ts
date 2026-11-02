@@ -38,10 +38,8 @@ export interface GetErrorsOutput extends UIHealthStatus {
  * is not running or the UI target is unavailable, the operation still
  * succeeds and returns an empty `instancePopups` array.
  */
-export async function getErrors(
-  input: GetErrorsInput,
-): Promise<GetErrorsOutput> {
-  const cdpPort = await resolveInstancePort(input.cdpPort, input.cdpHost);
+export async function getErrors(input: GetErrorsInput): Promise<GetErrorsOutput> {
+  const cdpPort = await resolveInstancePort(input.cdpPort, input.cdpHost, undefined, input.accountId);
 
   const cdpOptions = buildCdpOptions(input);
 
@@ -76,9 +74,7 @@ export async function getErrors(
   const isLocal = input.cdpHost === undefined || isLoopbackAddress(input.cdpHost);
   let instancePopups: InstancePopup[] = [];
   if (connectedToLauncher && isLocal) {
-    const instancePort = await discoverInstancePort(cdpPort).catch(
-      () => null,
-    );
+    const instancePort = await discoverInstancePort(cdpPort).catch(() => null);
     if (instancePort !== null) {
       instancePopups = await detectInstancePopups(instancePort, cdpOptions);
     }
@@ -87,8 +83,7 @@ export async function getErrors(
     instancePopups = await detectInstancePopups(cdpPort, cdpOptions);
   }
 
-  const healthy =
-    health.healthy && instancePopups.length === 0;
+  const healthy = health.healthy && instancePopups.length === 0;
 
   return { accountId, ...health, healthy, instancePopups };
 }

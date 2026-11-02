@@ -1,11 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 // Copyright (C) 2026 Oleksii PELYKH
 
-import {
-  errorMessage,
-  getPost,
-  type GetPostOutput,
-} from "@insoftex/lhremote-core";
+import { errorMessage, getPost, type GetPostOutput } from "@insoftex/lhremote-core";
 
 /** Handle the {@link https://github.com/insoftex-company/insoftex-lhremote#get-post | get-post} CLI command. */
 export async function handleGetPost(
@@ -14,6 +10,7 @@ export async function handleGetPost(
     cdpPort?: number;
     cdpHost?: string;
     allowRemote?: boolean;
+    accountId?: number;
     commentCount?: number;
     json?: boolean;
   },
@@ -25,6 +22,7 @@ export async function handleGetPost(
       cdpPort: options.cdpPort,
       cdpHost: options.cdpHost,
       allowRemote: options.allowRemote,
+      accountId: options.accountId,
       commentCount: options.commentCount,
     });
   } catch (error) {
@@ -48,9 +46,7 @@ export async function handleGetPost(
       process.stdout.write("\n");
     }
     if (post.publishedAt) {
-      process.stdout.write(
-        `Published: ${new Date(post.publishedAt).toISOString()}\n`,
-      );
+      process.stdout.write(`Published: ${new Date(post.publishedAt).toISOString()}\n`);
     }
     process.stdout.write("\n");
 
@@ -71,9 +67,7 @@ export async function handleGetPost(
         const author = comment.authorName || "Unknown";
         process.stdout.write(`  ${author}`);
         if (comment.createdAt) {
-          process.stdout.write(
-            ` (${new Date(comment.createdAt).toISOString()})`,
-          );
+          process.stdout.write(` (${new Date(comment.createdAt).toISOString()})`);
         }
         process.stdout.write(":\n");
         if (comment.text) {

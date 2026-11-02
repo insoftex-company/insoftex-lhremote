@@ -2,10 +2,7 @@
 // Copyright (C) 2026 Oleksii PELYKH
 
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
-import {
-  unfollowProfile,
-  withLoggedInStateRetryAtPort,
-} from "@insoftex/lhremote-core";
+import { unfollowProfile, withLoggedInStateRetryAtPort } from "@insoftex/lhremote-core";
 import { z } from "zod";
 import { cdpConnectionSchema, mcpCatchAll, mcpSuccess } from "../helpers.js";
 
@@ -25,9 +22,7 @@ export function registerUnfollowProfile(server: McpServer): void {
         .boolean()
         .optional()
         .default(false)
-        .describe(
-          "When true, detect the follow state but do not click Unfollow (dialog is opened and dismissed)",
-        ),
+        .describe("When true, detect the follow state but do not click Unfollow (dialog is opened and dismissed)"),
       ...cdpConnectionSchema,
     },
     async ({ profileUrl, dryRun, cdpPort, cdpHost, allowRemote, accountId }) => {
@@ -38,13 +33,14 @@ export function registerUnfollowProfile(server: McpServer): void {
           allowRemote ?? false,
           () =>
             unfollowProfile({
-          profileUrl,
-          cdpPort,
-          cdpHost,
-          allowRemote,
-          accountId,
-          dryRun,
-          }),
+              profileUrl,
+              cdpPort,
+              cdpHost,
+              allowRemote,
+              accountId,
+              dryRun,
+            }),
+          { accountId: accountId },
         );
         return mcpSuccess(JSON.stringify(result, null, 2));
       } catch (error) {

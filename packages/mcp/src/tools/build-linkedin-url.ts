@@ -9,9 +9,7 @@ import { mcpError, mcpSuccess } from "../helpers.js";
 const snFilterValueSchema = z.object({
   id: z.string().describe("Entity ID or URN"),
   text: z.string().optional().describe("Display text"),
-  selectionType: z
-    .enum(["INCLUDED", "EXCLUDED"])
-    .describe("Include or exclude this value"),
+  selectionType: z.enum(["INCLUDED", "EXCLUDED"]).describe("Include or exclude this value"),
 });
 
 const snFilterSchema = z.object({
@@ -24,17 +22,16 @@ const snFilterSchema = z.object({
 });
 
 const booleanExpressionSchema = z.union([
-  z.object({
-    raw: z.string().describe("Raw boolean expression string"),
-  }).strict(),
+  z
+    .object({
+      raw: z.string().describe("Raw boolean expression string"),
+    })
+    .strict(),
   z.object({
     and: z.array(z.string()).optional().describe("Terms joined with AND"),
     or: z.array(z.string()).optional().describe("Terms grouped with OR"),
     not: z.array(z.string()).optional().describe("Terms negated with NOT"),
-    phrases: z
-      .array(z.string())
-      .optional()
-      .describe("Exact phrases (quoted)"),
+    phrases: z.array(z.string()).optional().describe("Exact phrases (quoted)"),
   }),
 ]);
 
@@ -55,56 +52,24 @@ export function registerBuildLinkedInUrl(server: McpServer): void {
         .union([z.string(), booleanExpressionSchema])
         .optional()
         .describe("Keywords (string or structured boolean expression)"),
-      currentCompany: z
-        .array(z.string())
-        .optional()
-        .describe("Current company IDs (SearchPage)"),
-      pastCompany: z
-        .array(z.string())
-        .optional()
-        .describe("Past company IDs (SearchPage)"),
-      geoUrn: z
-        .array(z.string())
-        .optional()
-        .describe("Geographic URN IDs (SearchPage)"),
-      industry: z
-        .array(z.string())
-        .optional()
-        .describe("Industry IDs (SearchPage)"),
-      school: z
-        .array(z.string())
-        .optional()
-        .describe("School IDs (SearchPage)"),
-      network: z
-        .array(z.string())
-        .optional()
-        .describe('Connection degree codes: "F", "S", "O" (SearchPage)'),
-      profileLanguage: z
-        .array(z.string())
-        .optional()
-        .describe("Profile language codes (SearchPage)"),
-      serviceCategory: z
-        .array(z.string())
-        .optional()
-        .describe("Service category IDs (SearchPage)"),
+      currentCompany: z.array(z.string()).optional().describe("Current company IDs (SearchPage)"),
+      pastCompany: z.array(z.string()).optional().describe("Past company IDs (SearchPage)"),
+      geoUrn: z.array(z.string()).optional().describe("Geographic URN IDs (SearchPage)"),
+      industry: z.array(z.string()).optional().describe("Industry IDs (SearchPage)"),
+      school: z.array(z.string()).optional().describe("School IDs (SearchPage)"),
+      network: z.array(z.string()).optional().describe('Connection degree codes: "F", "S", "O" (SearchPage)'),
+      profileLanguage: z.array(z.string()).optional().describe("Profile language codes (SearchPage)"),
+      serviceCategory: z.array(z.string()).optional().describe("Service category IDs (SearchPage)"),
 
       // SNSearchPage params
-      filters: z
-        .array(snFilterSchema)
-        .optional()
-        .describe("Sales Navigator filters (SNSearchPage)"),
+      filters: z.array(snFilterSchema).optional().describe("Sales Navigator filters (SNSearchPage)"),
 
       // Parameterised template params
-      slug: z
-        .string()
-        .optional()
-        .describe("Company or school slug (OrganizationPeople, Alumni)"),
+      slug: z.string().optional().describe("Company or school slug (OrganizationPeople, Alumni)"),
       id: z
         .string()
         .optional()
-        .describe(
-          "Entity ID (Group, Event, SNListPage, SNOrgsListsPage, TProjectPage, RProjectPage)",
-        ),
+        .describe("Entity ID (Group, Event, SNListPage, SNOrgsListsPage, TProjectPage, RProjectPage)"),
     },
     async (args) => {
       try {
@@ -127,8 +92,18 @@ export function registerBuildLinkedInUrl(server: McpServer): void {
         const result = buildLinkedInUrl(input);
         return mcpSuccess(JSON.stringify(result, null, 2));
       } catch (error) {
-        const message =
-          error instanceof Error ? error.message : String(error);
+        // `String()` wraps the whole ternary rather than sitting in one
+        // branch: `message` is typed `string` but is not one by construction,
+        // so a coercion in the non-`Error` branch alone leaves an `Error`'s own
+        // `message` un-coerced -- and `mcpError` declares `text: string`, so
+        // that value reaches an agent as this tool's wire payload.  Nothing
+        // downstream coerces it, which makes this the one site here where the
+        // un-coerced value is observable rather than merely mistyped.  Contract
+        // and provenance: `utils/error-message.ts` § `ownText` (#965), whose
+        // totality also takes a `try` around `String()`; that half is
+        // deliberately not adopted here, so a `message` whose own `toString`
+        // throws still escapes this handler.
+        const message = String(error instanceof Error ? error.message : error);
         return mcpError(message);
       }
     },

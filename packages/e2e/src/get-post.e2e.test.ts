@@ -2,7 +2,15 @@
 // Copyright (C) 2026 Oleksii PELYKH
 
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
-import { assertDefined, describeE2E, forceStopInstance, launchApp, quitApp, resolveAccountId, retryAsync } from "@insoftex/lhremote-core/testing";
+import {
+  assertDefined,
+  describeE2E,
+  forceStopInstance,
+  launchApp,
+  quitApp,
+  resolveAccountId,
+  retryAsync,
+} from "@insoftex/lhremote-core/testing";
 import {
   type AppService,
   discoverInstancePort,
@@ -84,9 +92,7 @@ describeE2E("get-post operation", () => {
     await retryAsync(
       async () => {
         const targets = await discoverTargets(cdpPort);
-        const hasLinkedIn = targets.some(
-          (t) => t.type === "page" && t.url?.includes("linkedin.com"),
-        );
+        const hasLinkedIn = targets.some((t) => t.type === "page" && t.url?.includes("linkedin.com"));
         if (!hasLinkedIn) {
           throw new Error("LinkedIn target not available yet");
         }
@@ -133,18 +139,14 @@ describeE2E("get-post operation", () => {
     it("get-post --json returns post content", async () => {
       assertDefined(capturedPostUrl, "No post URL — feed returned no posts");
 
-      const stdoutSpy = vi
-        .spyOn(process.stdout, "write")
-        .mockReturnValue(true);
+      const stdoutSpy = vi.spyOn(process.stdout, "write").mockReturnValue(true);
 
       await handleGetPost(capturedPostUrl, { cdpPort, json: true });
 
       expect(process.exitCode).toBeUndefined();
       expect(stdoutSpy).toHaveBeenCalled();
 
-      const output = stdoutSpy.mock.calls
-        .map((call) => String(call[0]))
-        .join("");
+      const output = stdoutSpy.mock.calls.map((call) => String(call[0])).join("");
       const parsed = JSON.parse(output) as GetPostOutput;
 
       // ── Structural assertions ──────────────────────────────────
@@ -202,28 +204,25 @@ describeE2E("get-post operation", () => {
 
       // (4) Verify commentUrn extraction (was previously hardcoded to
       // null; SDUI format includes the `(urn:li:activity:` qualifier).
-      if (parsed.comments.length > 0) {
-        const firstComment = parsed.comments[0];
-        expect(firstComment.commentUrn).not.toBeNull();
-        expect(firstComment.commentUrn).toMatch(/^urn:li:comment:\(/);
-      }
+      // Unconditional: (3) already asserted `comments.length > 0`, so a
+      // guard here could never be false — it only made these assertions
+      // look optional (lhremote#829).
+      const firstComment = parsed.comments[0];
+      expect(firstComment.commentUrn).not.toBeNull();
+      expect(firstComment.commentUrn).toMatch(/^urn:li:comment:\(/);
     }, 60_000);
 
     it("get-post prints human-friendly output", async () => {
       assertDefined(capturedPostUrl, "No post URL — feed returned no posts");
 
-      const stdoutSpy = vi
-        .spyOn(process.stdout, "write")
-        .mockReturnValue(true);
+      const stdoutSpy = vi.spyOn(process.stdout, "write").mockReturnValue(true);
 
       await handleGetPost(capturedPostUrl, { cdpPort });
 
       expect(process.exitCode).toBeUndefined();
       expect(stdoutSpy).toHaveBeenCalled();
 
-      const output = stdoutSpy.mock.calls
-        .map((call) => String(call[0]))
-        .join("");
+      const output = stdoutSpy.mock.calls.map((call) => String(call[0])).join("");
       expect(output).toContain("Post:");
       expect(output).toContain("Reactions:");
     }, 60_000);
@@ -245,9 +244,7 @@ describeE2E("get-post operation", () => {
       expect(result.isError, `MCP tool error: ${result.content?.[0]?.text}`).toBeUndefined();
       expect(result.content).toHaveLength(1);
 
-      const parsed = JSON.parse(
-        (result.content[0] as { text: string }).text,
-      ) as GetPostOutput;
+      const parsed = JSON.parse((result.content[0] as { text: string }).text) as GetPostOutput;
 
       expect(parsed.post).toHaveProperty("postUrn");
       expect(typeof parsed.post.authorName).toBe("string");

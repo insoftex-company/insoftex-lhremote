@@ -90,27 +90,15 @@ describe("withLauncherQueue", () => {
   });
 
   it("applies the settle barrier for type:start (launcher + instance check)", async () => {
-    await withLauncherQueue(
-      () => Promise.resolve(),
-      { type: "start", accountId: 42, launcherPort: 9222 },
-    );
+    await withLauncherQueue(() => Promise.resolve(), { type: "start", accountId: 42, launcherPort: 9222 });
 
-    expect(vi.mocked(resolveAppPort)).toHaveBeenCalledWith(
-      "launcher",
-      expect.any(Number),
-    );
+    expect(vi.mocked(resolveAppPort)).toHaveBeenCalledWith("launcher", expect.any(Number), undefined);
   });
 
   it("applies the settle barrier for type:stop (launcher check only)", async () => {
-    await withLauncherQueue(
-      () => Promise.resolve(),
-      { type: "stop", launcherPort: 9222 },
-    );
+    await withLauncherQueue(() => Promise.resolve(), { type: "stop", launcherPort: 9222 });
 
-    expect(vi.mocked(resolveAppPort)).toHaveBeenCalledWith(
-      "launcher",
-      expect.any(Number),
-    );
+    expect(vi.mocked(resolveAppPort)).toHaveBeenCalledWith("launcher", expect.any(Number), undefined);
   });
 
   it("does NOT call resolveAppPort for type:none", async () => {
@@ -121,10 +109,7 @@ describe("withLauncherQueue", () => {
   it("does not block queue when settle barrier launcher-check fails", async () => {
     vi.mocked(resolveAppPort).mockRejectedValueOnce(new Error("no launcher"));
 
-    await withLauncherQueue(
-      () => Promise.resolve(),
-      { type: "launcher", launcherPort: 9222 },
-    );
+    await withLauncherQueue(() => Promise.resolve(), { type: "launcher", launcherPort: 9222 });
 
     // Queue should still be released — a subsequent op must succeed
     const result = await withLauncherQueue(() => Promise.resolve("after"));

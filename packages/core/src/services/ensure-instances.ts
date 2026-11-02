@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 // Copyright (C) 2026 Oleksii PELYKH
 
-import { scanRunningInstances, waitForConnectable, withLauncherQueue } from "../cdp/index.js";
+import { scanRunningInstances, waitForConnectable, withLauncherCDPGate, withLauncherQueue } from "../cdp/index.js";
 import { errorMessage } from "../utils/error-message.js";
 import { startInstanceWithRecovery } from "./instance-lifecycle.js";
 import { withLauncherRecovery } from "./launcher-recovery.js";
@@ -10,11 +10,7 @@ import type { LauncherService } from "./launcher.js";
 /** Per-account result from {@link ensureInstances}. */
 export interface EnsureInstanceResult {
   accountId: number;
-  status:
-    | "already_running"
-    | "started"
-    | "failed"
-    | "timeout";
+  status: "already_running" | "started" | "failed" | "timeout";
   cdpPort?: number;
   pid?: number;
   verified?: boolean;
@@ -45,7 +41,13 @@ export async function ensureInstances(
   accountIds: number[],
   launcher: LauncherService,
   launcherPort: number,
+  options?: { signal?: AbortSignal; progress?: (message: string) => void },
 ): Promise<EnsureInstanceResult[]> {
+  // Release any session supplied by an older caller before taking the queue.
+  // Every start then follows queue -> gate -> connection, with no lock inversion.
+  launcher.disconnect();
+  const signal = options?.signal;
+  signal?.throwIfAborted();
   const results: EnsureInstanceResult[] = [];
 
   // Entries that started but were not yet verified — checked in parallel
@@ -60,11 +62,11 @@ export async function ensureInstances(
   // Phase 1: Start accounts sequentially (serialised through launcher queue)
   // -------------------------------------------------------------------------
   for (const accountId of accountIds) {
+    signal?.throwIfAborted();
+    options?.progress?.(`Checking account ${accountId}`);
     // Re-scan before each account so we pick up instances that just came up.
     const running = await scanRunningInstances().catch(() => []);
-    const alreadyRunning = running.find(
-      (i) => i.accountId === accountId && i.connectable,
-    );
+    const alreadyRunning = running.find((i) => i.accountId === accountId && i.connectable);
 
     if (alreadyRunning) {
       const entry: EnsureInstanceResult = {
@@ -82,15 +84,28 @@ export async function ensureInstances(
     try {
       outcome = await withLauncherQueue(
         () =>
-          withLauncherRecovery(
-            launcher,
-            // Use launcher.currentPort (live value) so post-recovery re-runs
-            // use the new port, not the snapshot captured at ensureInstances call time.
-            () => startInstanceWithRecovery(launcher, accountId, launcher.currentPort),
-          ).then((r) => r.result),
-        { type: "start", accountId, launcherPort },
+          withLauncherCDPGate(async () => {
+            try {
+              signal?.throwIfAborted();
+              const recovered = await withLauncherRecovery(
+                launcher,
+                async () => {
+                  signal?.throwIfAborted();
+                  if (!launcher.isConnected) await launcher.connect();
+                  signal?.throwIfAborted();
+                  return startInstanceWithRecovery(launcher, accountId, launcher.currentPort, signal);
+                },
+                signal !== undefined ? { signal } : undefined,
+              );
+              return recovered.result;
+            } finally {
+              launcher.disconnect();
+            }
+          }),
+        { type: "start", accountId, launcherPort, ...(signal !== undefined ? { signal } : {}) },
       );
     } catch (error: unknown) {
+      signal?.throwIfAborted();
       results.push({
         accountId,
         status: "failed",
@@ -99,6 +114,7 @@ export async function ensureInstances(
       continue;
     }
 
+    signal?.throwIfAborted();
     if (outcome.status === "timeout") {
       // Launcher port may have hopped after the start command was issued,
       // causing discoverInstancePort to miss the new instance.  Queue for
@@ -142,7 +158,9 @@ export async function ensureInstances(
   if (pendingVerification.length > 0) {
     await Promise.all(
       pendingVerification.map(async ({ accountId, knownPort, resultIdx }) => {
+        signal?.throwIfAborted();
         const waitResult = await waitForConnectable(accountId, {
+          ...(signal !== undefined ? { signal } : {}),
           ...(knownPort !== undefined ? { knownPort } : {}),
         });
         const entry = results[resultIdx];
@@ -167,5 +185,6 @@ export async function ensureInstances(
     );
   }
 
+  signal?.throwIfAborted();
   return results;
 }

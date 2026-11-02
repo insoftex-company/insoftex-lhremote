@@ -30,11 +30,7 @@ import { resolveAppPort, findApp } from "../cdp/app-discovery.js";
 import { CDPClient } from "../cdp/client.js";
 import { CDPConnectionError } from "../cdp/errors.js";
 import { LauncherService } from "./launcher.js";
-import {
-  LinkedHelperNotRunningError,
-  LinkedHelperUnreachableError,
-  WrongPortError,
-} from "./errors.js";
+import { LinkedHelperNotRunningError, LinkedHelperUnreachableError, WrongPortError } from "./errors.js";
 
 const mockResolveAppPort = vi.mocked(resolveAppPort);
 const mockFindApp = vi.mocked(findApp);
@@ -51,9 +47,7 @@ type MockClientOptions = {
 
 function makeMockCDPClient({ connectError, isLauncher = true }: MockClientOptions = {}) {
   const mockClient = {
-    connect: connectError
-      ? vi.fn().mockRejectedValue(connectError)
-      : vi.fn().mockResolvedValue(undefined),
+    connect: connectError ? vi.fn().mockRejectedValue(connectError) : vi.fn().mockResolvedValue(undefined),
     disconnect: vi.fn(),
     // evaluate is called twice inside bindLauncherClient:
     //  1. resolveNodeContextId → "typeof require === 'function'" → true
@@ -70,7 +64,9 @@ function makeMockCDPClient({ connectError, isLauncher = true }: MockClientOption
     off: vi.fn(),
     isConnected: true,
   };
-  MockCDPClient.mockImplementation(function() { return mockClient as unknown as CDPClient; });
+  MockCDPClient.mockImplementation(function () {
+    return mockClient as unknown as CDPClient;
+  });
   return mockClient;
 }
 
@@ -79,6 +75,10 @@ function makeMockCDPClient({ connectError, isLauncher = true }: MockClientOption
 // ---------------------------------------------------------------------------
 
 describe("LauncherService.reconnect", () => {
+  const launchers: LauncherService[] = [];
+  afterEach(() => {
+    for (const launcher of launchers.splice(0)) launcher.disconnect();
+  });
   beforeEach(() => {
     vi.clearAllMocks();
     mockFindApp.mockResolvedValue([]);
@@ -93,13 +93,11 @@ describe("LauncherService.reconnect", () => {
     makeMockCDPClient({ isLauncher: true });
 
     const launcher = new LauncherService(9222);
+    launchers.push(launcher);
     await launcher.reconnect();
 
     // CDPClient must have been constructed with the newly discovered port.
-    expect(MockCDPClient).toHaveBeenCalledWith(
-      50123,
-      expect.objectContaining({ host: "127.0.0.1" }),
-    );
+    expect(MockCDPClient).toHaveBeenCalledWith(50123, expect.objectContaining({ host: "127.0.0.1" }));
     expect(launcher.isConnected).toBe(true);
   });
 
@@ -109,12 +107,10 @@ describe("LauncherService.reconnect", () => {
     makeMockCDPClient({ isLauncher: true });
 
     const launcher = new LauncherService(9222);
+    launchers.push(launcher);
     await launcher.reconnect();
 
-    expect(MockCDPClient).toHaveBeenCalledWith(
-      49238,
-      expect.objectContaining({ host: "127.0.0.1" }),
-    );
+    expect(MockCDPClient).toHaveBeenCalledWith(49238, expect.objectContaining({ host: "127.0.0.1" }));
   });
 
   it("disconnects the previous client before reconnecting", async () => {
@@ -123,6 +119,7 @@ describe("LauncherService.reconnect", () => {
 
     // Simulate a connected launcher so there is something to disconnect.
     const launcher = new LauncherService(9222);
+    launchers.push(launcher);
     // Manually inject the first client to simulate a prior connection.
     Object.assign(launcher, { client: firstClient });
 
@@ -135,45 +132,40 @@ describe("LauncherService.reconnect", () => {
     mockResolveAppPort.mockRejectedValue(new LinkedHelperNotRunningError());
 
     const launcher = new LauncherService(9222);
-    await expect(launcher.reconnect()).rejects.toThrow(
-      LinkedHelperNotRunningError,
-    );
+    launchers.push(launcher);
+    await expect(launcher.reconnect()).rejects.toThrow(LinkedHelperNotRunningError);
     expect(launcher.isConnected).toBe(false);
   });
 
   it("throws LinkedHelperUnreachableError when budget exhausted after repeated port-absent retries", async () => {
     // resolveAppPort always reports port temporarily absent.
     mockResolveAppPort.mockRejectedValue(
-      new LinkedHelperUnreachableError([
-        { pid: 1234, cdpPort: null, connectable: false, role: "launcher" },
-      ]),
+      new LinkedHelperUnreachableError([{ pid: 1234, cdpPort: null, connectable: false, role: "launcher" }]),
     );
     // findApp returns apps so the end-of-budget path throws LinkedHelperUnreachableError.
     mockFindApp.mockResolvedValue([{ pid: 1234, cdpPort: null, connectable: false, role: "launcher" }]);
 
     const launcher = new LauncherService(9222);
+    launchers.push(launcher);
     // Short budget so the test completes quickly instead of waiting 60 s.
     const err = await launcher.reconnect({ timeoutMs: 100 }).catch((e: unknown) => e);
 
     // Must be a ServiceError subclass, not a raw Error.
     expect(err).toBeInstanceOf(LinkedHelperUnreachableError);
-    expect((err as LinkedHelperUnreachableError).name).toBe(
-      "LinkedHelperUnreachableError",
-    );
+    expect((err as LinkedHelperUnreachableError).name).toBe("LinkedHelperUnreachableError");
   });
 
   it("retries when resolveAppPort temporarily throws LinkedHelperUnreachableError then succeeds", async () => {
     // First call: port absent (launcher mid-reconciliation); second call: port found.
     mockResolveAppPort
       .mockRejectedValueOnce(
-        new LinkedHelperUnreachableError([
-          { pid: 1234, cdpPort: null, connectable: false, role: "launcher" },
-        ]),
+        new LinkedHelperUnreachableError([{ pid: 1234, cdpPort: null, connectable: false, role: "launcher" }]),
       )
       .mockResolvedValueOnce(50200);
     makeMockCDPClient({ isLauncher: true });
 
     const launcher = new LauncherService(9222);
+    launchers.push(launcher);
     await launcher.reconnect();
 
     expect(mockResolveAppPort).toHaveBeenCalledTimes(2);
@@ -185,6 +177,7 @@ describe("LauncherService.reconnect", () => {
     makeMockCDPClient({ isLauncher: false });
 
     const launcher = new LauncherService(9222);
+    launchers.push(launcher);
     await expect(launcher.reconnect()).rejects.toThrow(WrongPortError);
     expect(launcher.isConnected).toBe(false);
   });
@@ -194,6 +187,7 @@ describe("LauncherService.reconnect", () => {
     makeMockCDPClient({ isLauncher: true });
 
     const launcher = new LauncherService(9222);
+    launchers.push(launcher);
     await launcher.reconnect({ timeoutMs: 10_000 });
 
     // F3: per-iteration timeout is min(remaining, 5000) to avoid stalling the full budget.
@@ -206,6 +200,7 @@ describe("LauncherService.reconnect", () => {
     makeMockCDPClient({ isLauncher: true });
 
     const launcher = new LauncherService(9222);
+    launchers.push(launcher);
     await launcher.reconnect();
 
     // F3: per-iteration cap is 5000; total budget (12000) is the overall deadline.
@@ -218,25 +213,27 @@ describe("LauncherService.reconnect", () => {
 
     // First CDPClient: connect() throws CDPConnectionError (target momentarily taken).
     // Second CDPClient: connect() succeeds and bindLauncherClient passes.
-    MockCDPClient
-      .mockImplementationOnce(function() {
-        return {
-          connect: vi.fn().mockRejectedValue(
+    MockCDPClient.mockImplementationOnce(function () {
+      return {
+        connect: vi
+          .fn()
+          .mockRejectedValue(
             new CDPConnectionError("Target has no webSocketDebuggerUrl (another debugger may be attached)"),
           ),
-          disconnect: vi.fn(),
-          evaluate: vi.fn(),
-          send: vi.fn().mockResolvedValue(undefined),
-          on: vi.fn(),
-          off: vi.fn(),
-          isConnected: false,
-        } as unknown as CDPClient;
-      });
+        disconnect: vi.fn(),
+        evaluate: vi.fn(),
+        send: vi.fn().mockResolvedValue(undefined),
+        on: vi.fn(),
+        off: vi.fn(),
+        isConnected: false,
+      } as unknown as CDPClient;
+    });
 
     // Second call: use the normal success path
     makeMockCDPClient({ isLauncher: true });
 
     const launcher = new LauncherService(9222);
+    launchers.push(launcher);
     await launcher.reconnect();
 
     // Two CDPClient instances created: one that failed + one that succeeded

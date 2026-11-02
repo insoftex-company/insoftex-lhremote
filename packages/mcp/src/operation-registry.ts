@@ -41,7 +41,7 @@ export type OperationStatus = "running" | "succeeded" | "failed" | "cancelled";
 
 /** A single progress message emitted by the operation. */
 export interface ProgressEntry {
-  at: string;   // ISO 8601 timestamp
+  at: string; // ISO 8601 timestamp
   message: string;
 }
 
@@ -50,11 +50,11 @@ export interface OperationRecord {
   operationId: string;
   kind: OperationKind;
   status: OperationStatus;
-  startedAt: string;   // ISO 8601
+  startedAt: string; // ISO 8601
   finishedAt?: string; // ISO 8601, set when status leaves "running"
   progress: ProgressEntry[];
-  result?: unknown;    // final result on success
-  error?: string;      // error message on failure
+  result?: unknown; // final result on success
+  error?: string; // error message on failure
 }
 
 /** Return type of {@link runAsyncOp}. */
@@ -69,6 +69,7 @@ export type AsyncOpOutcome<T> =
 
 interface InternalRecord extends OperationRecord {
   abortController: AbortController;
+  inFlight: boolean;
 }
 
 // ---------------------------------------------------------------------------
@@ -90,7 +91,7 @@ export class OperationRegistry {
   /** The currently running write op, or undefined. */
   getActiveWriteOp(): OperationRecord | undefined {
     for (const r of this.records.values()) {
-      if (r.status === "running") return this.toPublic(r);
+      if (r.inFlight) return this.toPublic(r);
     }
     return undefined;
   }
@@ -119,6 +120,7 @@ export class OperationRegistry {
       startedAt,
       progress: [],
       abortController,
+      inFlight: true,
     };
     this.records.set(operationId, record);
 
@@ -139,6 +141,7 @@ export class OperationRegistry {
       r.status = "succeeded";
       r.finishedAt = new Date().toISOString();
       r.result = result;
+      r.inFlight = false;
     }
   }
 
@@ -149,6 +152,7 @@ export class OperationRegistry {
       r.status = "failed";
       r.finishedAt = new Date().toISOString();
       r.error = error instanceof Error ? error.message : String(error);
+      r.inFlight = false;
     }
   }
 
@@ -167,21 +171,28 @@ export class OperationRegistry {
     return true;
   }
 
+  /** Release writer ownership only after the work and its cleanup have settled. */
+  finish(operationId: string): void {
+    const r = this.records.get(operationId);
+    if (r) r.inFlight = false;
+  }
+
   /** List all tracked operations (running and recently completed). */
   list(): OperationRecord[] {
     return [...this.records.values()].map((r) => this.toPublic(r));
   }
 
   private toPublic(r: InternalRecord): OperationRecord {
-    const pub = { ...r } as OperationRecord & { abortController?: AbortController };
+    const pub = { ...r } as OperationRecord & { abortController?: AbortController; inFlight?: boolean };
     delete pub.abortController;
+    delete pub.inFlight;
     return pub;
   }
 
   private cleanup(): void {
     const cutoff = Date.now() - TTL_MS;
     for (const [id, r] of this.records) {
-      if (r.status !== "running" && r.finishedAt !== undefined) {
+      if (!r.inFlight && r.status !== "running" && r.finishedAt !== undefined) {
         if (new Date(r.finishedAt).getTime() < cutoff) {
           this.records.delete(id);
         }
@@ -259,6 +270,7 @@ export async function runAsyncOp<T>(
   const forwardExternal = externalSignal ? () => controller.abort() : undefined;
   if (externalSignal && forwardExternal) {
     externalSignal.addEventListener("abort", forwardExternal, { once: true });
+    if (externalSignal.aborted) controller.abort(externalSignal.reason);
   }
 
   // Track settlement via closure (avoids double-catching typed errors).
@@ -271,7 +283,9 @@ export async function runAsyncOp<T>(
   // closure) so they run even after runAsyncOp returns for background ops.
   const workPromise: Promise<void> = (async () => {
     try {
+      merged.throwIfAborted();
       const result = await work(merged, progress);
+      merged.throwIfAborted();
       settled = true;
       settledResult = result;
       registry.succeed(operationId, result);
@@ -290,6 +304,7 @@ export async function runAsyncOp<T>(
         registry.fail(operationId, error);
       }
     } finally {
+      registry.finish(operationId);
       registrySignal.removeEventListener("abort", forwardRegistry);
       if (externalSignal && forwardExternal) {
         externalSignal.removeEventListener("abort", forwardExternal);
@@ -301,10 +316,17 @@ export async function runAsyncOp<T>(
   void workPromise;
 
   // Race against the grace window.
-  await Promise.race([
-    workPromise,
-    new Promise<void>((r) => setTimeout(r, FAST_PATH_GRACE_MS)),
-  ]);
+  let graceTimer: ReturnType<typeof setTimeout> | undefined;
+  try {
+    await Promise.race([
+      workPromise,
+      new Promise<void>((r) => {
+        graceTimer = setTimeout(r, FAST_PATH_GRACE_MS);
+      }),
+    ]);
+  } finally {
+    clearTimeout(graceTimer);
+  }
 
   if (settled) {
     if (didError) throw settledError;

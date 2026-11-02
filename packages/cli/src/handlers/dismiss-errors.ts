@@ -8,6 +8,7 @@ export async function handleDismissErrors(options: {
   cdpPort?: number;
   cdpHost?: string;
   allowRemote?: boolean;
+  accountId?: number;
   json?: boolean;
 }): Promise<void> {
   try {
@@ -15,6 +16,7 @@ export async function handleDismissErrors(options: {
       cdpPort: options.cdpPort,
       cdpHost: options.cdpHost,
       allowRemote: options.allowRemote,
+      accountId: options.accountId,
     });
 
     if (options.json) {
@@ -22,17 +24,11 @@ export async function handleDismissErrors(options: {
       return;
     }
 
-    process.stdout.write(
-      `Account: ${String(result.accountId)}\n`,
-    );
-    process.stdout.write(
-      `Dismissed: ${String(result.dismissed)}\n`,
-    );
+    process.stdout.write(`Account: ${String(result.accountId)}\n`);
+    process.stdout.write(`Dismissed: ${String(result.dismissed)}\n`);
 
     if (result.nonDismissable > 0) {
-      process.stdout.write(
-        `Non-dismissable: ${String(result.nonDismissable)}\n`,
-      );
+      process.stdout.write(`Non-dismissable: ${String(result.nonDismissable)}\n`);
     }
   } catch (error) {
     const message = errorMessage(error);

@@ -14,8 +14,7 @@ import { getStderr, getStdout } from "./testing/mock-helpers.js";
 
 const MOCK_RESULT: ReactToPostOutput = {
   success: true,
-  postUrl:
-    "https://www.linkedin.com/feed/update/urn:li:activity:123/",
+  postUrl: "https://www.linkedin.com/feed/update/urn:li:activity:123/",
   reactionType: "like",
   alreadyReacted: false,
   currentReaction: null,
@@ -42,33 +41,35 @@ describe("handleReactToPost", () => {
   it("prints JSON with --json", async () => {
     vi.mocked(reactToPost).mockResolvedValue(MOCK_RESULT);
 
-    await handleReactToPost(
-      "https://www.linkedin.com/feed/update/urn:li:activity:123/",
-      { json: true },
-    );
+    await handleReactToPost("https://www.linkedin.com/feed/update/urn:li:activity:123/", { json: true });
 
     expect(process.exitCode).toBeUndefined();
     const output = JSON.parse(getStdout(stdoutSpy));
-    expect(output.postUrl).toBe(
-      "https://www.linkedin.com/feed/update/urn:li:activity:123/",
-    );
+    expect(output.postUrl).toBe("https://www.linkedin.com/feed/update/urn:li:activity:123/");
     expect(output.reactionType).toBe("like");
+  });
+
+  it("forwards accountId to reactToPost", async () => {
+    // The budget pre-flight resolves an account, and on an install with more
+    // than one partition that resolution cannot pick for itself. This is the
+    // only route by which a CLI user can pin it, so the forwarding is the
+    // whole of the escape hatch.
+    vi.mocked(reactToPost).mockResolvedValue(MOCK_RESULT);
+
+    await handleReactToPost("https://www.linkedin.com/feed/update/urn:li:activity:123/", { accountId: 42 });
+
+    expect(reactToPost).toHaveBeenCalledWith(expect.objectContaining({ accountId: 42 }));
   });
 
   it("prints human-readable output", async () => {
     vi.mocked(reactToPost).mockResolvedValue(MOCK_RESULT);
 
-    await handleReactToPost(
-      "https://www.linkedin.com/feed/update/urn:li:activity:123/",
-      {},
-    );
+    await handleReactToPost("https://www.linkedin.com/feed/update/urn:li:activity:123/", {});
 
     expect(process.exitCode).toBeUndefined();
     const output = getStdout(stdoutSpy);
     expect(output).toContain('Reacted to post with "like"');
-    expect(output).toContain(
-      "https://www.linkedin.com/feed/update/urn:li:activity:123/",
-    );
+    expect(output).toContain("https://www.linkedin.com/feed/update/urn:li:activity:123/");
   });
 
   it("prints already-reacted output when alreadyReacted is true", async () => {
@@ -77,10 +78,7 @@ describe("handleReactToPost", () => {
       alreadyReacted: true,
     });
 
-    await handleReactToPost(
-      "https://www.linkedin.com/feed/update/urn:li:activity:123/",
-      {},
-    );
+    await handleReactToPost("https://www.linkedin.com/feed/update/urn:li:activity:123/", {});
 
     expect(process.exitCode).toBeUndefined();
     const output = getStdout(stdoutSpy);
@@ -94,10 +92,7 @@ describe("handleReactToPost", () => {
       dryRun: true,
     });
 
-    await handleReactToPost(
-      "https://www.linkedin.com/feed/update/urn:li:activity:123/",
-      { dryRun: true },
-    );
+    await handleReactToPost("https://www.linkedin.com/feed/update/urn:li:activity:123/", { dryRun: true });
 
     expect(process.exitCode).toBeUndefined();
     const output = getStdout(stdoutSpy);
@@ -113,10 +108,7 @@ describe("handleReactToPost", () => {
       dryRun: true,
     });
 
-    await handleReactToPost(
-      "https://www.linkedin.com/feed/update/urn:li:activity:123/",
-      { dryRun: true },
-    );
+    await handleReactToPost("https://www.linkedin.com/feed/update/urn:li:activity:123/", { dryRun: true });
 
     expect(process.exitCode).toBeUndefined();
     const output = getStdout(stdoutSpy);
@@ -125,14 +117,9 @@ describe("handleReactToPost", () => {
   });
 
   it("sets exitCode on error", async () => {
-    vi.mocked(reactToPost).mockRejectedValue(
-      new Error("connection refused"),
-    );
+    vi.mocked(reactToPost).mockRejectedValue(new Error("connection refused"));
 
-    await handleReactToPost(
-      "https://www.linkedin.com/feed/update/urn:li:activity:123/",
-      {},
-    );
+    await handleReactToPost("https://www.linkedin.com/feed/update/urn:li:activity:123/", {});
 
     expect(process.exitCode).toBe(1);
     expect(getStderr(stderrSpy)).toContain("connection refused");

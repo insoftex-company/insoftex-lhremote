@@ -41,10 +41,7 @@ export interface LauncherRecoveryResult<T> {
 }
 
 function isLauncherConnectionError(error: unknown): boolean {
-  return (
-    error instanceof CDPConnectionError ||
-    error instanceof LinkedHelperUnreachableError
-  );
+  return error instanceof CDPConnectionError || error instanceof LinkedHelperUnreachableError;
 }
 
 /**
@@ -82,6 +79,7 @@ export async function withLauncherRecovery<T>(
   op: () => Promise<T>,
   options?: LauncherRecoveryOptions,
 ): Promise<LauncherRecoveryResult<T>> {
+  options?.signal?.throwIfAborted();
   // Fast path: no connection error, return immediately.
   try {
     const result = await op();
@@ -181,7 +179,7 @@ export async function acquireLauncherWithRecovery(
   }
 
   // Create the service with whatever port we have; reconnect() overwrites it.
-  const launcher = new LauncherService(resolvedPort ?? (cdpPort ?? 0), cdpOptions);
+  const launcher = new LauncherService(resolvedPort ?? cdpPort ?? 0, cdpOptions);
 
   if (!fastPathFailed) {
     recoveryOptions?.signal?.throwIfAborted?.();

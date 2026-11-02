@@ -2,12 +2,11 @@
 // Copyright (C) 2026 Oleksii PELYKH
 
 import { DatabaseClient, type DatabaseClientOptions, discoverDatabase } from "../db/index.js";
-import { discoverInstancePort, findApp, resolveAppPort, scanRunningInstances } from "../cdp/index.js";
+import { resolveInstancePort as resolveAccountPort, resolveAppPort } from "../cdp/index.js";
 import type { UIHealthStatus } from "../types/index.js";
-import { isCdpPort } from "../utils/cdp-port.js";
 import { InstanceService } from "./instance.js";
 import { LauncherService } from "./launcher.js";
-import { InstanceNotRunningError, UIBlockedError } from "./errors.js";
+import { UIBlockedError } from "./errors.js";
 
 /**
  * Resources available when only database access is needed.
@@ -56,10 +55,10 @@ export async function withDatabase<T>(
  * via {@link resolveAppPort}.  When the provided port is an instance
  * port (rather than a launcher port), it is used directly.
  *
- * A launcher connection is opened alongside the instance so that
- * post-evaluation UI health checks can detect blocking dialogs and
- * popups.  If the launcher connection fails the operation proceeds
- * without health checking.
+ * Each post-evaluation UI health check opens and releases a serialized
+ * launcher session. If discovery cannot find a launcher, instance-only
+ * operations remain available. Launcher connection failures are best-effort;
+ * instance popups and connected-launcher health failures are still checked.
  *
  * @throws {InstanceNotRunningError} if no instance port can be discovered.
  */
@@ -79,37 +78,34 @@ export async function withInstanceDatabase<T>(
     instancePort,
     options?.instanceTimeout != null ? { timeout: options.instanceTimeout } : undefined,
   );
-  let launcher: LauncherService | null = null;
   let db: DatabaseClient | null = null;
 
   try {
     await instance.connect();
 
-    // Open a launcher connection for health checking.
     if (launcherPort !== null) {
-      try {
-        launcher = new LauncherService(launcherPort, options?.launcher);
-        await launcher.connect();
-        const connectedLauncher = launcher;
-        instance.setHealthChecker(async () => {
-          const [launcherHealth, instancePopups] = await Promise.all([
-            connectedLauncher.checkUIHealth(accountId),
-            instance.getInstancePopups(),
-          ]);
-          const health: UIHealthStatus = {
-            ...launcherHealth,
-            instancePopups: [...launcherHealth.instancePopups, ...instancePopups],
-            healthy: launcherHealth.healthy && instancePopups.length === 0,
-          };
-          if (!health.healthy) {
-            throw new UIBlockedError(health);
-          }
-        });
-      } catch {
-        // Launcher connection failed — proceed without health checking.
-        launcher?.disconnect();
-        launcher = null;
-      }
+      instance.setHealthChecker(async () => {
+        const launcher = new LauncherService(launcherPort, options?.launcher);
+        let launcherHealth: UIHealthStatus = { healthy: true, issues: [], popup: null, instancePopups: [] };
+        let connected = false;
+        try {
+          await launcher.connect();
+          connected = true;
+          launcherHealth = await launcher.checkUIHealth(accountId);
+        } catch (error) {
+          if (connected) throw error;
+          // Preserve instance-only operation during launcher CDP recovery.
+        } finally {
+          launcher.disconnect();
+        }
+        const instancePopups = await instance.getInstancePopups();
+        const health: UIHealthStatus = {
+          ...launcherHealth,
+          instancePopups: [...launcherHealth.instancePopups, ...instancePopups],
+          healthy: launcherHealth.healthy && instancePopups.length === 0,
+        };
+        if (!health.healthy) throw new UIBlockedError(health);
+      });
     }
 
     const dbPath = discoverDatabase(accountId);
@@ -118,7 +114,6 @@ export async function withInstanceDatabase<T>(
   } finally {
     instance.setHealthChecker(null);
     instance.disconnect();
-    launcher?.disconnect();
     db?.close();
   }
 }
@@ -135,89 +130,14 @@ export async function withInstanceDatabase<T>(
  */
 async function resolveInstancePort(
   cdpPort: number | undefined,
-  accountId?: number,
+  accountId: number,
 ): Promise<{ instancePort: number; launcherPort: number | null }> {
-  // Auto-discover when no port provided
-  if (cdpPort === undefined) {
-    // Account-aware path: find the specific account's running instance.
-    // This is essential when multiple instances are running simultaneously —
-    // resolveAppPort("instance") returns the first connectable instance which
-    // may belong to a different account.
-    if (accountId !== undefined) {
-      const instances = await scanRunningInstances();
-      const match = instances.find(
-        (i) => i.accountId === accountId && i.connectable && i.cdpPort !== null,
-      );
-      if (match?.cdpPort !== null && match?.cdpPort !== undefined) {
-        let launcherPort: number | null = null;
-        try {
-          launcherPort = await resolveAppPort("launcher", 0);
-        } catch {
-          // Launcher not available — proceed without it
-        }
-        return { instancePort: match.cdpPort, launcherPort };
-      }
-      if (instances.length > 0) {
-        // Other accounts are running but not this one.
-        throw new InstanceNotRunningError(
-          `Account ${String(accountId)} instance is not running. Use start-instance first.`,
-        );
-      }
-      // No instances at all — fall through to resolveAppPort which throws a
-      // richer LinkedHelperNotRunningError / LinkedHelperUnreachableError.
-    }
-    const instancePort = await resolveAppPort("instance");
-    // Try to find a launcher port for health checking
-    let launcherPort: number | null = null;
-    try {
-      launcherPort = await resolveAppPort("launcher", 0);
-    } catch {
-      // Launcher not available — proceed without it
-    }
-    return { instancePort, launcherPort };
-  }
-
-  // Fast path: classify the supplied port via findApp() before running
-  // launcher-child discovery.  When the port is already recognized as a
-  // connectable instance port (the common case for explicit caller-supplied
-  // ports), return immediately — no launcher-child traversal needed.
+  const instancePort = await resolveAccountPort(cdpPort, undefined, undefined, accountId);
   let launcherPort: number | null = null;
   try {
-    const apps = await findApp();
-    const instanceMatch = apps.find(
-      (a) => a.cdpPort === cdpPort && a.role === "instance" && a.connectable,
-    );
-    if (instanceMatch) {
-      const launcherApp = apps.find(
-        (a) => a.role === "launcher" && a.connectable && a.cdpPort !== null,
-      );
-      return { instancePort: cdpPort, launcherPort: launcherApp?.cdpPort ?? null };
-    }
-    // Not an instance port — capture launcher port for later rejection guard.
-    const launcherApp = apps.find(
-      (a) => a.role === "launcher" && a.connectable && a.cdpPort !== null,
-    );
-    launcherPort = launcherApp?.cdpPort ?? null;
+    launcherPort = await resolveAppPort("launcher", 0);
   } catch {
-    // findApp() failed — proceed with other strategies
+    // Instance operations remain usable when the launcher is unavailable.
   }
-
-  // Fallback: treat the supplied port as a launcher port and discover the
-  // account-instance child.  Handles the case where the caller passed the
-  // launcher port explicitly (e.g. when auto-discovery is not available).
-  const instancePort = await discoverInstancePort(cdpPort);
-  if (instancePort !== null) {
-    return { instancePort, launcherPort: cdpPort };
-  }
-
-  // Last resort: probe the port directly, but reject known launcher ports
-  // to avoid connecting InstanceService to a launcher (which would fail
-  // with a confusing error instead of InstanceNotRunningError).
-  if (cdpPort !== launcherPort && await isCdpPort(cdpPort)) {
-    return { instancePort: cdpPort, launcherPort };
-  }
-
-  throw new InstanceNotRunningError(
-    "No LinkedHelper instance is running. Use start-instance first.",
-  );
+  return { instancePort, launcherPort };
 }

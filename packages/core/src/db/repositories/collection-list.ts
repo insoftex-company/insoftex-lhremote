@@ -3,9 +3,7 @@
 
 import type { DatabaseClient } from "../client.js";
 
-type PreparedStatement = ReturnType<
-  import("node:sqlite").DatabaseSync["prepare"]
->;
+type PreparedStatement = ReturnType<import("node:sqlite").DatabaseSync["prepare"]>;
 
 /**
  * Summary of a named collection (LH "List").
@@ -69,15 +67,23 @@ export class CollectionListRepository {
    */
   resolveInternalAccountId(externalAccountId: number): number {
     try {
-      const row = this.client.db
-        .prepare("SELECT id FROM li_accounts WHERE external_id = ?")
-        .get(externalAccountId) as { id: number } | undefined;
+      const row = this.client.db.prepare("SELECT id FROM li_accounts WHERE external_id = ?").get(externalAccountId) as
+        | { id: number }
+        | undefined;
       if (row) return row.id;
-      throw new Error(
-        `No li_accounts mapping found for external account ID ${externalAccountId}`,
-      );
+      throw new Error(`No li_accounts mapping found for external account ID ${externalAccountId}`);
     } catch (error: unknown) {
-      if (error instanceof Error && error.message.includes("no such table")) {
+      // `instanceof` establishes the value is an `Error`; it establishes
+      // NOTHING about `message`, which is typed `string` but is not one by
+      // construction.  Calling `.includes` on a non-string one would raise
+      // `TypeError` from inside this catch -- reading the property merely
+      // yields `undefined`; it is the call that throws -- replacing the
+      // driver's own failure with an unrelated type error.  See
+      // `utils/error-message.ts` § `ownText` for where that contract is stated
+      // and where such a `message` comes from; its `try` and `isError` guards
+      // are deliberately not adopted here, so a prototype-less or hostile
+      // `message` still throws, now from `String()` rather than `.includes`.
+      if (error instanceof Error && String(error.message).includes("no such table")) {
         return externalAccountId;
       }
       throw error;
@@ -147,16 +153,20 @@ export class CollectionListRepository {
         try {
           stmts.deleteCollectionPeopleVersionsLogs.run(collectionId);
         } catch (err: unknown) {
-          // FK violation expected when logs reference still-needed versions; rethrow anything else
-          if (!(err instanceof Error) || !err.message.includes("constraint")) throw err;
+          // FK violation expected when logs reference still-needed versions; rethrow anything else.
+          // `String()` before `.includes` for the reason given at
+          // `resolveInternalAccountId` above -- same contract, same catch-block hazard.
+          if (!(err instanceof Error) || !String(err.message).includes("constraint")) throw err;
         }
       }
       if (stmts.deleteCollectionPeopleVersions) {
         try {
           stmts.deleteCollectionPeopleVersions.run(collectionId);
         } catch (err: unknown) {
-          // FK violation expected when campaign/action versions still reference these entries
-          if (!(err instanceof Error) || !err.message.includes("constraint")) throw err;
+          // FK violation expected when campaign/action versions still reference these entries.
+          // `String()` before `.includes` for the reason given at
+          // `resolveInternalAccountId` above -- same contract, same catch-block hazard.
+          if (!(err instanceof Error) || !String(err.message).includes("constraint")) throw err;
         }
       }
       const result = stmts.deleteCollection.run(collectionId);
@@ -182,10 +192,7 @@ export class CollectionListRepository {
     this.client.db.exec("BEGIN");
     try {
       for (const personId of personIds) {
-        const result = stmts.insertCollectionPerson.run(
-          collectionId,
-          personId,
-        );
+        const result = stmts.insertCollectionPerson.run(collectionId, personId);
         if (result.changes > 0) added++;
       }
       this.client.db.exec("COMMIT");
@@ -211,10 +218,7 @@ export class CollectionListRepository {
     this.client.db.exec("BEGIN");
     try {
       for (const personId of personIds) {
-        const result = stmts.deleteCollectionPerson.run(
-          collectionId,
-          personId,
-        );
+        const result = stmts.deleteCollectionPerson.run(collectionId, personId);
         if (result.changes > 0) removed++;
       }
       this.client.db.exec("COMMIT");
@@ -246,9 +250,7 @@ export class CollectionListRepository {
       )
       .all(collectionId) as unknown as { external_id: string }[];
 
-    return rows.map(
-      (r) => `https://www.linkedin.com/in/${r.external_id}/`,
-    );
+    return rows.map((r) => `https://www.linkedin.com/in/${r.external_id}/`);
   }
 
   /**
@@ -282,9 +284,7 @@ export class CollectionListRepository {
 
     let deleteCollectionPeopleVersions: PreparedStatement | null = null;
     try {
-      deleteCollectionPeopleVersions = db.prepare(
-        `DELETE FROM collection_people_versions WHERE collection_id = ?`,
-      );
+      deleteCollectionPeopleVersions = db.prepare(`DELETE FROM collection_people_versions WHERE collection_id = ?`);
     } catch {
       // Table may not exist in older schemas
     }
@@ -297,12 +297,8 @@ export class CollectionListRepository {
       insertCollectionPeopleVersion,
       deleteCollectionPeopleVersionsLogs,
       deleteCollectionPeopleVersions,
-      deleteCollectionPeople: db.prepare(
-        `DELETE FROM collection_people WHERE collection_id = ?`,
-      ),
-      deleteCollection: db.prepare(
-        `DELETE FROM collections WHERE id = ? AND name IS NOT NULL`,
-      ),
+      deleteCollectionPeople: db.prepare(`DELETE FROM collection_people WHERE collection_id = ?`),
+      deleteCollection: db.prepare(`DELETE FROM collections WHERE id = ? AND name IS NOT NULL`),
       insertCollectionPerson: db.prepare(
         `INSERT OR IGNORE INTO collection_people (collection_id, person_id)
          VALUES (?, ?)`,

@@ -2,11 +2,7 @@
 // Copyright (C) 2026 Oleksii PELYKH
 
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
-import {
-  reactToComment,
-  REACTION_TYPES,
-  withLoggedInStateRetryAtPort,
-} from "@insoftex/lhremote-core";
+import { reactToComment, REACTION_TYPES, withLoggedInStateRetryAtPort } from "@insoftex/lhremote-core";
 import { z } from "zod";
 import { cdpConnectionSchema, mcpCatchAll, mcpSuccess } from "../helpers.js";
 
@@ -23,17 +19,17 @@ export function registerReactToComment(server: McpServer): void {
         ),
       commentUrn: z
         .string()
-        .describe(
-          "Target comment URN as returned by get-post (e.g. urn:li:comment:(activity:1234567890,9876543210))",
-        ),
+        .describe("Target comment URN as returned by get-post (e.g. urn:li:comment:(activity:1234567890,9876543210))"),
       reactionType: z
         .enum(REACTION_TYPES as unknown as [string, ...string[]])
         .optional()
         .default("like")
-        .describe(
-          "Reaction type to apply (default: like). Options: like, celebrate, support, love, insightful, funny",
-        ),
-      dryRun: z.boolean().optional().default(false).describe("When true, detect current reaction state without clicking"),
+        .describe("Reaction type to apply (default: like). Options: like, celebrate, support, love, insightful, funny"),
+      dryRun: z
+        .boolean()
+        .optional()
+        .default(false)
+        .describe("When true, detect current reaction state without clicking"),
       ...cdpConnectionSchema,
     },
     async ({ postUrl, commentUrn, reactionType, dryRun, cdpPort, cdpHost, allowRemote, accountId }) => {
@@ -44,15 +40,16 @@ export function registerReactToComment(server: McpServer): void {
           allowRemote ?? false,
           () =>
             reactToComment({
-          postUrl,
-          commentUrn,
-          reactionType: reactionType as Parameters<typeof reactToComment>[0]["reactionType"],
-          cdpPort,
-          cdpHost,
-          allowRemote,
-          accountId,
-          dryRun,
-          }),
+              postUrl,
+              commentUrn,
+              reactionType: reactionType as Parameters<typeof reactToComment>[0]["reactionType"],
+              cdpPort,
+              cdpHost,
+              allowRemote,
+              accountId,
+              dryRun,
+            }),
+          { accountId: accountId },
         );
         return mcpSuccess(JSON.stringify(result, null, 2));
       } catch (error) {

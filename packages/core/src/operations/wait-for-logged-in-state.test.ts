@@ -9,10 +9,7 @@ vi.mock("../utils/delay.js", () => ({
 
 import { delay } from "../utils/delay.js";
 import type { InstanceService } from "../services/instance.js";
-import {
-  LoggedInStateTimeoutError,
-  waitForLoggedInState,
-} from "./wait-for-logged-in-state.js";
+import { LoggedInStateTimeoutError, waitForLoggedInState } from "./wait-for-logged-in-state.js";
 
 interface ProbeShape {
   ok: boolean;
@@ -25,6 +22,23 @@ function makeInstance(probe: () => Promise<ProbeShape> | ProbeShape) {
   return {
     evaluateLinkedIn: vi.fn().mockImplementation(async () => probe()),
   } as unknown as InstanceService;
+}
+
+/**
+ * An `Error` whose `message` is `value`.
+ *
+ * `new Error(value)` would coerce it, which is the very step under test.  The
+ * construction mirrors `error-message.test.ts` § `errorMessage totality`, and
+ * so does its warrant: `message` is typed `string` but is not one by
+ * construction -- a subclass assigning `this.message`, an error rehydrated
+ * across a worker or IPC boundary, and a `Proxy` can each produce one.  No
+ * producer in this repo builds one today; this pins the contract `unknown`
+ * promises to accept, not an observed source.
+ */
+function errorWithMessage(value: unknown): Error {
+  const error = new Error("placeholder");
+  Object.defineProperty(error, "message", { value, configurable: true });
+  return error;
 }
 
 describe("waitForLoggedInState", () => {
@@ -53,9 +67,7 @@ describe("waitForLoggedInState", () => {
     let calls = 0;
     const instance = makeInstance(() => {
       calls++;
-      return calls < 3
-        ? { ok: false, reason: "me-not-rendered" }
-        : { ok: true };
+      return calls < 3 ? { ok: false, reason: "me-not-rendered" } : { ok: true };
     });
 
     await waitForLoggedInState(instance, { pollInterval: 100, timeout: 60_000 });
@@ -78,9 +90,9 @@ describe("waitForLoggedInState", () => {
 
     // Use a very small timeout — with mocked `delay`, real elapsed time
     // crosses 1ms within a handful of synchronous iterations.
-    await expect(
-      waitForLoggedInState(instance, { timeout: 1, pollInterval: 1 }),
-    ).rejects.toBeInstanceOf(LoggedInStateTimeoutError);
+    await expect(waitForLoggedInState(instance, { timeout: 1, pollInterval: 1 })).rejects.toBeInstanceOf(
+      LoggedInStateTimeoutError,
+    );
   });
 
   it("preserves the lastReason on the timeout error", async () => {
@@ -135,6 +147,30 @@ describe("waitForLoggedInState", () => {
       expect(e.lastReason).toContain("probe-threw");
       expect(e.lastReason).toContain("CDP disconnected");
     }
+  });
+
+  /**
+   * `lastReason` is declared `string` and reaches the operator through
+   * `LoggedInStateTimeoutError`.  The interpolation below coerces either way,
+   * so what this pins is that the rendered reason is unchanged -- asserted on
+   * the exact text rather than on the absence of a throw, which nothing here
+   * raises.
+   */
+  it("renders a non-string probe message into the same lastReason text", async () => {
+    const probeMock = vi.fn().mockImplementation(() => {
+      throw errorWithMessage(42);
+    });
+    const instance = {
+      evaluateLinkedIn: probeMock,
+    } as unknown as InstanceService;
+
+    const failure = await waitForLoggedInState(instance, {
+      timeout: 1,
+      pollInterval: 1,
+    }).catch((error: unknown) => error);
+
+    expect(failure).toBeInstanceOf(LoggedInStateTimeoutError);
+    expect((failure as LoggedInStateTimeoutError).lastReason).toBe("probe-threw: 42");
   });
 
   it("returns ok as soon as one probe succeeds even if a later one would not", async () => {

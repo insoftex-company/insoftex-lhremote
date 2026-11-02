@@ -2,10 +2,7 @@
 // Copyright (C) 2026 Oleksii PELYKH
 
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
-import {
-  hideFeedAuthor,
-  withLoggedInStateRetryAtPort,
-} from "@insoftex/lhremote-core";
+import { hideFeedAuthor, withLoggedInStateRetryAtPort } from "@insoftex/lhremote-core";
 import { z } from "zod";
 import { cdpConnectionSchema, mcpCatchAll, mcpSuccess } from "../helpers.js";
 
@@ -15,7 +12,11 @@ export function registerHideFeedAuthor(server: McpServer): void {
     "hide-feed-author",
     "Click 'Hide posts by {Name}' in a feed post's three-dot menu. Operates on the home feed by position index (pair with get-feed to identify posts). The hidden person may differ from the original author (e.g. reposter).",
     {
-      feedIndex: z.number().int().min(0).describe("Zero-based index of the post in the visible LinkedIn feed (pair with get-feed to identify posts)"),
+      feedIndex: z
+        .number()
+        .int()
+        .min(0)
+        .describe("Zero-based index of the post in the visible LinkedIn feed (pair with get-feed to identify posts)"),
       dryRun: z.boolean().optional().default(false).describe("When true, locate the menu item but do not click it"),
       ...cdpConnectionSchema,
     },
@@ -27,13 +28,14 @@ export function registerHideFeedAuthor(server: McpServer): void {
           allowRemote ?? false,
           () =>
             hideFeedAuthor({
-          feedIndex,
-          cdpPort,
-          cdpHost,
-          allowRemote,
-          accountId,
-          dryRun,
-          }),
+              feedIndex,
+              cdpPort,
+              cdpHost,
+              allowRemote,
+              accountId,
+              dryRun,
+            }),
+          { accountId: accountId },
         );
         return mcpSuccess(JSON.stringify(result, null, 2));
       } catch (error) {

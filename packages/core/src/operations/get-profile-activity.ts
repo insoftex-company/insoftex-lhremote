@@ -10,12 +10,7 @@ import { navigateAwayIf } from "./navigate-away.js";
 import { gaussianDelay, gaussianBetween, maybeHesitate, maybeBreak, simulateReadingTime } from "../utils/delay.js";
 import { humanizedScrollToByIndex, humanizedScrollY, retryInteraction } from "../linkedin/dom-automation.js";
 import type { HumanizedMouse } from "../linkedin/humanized-mouse.js";
-import {
-  type RawDomPost,
-  mapRawPosts,
-  scrollFeed,
-  delay,
-} from "./get-feed.js";
+import { type RawDomPost, mapRawPosts, scrollFeed, delay } from "./get-feed.js";
 
 /**
  * Input for the get-profile-activity operation.
@@ -196,10 +191,7 @@ const SCRAPE_ACTIVITY_POSTS_SCRIPT = `(() => {
  * Wait for the profile activity page to render posts.
  * Polls for `div[role="article"]` elements with menu buttons.
  */
-async function waitForActivityLoad(
-  client: CDPClient,
-  timeoutMs = 15_000,
-): Promise<void> {
+async function waitForActivityLoad(client: CDPClient, timeoutMs = 15_000): Promise<void> {
   const deadline = Date.now() + timeoutMs;
   while (Date.now() < deadline) {
     const ready = await client.evaluate<boolean>(`(() => {
@@ -214,14 +206,11 @@ async function waitForActivityLoad(
     if (ready) return;
     await delay(500);
   }
-  throw new Error(
-    "Timed out waiting for activity posts to appear in the DOM",
-  );
+  throw new Error("Timed out waiting for activity posts to appear in the DOM");
 }
 
 /** CSS selector for activity post menu buttons. */
-const ACTIVITY_MENU_BUTTON_SELECTOR =
-  'div[role="article"] button[aria-label^="Open control menu"]';
+const ACTIVITY_MENU_BUTTON_SELECTOR = 'div[role="article"] button[aria-label^="Open control menu"]';
 
 /**
  * Capture the post URL for a single activity post by opening its
@@ -275,8 +264,7 @@ async function captureActivityPostUrl(
     await gaussianDelay(550, 75, 400, 700);
 
     // Read captured URL
-    const postUrl =
-      await client.evaluate<string | null>(`window.__capturedClipboard`);
+    const postUrl = await client.evaluate<string | null>(`window.__capturedClipboard`);
 
     if (postUrl) {
       // Strip query parameters
@@ -324,10 +312,8 @@ async function captureActivityPostUrl(
  * @param input - Profile identifier, pagination, and CDP connection options.
  * @returns List of posts with a cursor for the next page.
  */
-export async function getProfileActivity(
-  input: GetProfileActivityInput,
-): Promise<GetProfileActivityOutput> {
-  const cdpPort = await resolveInstancePort(input.cdpPort, input.cdpHost);
+export async function getProfileActivity(input: GetProfileActivityInput): Promise<GetProfileActivityOutput> {
+  const cdpPort = await resolveInstancePort(input.cdpPort, input.cdpHost, undefined, input.accountId);
   const cdpHost = input.cdpHost ?? "127.0.0.1";
   const allowRemote = input.allowRemote ?? false;
   const count = input.count ?? 10;
@@ -344,14 +330,11 @@ export async function getProfileActivity(
   }
 
   const targets = await discoverTargets(cdpPort, cdpHost);
-  const linkedInTarget = targets.find(
-    (t) => t.type === "page" && t.url?.includes("linkedin.com"),
-  );
+  const linkedInTarget = targets.find((t) => t.type === "page" && t.url?.includes("linkedin.com"));
 
   if (!linkedInTarget) {
     throw new Error(
-      "No LinkedIn page found in LinkedHelper. " +
-        "Ensure LinkedHelper is running with an active LinkedIn session.",
+      "No LinkedIn page found in LinkedHelper. " + "Ensure LinkedHelper is running with an active LinkedIn session.",
     );
   }
 
@@ -379,8 +362,7 @@ export async function getProfileActivity(
 
     for (let scroll = 0; scroll <= maxScrollAttempts; scroll++) {
       const countBeforeScroll = previousCount;
-      const scraped =
-        await client.evaluate<RawDomPost[]>(SCRAPE_ACTIVITY_POSTS_SCRIPT);
+      const scraped = await client.evaluate<RawDomPost[]>(SCRAPE_ACTIVITY_POSTS_SCRIPT);
       allPosts = scraped ?? [];
 
       const available = allPosts.length;
@@ -398,10 +380,7 @@ export async function getProfileActivity(
         const fatigueMultiplier = 1 + scroll * 0.1;
         // Scale delay by newly visible content volume
         const newPostCount = allPosts.length - countBeforeScroll;
-        const contentBonus = Math.min(
-          newPostCount * gaussianBetween(350, 75, 200, 500),
-          3_000,
-        );
+        const contentBonus = Math.min(newPostCount * gaussianBetween(350, 75, 200, 500), 3_000);
         await gaussianDelay(
           1_500 * fatigueMultiplier + contentBonus,
           150 * fatigueMultiplier,
@@ -437,9 +416,7 @@ export async function getProfileActivity(
         if (!post) continue;
         if (i > 0) await gaussianDelay(550, 125, 300, 800);
         await maybeBreak();
-        const url = await retryInteraction(
-          () => captureActivityPostUrl(client, i, mouse),
-        );
+        const url = await retryInteraction(() => captureActivityPostUrl(client, i, mouse));
         if (url) {
           post.url = url;
           if (url === cursorUrl) {
@@ -457,9 +434,7 @@ export async function getProfileActivity(
       if (!post || post.url) continue;
       if (i > startIdx) await gaussianDelay(550, 125, 300, 800);
       await maybeBreak();
-      const url = await retryInteraction(
-        () => captureActivityPostUrl(client, i, mouse),
-      );
+      const url = await retryInteraction(() => captureActivityPostUrl(client, i, mouse));
       if (url) {
         post.url = url;
       }

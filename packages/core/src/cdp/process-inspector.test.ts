@@ -29,12 +29,22 @@ import { listListeningTcpPorts } from "./list-listening-ports.js";
 import { isCdpPort } from "../utils/cdp-port.js";
 import { parseIdentityFromCmdline, reapOrphans, scanOrphans, scanRunningInstances } from "./process-inspector.js";
 import type { OrphanProcess } from "./process-inspector.js";
+import { readinessTracker } from "./instance-readiness.js";
 import type { RawProcess } from "./gather-raw-processes.js";
 
 const mockedGatherRawProcesses = vi.mocked(gatherRawProcesses);
 const mockedInvalidateProcessCache = vi.mocked(invalidateProcessCache);
 const mockedListListeningPorts = vi.mocked(listListeningTcpPorts);
 const mockedIsCdpPort = vi.mocked(isCdpPort);
+
+beforeEach(() => {
+  vi.stubEnv("LHREMOTE_GRACE_WINDOW_MS", "0");
+  readinessTracker.invalidate();
+});
+afterEach(() => {
+  vi.unstubAllEnvs();
+  vi.useRealTimers();
+});
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -142,9 +152,7 @@ describe("role classification", () => {
   });
 
   it("classifies instance main process correctly", async () => {
-    mockedGatherRawProcesses.mockResolvedValue([
-      proc(13004, 9000, "linked-helper.exe", instanceCmdline({})),
-    ]);
+    mockedGatherRawProcesses.mockResolvedValue([proc(13004, 9000, "linked-helper.exe", instanceCmdline({}))]);
 
     const instances = await scanRunningInstances();
     expect(instances).toHaveLength(1);
@@ -153,11 +161,11 @@ describe("role classification", () => {
 
   it("does NOT include helper children in runningInstances", async () => {
     mockedGatherRawProcesses.mockResolvedValue([
-      proc(1000,  0,     "linked-helper.exe", launcherCmdline()),
-      proc(13004, 1000,  "linked-helper.exe", instanceCmdline({})),
-      proc(8008,  13004, "linked-helper.exe", helperCmdline("utility")),
-      proc(8009,  13004, "linked-helper.exe", helperCmdline("gpu-process")),
-      proc(8010,  1000,  "linked-helper.exe", helperCmdline("crashpad-handler")),
+      proc(1000, 0, "linked-helper.exe", launcherCmdline()),
+      proc(13004, 1000, "linked-helper.exe", instanceCmdline({})),
+      proc(8008, 13004, "linked-helper.exe", helperCmdline("utility")),
+      proc(8009, 13004, "linked-helper.exe", helperCmdline("gpu-process")),
+      proc(8010, 1000, "linked-helper.exe", helperCmdline("crashpad-handler")),
     ]);
 
     const instances = await scanRunningInstances();
@@ -169,10 +177,10 @@ describe("role classification", () => {
 
   it("counts helper children per instance", async () => {
     mockedGatherRawProcesses.mockResolvedValue([
-      proc(13004, 0,     "linked-helper.exe", instanceCmdline({ appId: 347559 })),
-      proc(8008,  13004, "linked-helper.exe", helperCmdline("utility")),
-      proc(8009,  13004, "linked-helper.exe", helperCmdline("gpu-process")),
-      proc(8010,  13004, "linked-helper.exe", helperCmdline("renderer")),
+      proc(13004, 0, "linked-helper.exe", instanceCmdline({ appId: 347559 })),
+      proc(8008, 13004, "linked-helper.exe", helperCmdline("utility")),
+      proc(8009, 13004, "linked-helper.exe", helperCmdline("gpu-process")),
+      proc(8010, 13004, "linked-helper.exe", helperCmdline("renderer")),
     ]);
 
     const instances = await scanRunningInstances();
@@ -183,8 +191,18 @@ describe("role classification", () => {
   it("handles multiple instances without interference", async () => {
     mockedGatherRawProcesses.mockResolvedValue([
       proc(13004, 0, "linked-helper.exe", instanceCmdline({ appId: 347559 })),
-      proc(13640, 0, "linked-helper.exe", instanceCmdline({ appId: 329925, fullName: "Mike Florko", email: "mike@example.com" })),
-      proc(7044,  0, "linked-helper.exe", instanceCmdline({ appId: 331874, fullName: "Michael Fliorko", email: "michael@example.com" })),
+      proc(
+        13640,
+        0,
+        "linked-helper.exe",
+        instanceCmdline({ appId: 329925, fullName: "Mike Florko", email: "mike@example.com" }),
+      ),
+      proc(
+        7044,
+        0,
+        "linked-helper.exe",
+        instanceCmdline({ appId: 331874, fullName: "Michael Fliorko", email: "michael@example.com" }),
+      ),
     ]);
 
     const instances = await scanRunningInstances();
@@ -224,7 +242,14 @@ describe("cmdline: null retry", () => {
     // populated), second scan (after the retry) sees its real --app-id.
     mockedGatherRawProcesses
       .mockResolvedValueOnce([proc(14772, 9924, "linked-helper.exe", null)])
-      .mockResolvedValueOnce([proc(14772, 9924, "linked-helper.exe", instanceCmdline({ appId: 570886, fullName: "Oleksandra Ivanova", email: "oleksandra@example.com" }))]);
+      .mockResolvedValueOnce([
+        proc(
+          14772,
+          9924,
+          "linked-helper.exe",
+          instanceCmdline({ appId: 570886, fullName: "Oleksandra Ivanova", email: "oleksandra@example.com" }),
+        ),
+      ]);
 
     const instances = await scanRunningInstances();
 
@@ -286,7 +311,12 @@ describe("identity parsing", () => {
 
   it("extracts name and email from --user-li JSON", async () => {
     mockedGatherRawProcesses.mockResolvedValue([
-      proc(13004, 0, "linked-helper.exe", instanceCmdline({ appId: 347559, fullName: "Vira Lyn", email: "vira@example.com" })),
+      proc(
+        13004,
+        0,
+        "linked-helper.exe",
+        instanceCmdline({ appId: 347559, fullName: "Vira Lyn", email: "vira@example.com" }),
+      ),
     ]);
 
     const [inst] = await scanRunningInstances();
@@ -297,9 +327,39 @@ describe("identity parsing", () => {
   it("three instances with identical --lh-account resolve to three DISTINCT accounts (decoy regression)", async () => {
     const sharedLhAccountEmail = "license-owner@example.com";
     mockedGatherRawProcesses.mockResolvedValue([
-      proc(13004, 0, "linked-helper.exe", instanceCmdline({ appId: 347559, fullName: "Vira Lyn", email: "vira@example.com", lhAccountEmail: sharedLhAccountEmail })),
-      proc(13640, 0, "linked-helper.exe", instanceCmdline({ appId: 329925, fullName: "Mike Florko", email: "mike@example.com", lhAccountEmail: sharedLhAccountEmail })),
-      proc(7044,  0, "linked-helper.exe", instanceCmdline({ appId: 331874, fullName: "Michael Fliorko", email: "michael@example.com", lhAccountEmail: sharedLhAccountEmail })),
+      proc(
+        13004,
+        0,
+        "linked-helper.exe",
+        instanceCmdline({
+          appId: 347559,
+          fullName: "Vira Lyn",
+          email: "vira@example.com",
+          lhAccountEmail: sharedLhAccountEmail,
+        }),
+      ),
+      proc(
+        13640,
+        0,
+        "linked-helper.exe",
+        instanceCmdline({
+          appId: 329925,
+          fullName: "Mike Florko",
+          email: "mike@example.com",
+          lhAccountEmail: sharedLhAccountEmail,
+        }),
+      ),
+      proc(
+        7044,
+        0,
+        "linked-helper.exe",
+        instanceCmdline({
+          appId: 331874,
+          fullName: "Michael Fliorko",
+          email: "michael@example.com",
+          lhAccountEmail: sharedLhAccountEmail,
+        }),
+      ),
     ]);
 
     const instances = await scanRunningInstances();
@@ -323,12 +383,9 @@ describe("identity parsing", () => {
     // Process has --app-id=9999 but no --user-li-id or --user-li JSON.
     // accountId must still be parsed from --app-id (the authoritative source)
     // with confidence=high; name/email will be empty/undefined.
-    const cmdline =
-      `C:\\path\\linked-helper.exe --app-id=9999 --env=PROD`;
+    const cmdline = `C:\\path\\linked-helper.exe --app-id=9999 --env=PROD`;
     // --app-id present but no --user-li / --user-li-id → accountId parsed from --app-id, confidence=high
-    mockedGatherRawProcesses.mockResolvedValue([
-      proc(99, 0, "linked-helper.exe", cmdline),
-    ]);
+    mockedGatherRawProcesses.mockResolvedValue([proc(99, 0, "linked-helper.exe", cmdline)]);
 
     const instances = await scanRunningInstances();
     expect(instances[0]?.accountId).toBe(9999);
@@ -382,7 +439,12 @@ describe("secret redaction", () => {
 
   it("never exposes raw --lh-account license data in output", async () => {
     mockedGatherRawProcesses.mockResolvedValue([
-      proc(13004, 0, "linked-helper.exe", instanceCmdline({ appId: 347559, lhAccountEmail: "license-owner@secret.com" })),
+      proc(
+        13004,
+        0,
+        "linked-helper.exe",
+        instanceCmdline({ appId: 347559, lhAccountEmail: "license-owner@secret.com" }),
+      ),
     ]);
 
     const instances = await scanRunningInstances();
@@ -410,9 +472,9 @@ describe("scanOrphans", () => {
     mockedIsCdpPort.mockImplementation(async (port: number) => port === 54321);
 
     mockedGatherRawProcesses.mockResolvedValue([
-      proc(13004, 0,     "linked-helper.exe", instanceCmdline({ appId: 347559 })),
-      proc(8008,  13004, "linked-helper.exe", helperCmdline("utility")),
-      proc(8009,  13004, "linked-helper.exe", helperCmdline("gpu-process")),
+      proc(13004, 0, "linked-helper.exe", instanceCmdline({ appId: 347559 })),
+      proc(8008, 13004, "linked-helper.exe", helperCmdline("utility")),
+      proc(8009, 13004, "linked-helper.exe", helperCmdline("gpu-process")),
     ]);
 
     const liveInstances = await scanRunningInstances();
@@ -479,6 +541,11 @@ describe("reapOrphans", () => {
     const killSpy = vi.spyOn(process, "kill").mockImplementation(() => true);
     const orphans = [makeOrphan(2001, 111), makeOrphan(2002, 222)];
 
+    mockedListListeningPorts.mockResolvedValue([]);
+    mockedIsCdpPort.mockResolvedValue(false);
+    mockedGatherRawProcesses.mockResolvedValue(
+      orphans.map((o) => proc(o.pid, 0, "linked-helper.exe", instanceCmdline({ appId: o.accountId ?? 0 }))),
+    );
     const results = await reapOrphans(orphans, true);
 
     expect(killSpy).toHaveBeenCalledTimes(2);
@@ -496,11 +563,14 @@ describe("reapOrphans", () => {
     });
     const orphans = [makeOrphan(3001, 333)];
 
+    mockedListListeningPorts.mockResolvedValue([]);
+    mockedIsCdpPort.mockResolvedValue(false);
+    mockedGatherRawProcesses.mockResolvedValue(
+      orphans.map((o) => proc(o.pid, 0, "linked-helper.exe", instanceCmdline({ appId: o.accountId ?? 0 }))),
+    );
     const results = await reapOrphans(orphans, true);
 
-    expect(results).toEqual([
-      { pid: 3001, action: "skipped", reason: "ESRCH: no such process" },
-    ]);
+    expect(results).toEqual([{ pid: 3001, action: "skipped", reason: "ESRCH: no such process" }]);
   });
 
   it("returns empty array when given empty input (dry-run and confirm)", async () => {
@@ -509,11 +579,19 @@ describe("reapOrphans", () => {
   });
 
   it("confirm: processes that no longer exist at kill time are reported as skipped", async () => {
-    const killSpy = vi.spyOn(process, "kill")
+    const killSpy = vi
+      .spyOn(process, "kill")
       .mockImplementationOnce(() => true)
-      .mockImplementationOnce(() => { throw new Error("ESRCH"); });
+      .mockImplementationOnce(() => {
+        throw new Error("ESRCH");
+      });
     const orphans = [makeOrphan(4001, 444), makeOrphan(4002, 555)];
 
+    mockedListListeningPorts.mockResolvedValue([]);
+    mockedIsCdpPort.mockResolvedValue(false);
+    mockedGatherRawProcesses.mockResolvedValue(
+      orphans.map((o) => proc(o.pid, 0, "linked-helper.exe", instanceCmdline({ appId: o.accountId ?? 0 }))),
+    );
     const results = await reapOrphans(orphans, true);
 
     expect(results[0]).toEqual({ pid: 4001, action: "killed" });
@@ -555,9 +633,24 @@ describe("Windows-quoted cmdline parsing", () => {
 
   it("three Windows-quoted instances each resolve their own distinct identity", async () => {
     mockedGatherRawProcesses.mockResolvedValue([
-      proc(13004, 0, "linked-helper.exe", instanceCmdlineWindows({ appId: 347559, fullName: "Vira Lyn",       email: "vira@example.com" })),
-      proc(13640, 0, "linked-helper.exe", instanceCmdlineWindows({ appId: 329925, fullName: "Mike Florko",    email: "mike@example.com" })),
-      proc(7044,  0, "linked-helper.exe", instanceCmdlineWindows({ appId: 331874, fullName: "Michael Fliorko", email: "michael@example.com" })),
+      proc(
+        13004,
+        0,
+        "linked-helper.exe",
+        instanceCmdlineWindows({ appId: 347559, fullName: "Vira Lyn", email: "vira@example.com" }),
+      ),
+      proc(
+        13640,
+        0,
+        "linked-helper.exe",
+        instanceCmdlineWindows({ appId: 329925, fullName: "Mike Florko", email: "mike@example.com" }),
+      ),
+      proc(
+        7044,
+        0,
+        "linked-helper.exe",
+        instanceCmdlineWindows({ appId: 331874, fullName: "Michael Fliorko", email: "michael@example.com" }),
+      ),
     ]);
 
     const instances = await scanRunningInstances();
@@ -623,9 +716,7 @@ describe("multi-socket CDP port selection", () => {
   it("picks --remote-debugging-port when the sibling socket appears first in the Set", async () => {
     // Instance with --remote-debugging-port=64038 but OS lists 52805 first
     const cmdline = instanceCmdline({ appId: 347559 }) + " --remote-debugging-port=64038";
-    mockedGatherRawProcesses.mockResolvedValue([
-      proc(13004, 0, "linked-helper.exe", cmdline),
-    ]);
+    mockedGatherRawProcesses.mockResolvedValue([proc(13004, 0, "linked-helper.exe", cmdline)]);
     mockedListListeningPorts.mockResolvedValue([52805, 64038]);
     // Both sockets respond to isCdpPort (internal Electron + real CDP)
     mockedIsCdpPort.mockImplementation(async (port) => port === 64038 || port === 52805);
@@ -638,9 +729,7 @@ describe("multi-socket CDP port selection", () => {
 
   it("reports cdpPort from cmdline when neither socket passes the CDP probe", async () => {
     const cmdline = instanceCmdline({ appId: 347559 }) + " --remote-debugging-port=64038";
-    mockedGatherRawProcesses.mockResolvedValue([
-      proc(13004, 0, "linked-helper.exe", cmdline),
-    ]);
+    mockedGatherRawProcesses.mockResolvedValue([proc(13004, 0, "linked-helper.exe", cmdline)]);
     mockedListListeningPorts.mockResolvedValue([52805, 64038]);
     mockedIsCdpPort.mockResolvedValue(false);
 
@@ -651,18 +740,54 @@ describe("multi-socket CDP port selection", () => {
 
   it("scanRunningInstances is consistent across repeated calls for the same process", async () => {
     const cmdline = instanceCmdline({ appId: 347559 }) + " --remote-debugging-port=64038";
-    mockedGatherRawProcesses.mockResolvedValue([
-      proc(13004, 0, "linked-helper.exe", cmdline),
-    ]);
+    mockedGatherRawProcesses.mockResolvedValue([proc(13004, 0, "linked-helper.exe", cmdline)]);
     mockedListListeningPorts.mockResolvedValue([52805, 64038]);
     mockedIsCdpPort.mockImplementation(async (port) => port === 64038 || port === 52805);
 
-    const results = await Promise.all(
-      Array.from({ length: 10 }, () => scanRunningInstances()),
-    );
+    const results = await Promise.all(Array.from({ length: 10 }, () => scanRunningInstances()));
 
     for (const instances of results) {
       expect(instances[0]).toMatchObject({ cdpPort: 64038, connectable: true });
     }
+  });
+});
+
+describe("orphan composition and revalidation", () => {
+  it("detects a stuck instance even when the caller supplies all running instances", async () => {
+    mockedGatherRawProcesses.mockResolvedValue([proc(9999, 0, "linked-helper.exe", instanceCmdline({ appId: 42 }))]);
+    mockedListListeningPorts.mockResolvedValue([]);
+    mockedIsCdpPort.mockResolvedValue(false);
+    const all = await scanRunningInstances();
+    expect(all[0]?.connectable).toBe(false);
+    expect(await scanOrphans(all)).toMatchObject([{ pid: 9999, accountId: 42 }]);
+  });
+
+  it("gives a starting instance its grace window and spares it if it recovers", async () => {
+    vi.useFakeTimers();
+    vi.stubEnv("LHREMOTE_GRACE_WINDOW_MS", "100");
+    mockedGatherRawProcesses.mockResolvedValue([
+      proc(9999, 0, "linked-helper.exe", instanceCmdline({ appId: 42 }) + " --remote-debugging-port=11111"),
+    ]);
+    mockedIsCdpPort.mockResolvedValue(false);
+    const pending = scanOrphans(await scanRunningInstances());
+    await vi.advanceTimersByTimeAsync(50);
+    mockedIsCdpPort.mockResolvedValue(true);
+    await vi.advanceTimersByTimeAsync(50);
+    expect(await pending).toEqual([]);
+  });
+
+  it("does not kill a candidate that became connectable or changed account identity", async () => {
+    const kill = vi.spyOn(process, "kill").mockReturnValue(true);
+    mockedGatherRawProcesses.mockResolvedValue([
+      proc(9999, 0, "linked-helper.exe", instanceCmdline({ appId: 42 }) + " --remote-debugging-port=11111"),
+    ]);
+    mockedIsCdpPort.mockResolvedValue(false);
+    const candidates = await scanOrphans(await scanRunningInstances());
+    mockedIsCdpPort.mockResolvedValue(true);
+    expect((await reapOrphans(candidates, true))[0]?.action).toBe("skipped");
+    mockedIsCdpPort.mockResolvedValue(false);
+    mockedGatherRawProcesses.mockResolvedValue([proc(9999, 0, "linked-helper.exe", instanceCmdline({ appId: 99 }))]);
+    expect((await reapOrphans(candidates, true))[0]?.action).toBe("skipped");
+    expect(kill).not.toHaveBeenCalled();
   });
 });

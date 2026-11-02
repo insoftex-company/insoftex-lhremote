@@ -2,11 +2,7 @@
 // Copyright (C) 2026 Oleksii PELYKH
 
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
-import {
-  reactToPost,
-  REACTION_TYPES,
-  withLoggedInStateRetryAtPort,
-} from "@insoftex/lhremote-core";
+import { reactToPost, REACTION_TYPES, withLoggedInStateRetryAtPort } from "@insoftex/lhremote-core";
 import { z } from "zod";
 import { cdpConnectionSchema, mcpCatchAll, mcpSuccess } from "../helpers.js";
 
@@ -14,21 +10,21 @@ import { cdpConnectionSchema, mcpCatchAll, mcpSuccess } from "../helpers.js";
 export function registerReactToPost(server: McpServer): void {
   server.tool(
     "react-to-post",
-    "React to a LinkedIn post with a specific reaction type (like, celebrate, support, love, insightful, funny). Navigates to the post and clicks the reaction button. With dryRun, validates the popup opens but skips the click.",
+    "React to a LinkedIn post with a specific reaction type (like, celebrate, support, love, insightful, funny). Navigates to the post and clicks the reaction button. With dryRun, validates the popup opens but skips the click. Checks action budget before attempting — fails if the PostLike limit is reached, including under dryRun.",
     {
       postUrl: z
         .string()
-        .describe(
-          "LinkedIn post URL (e.g. https://www.linkedin.com/feed/update/urn:li:activity:1234567890/)",
-        ),
+        .describe("LinkedIn post URL (e.g. https://www.linkedin.com/feed/update/urn:li:activity:1234567890/)"),
       reactionType: z
         .enum(REACTION_TYPES as unknown as [string, ...string[]])
         .optional()
         .default("like")
-        .describe(
-          "Reaction type to apply (default: like). Options: like, celebrate, support, love, insightful, funny",
-        ),
-      dryRun: z.boolean().optional().default(false).describe("When true, detect current reaction state without clicking"),
+        .describe("Reaction type to apply (default: like). Options: like, celebrate, support, love, insightful, funny"),
+      dryRun: z
+        .boolean()
+        .optional()
+        .default(false)
+        .describe("When true, detect current reaction state without clicking"),
       ...cdpConnectionSchema,
     },
     async ({ postUrl, reactionType, dryRun, cdpPort, cdpHost, allowRemote, accountId }) => {
@@ -47,6 +43,7 @@ export function registerReactToPost(server: McpServer): void {
               accountId,
               dryRun,
             }),
+          { accountId: accountId },
         );
         return mcpSuccess(JSON.stringify(result, null, 2));
       } catch (error) {

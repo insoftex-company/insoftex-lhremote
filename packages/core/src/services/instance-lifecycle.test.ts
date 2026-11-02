@@ -57,9 +57,7 @@ const UI_TARGET: CdpTarget = {
 
 const BOTH_TARGETS: CdpTarget[] = [LINKEDIN_TARGET, UI_TARGET];
 
-function makeRunningInstance(
-  overrides: Partial<RunningInstance> = {},
-): RunningInstance {
+function makeRunningInstance(overrides: Partial<RunningInstance> = {}): RunningInstance {
   return {
     pid: 8888,
     accountId: 42,
@@ -72,9 +70,7 @@ function makeRunningInstance(
   };
 }
 
-function createMockLauncher(
-  overrides: Partial<Record<keyof LauncherService, unknown>> = {},
-): LauncherService {
+function createMockLauncher(overrides: Partial<Record<keyof LauncherService, unknown>> = {}): LauncherService {
   return {
     connect: vi.fn().mockResolvedValue(undefined),
     disconnect: vi.fn(),
@@ -115,11 +111,7 @@ describe("startInstanceWithRecovery", () => {
 
   it("returns already_running when instance is running and port discoverable", async () => {
     const launcher = createMockLauncher({
-      startInstance: vi
-        .fn()
-        .mockRejectedValue(
-          new StartInstanceError(42, "account is already running"),
-        ),
+      startInstance: vi.fn().mockRejectedValue(new StartInstanceError(42, "account is already running")),
     });
     vi.mocked(discoverTargets).mockResolvedValue(BOTH_TARGETS);
     mockedScanRunningInstances.mockResolvedValue([makeRunningInstance({ pid: 7777 })]);
@@ -132,11 +124,7 @@ describe("startInstanceWithRecovery", () => {
 
   it("returns timeout when already running but targets never appear", async () => {
     const launcher = createMockLauncher({
-      startInstance: vi
-        .fn()
-        .mockRejectedValue(
-          new StartInstanceError(42, "account is already running"),
-        ),
+      startInstance: vi.fn().mockRejectedValue(new StartInstanceError(42, "account is already running")),
     });
     vi.mocked(discoverTargets).mockResolvedValue([UI_TARGET]);
     mockedScanRunningInstances.mockResolvedValue([makeRunningInstance({ pid: 7777 })]);
@@ -151,9 +139,7 @@ describe("startInstanceWithRecovery", () => {
   it("performs crash recovery when already running but no port", async () => {
     const startInstance = vi
       .fn()
-      .mockRejectedValueOnce(
-        new StartInstanceError(42, "account is already running"),
-      )
+      .mockRejectedValueOnce(new StartInstanceError(42, "account is already running"))
       .mockResolvedValueOnce(undefined);
 
     const launcher = createMockLauncher({ startInstance });
@@ -164,12 +150,19 @@ describe("startInstanceWithRecovery", () => {
     mockedScanRunningInstances
       .mockResolvedValueOnce([])
       .mockResolvedValueOnce([makeRunningInstance({ pid: 9999, cdpPort: 55999 })]);
-    vi.mocked(discoverInstancePort)
-      .mockResolvedValueOnce(null)
-      .mockResolvedValue(55999);
+    vi.mocked(discoverInstancePort).mockResolvedValueOnce(null).mockResolvedValue(55999);
 
     const resultPromise = startInstanceWithRecovery(launcher, 42, 9222);
-    await vi.advanceTimersByTimeAsync(2_100);
+    // Drive past CRASH_RECOVERY_DELAY (2_000), which these mocks leave as the
+    // path's only timed wait: waitForInstancePort and waitForInstanceTargets
+    // each return on their first poll, so neither reaches its own delay().
+    // The 2_000 is transcribed rather than imported, because the constant is
+    // module-private — so the assertion below, not the number above, is what
+    // holds the pair together: if the delay ever outgrows the advance, the
+    // leftover timer fails this test in milliseconds, instead of being paid
+    // out in real wall-clock time, which is the flake being fixed here.
+    await vi.advanceTimersByTimeAsync(10_000);
+    expect(vi.getTimerCount()).toBe(0);
     const result = await resultPromise;
 
     expect(launcher.stopInstanceWithDialogDismissal).toHaveBeenCalledWith(42);
@@ -191,28 +184,18 @@ describe("startInstanceWithRecovery", () => {
 
   it("rethrows non-already-running StartInstanceError", async () => {
     const launcher = createMockLauncher({
-      startInstance: vi
-        .fn()
-        .mockRejectedValue(
-          new StartInstanceError(42, "license expired"),
-        ),
+      startInstance: vi.fn().mockRejectedValue(new StartInstanceError(42, "license expired")),
     });
 
-    await expect(
-      startInstanceWithRecovery(launcher, 42, 9222),
-    ).rejects.toThrow("license expired");
+    await expect(startInstanceWithRecovery(launcher, 42, 9222)).rejects.toThrow("license expired");
   });
 
   it("rethrows non-StartInstanceError", async () => {
     const launcher = createMockLauncher({
-      startInstance: vi
-        .fn()
-        .mockRejectedValue(new Error("network error")),
+      startInstance: vi.fn().mockRejectedValue(new Error("network error")),
     });
 
-    await expect(
-      startInstanceWithRecovery(launcher, 42, 9222),
-    ).rejects.toThrow("network error");
+    await expect(startInstanceWithRecovery(launcher, 42, 9222)).rejects.toThrow("network error");
   });
 
   it("throws when instance starts with error popups", async () => {
@@ -223,9 +206,9 @@ describe("startInstanceWithRecovery", () => {
       { title: "Failed to initialize UI", closable: false },
     ]);
 
-    await expect(
-      startInstanceWithRecovery(launcher, 42, 9222),
-    ).rejects.toThrow("instance has error popups: Failed to initialize UI");
+    await expect(startInstanceWithRecovery(launcher, 42, 9222)).rejects.toThrow(
+      "instance has error popups: Failed to initialize UI",
+    );
 
     expect(InstanceService.prototype.connectUiOnly).toHaveBeenCalled();
     expect(InstanceService.prototype.disconnect).toHaveBeenCalled();
@@ -233,11 +216,7 @@ describe("startInstanceWithRecovery", () => {
 
   it("throws when already-running instance has error popups", async () => {
     const launcher = createMockLauncher({
-      startInstance: vi
-        .fn()
-        .mockRejectedValue(
-          new StartInstanceError(42, "account is already running"),
-        ),
+      startInstance: vi.fn().mockRejectedValue(new StartInstanceError(42, "account is already running")),
     });
     vi.mocked(discoverInstancePort).mockResolvedValue(55123);
     vi.mocked(discoverTargets).mockResolvedValue(BOTH_TARGETS);
@@ -245,9 +224,7 @@ describe("startInstanceWithRecovery", () => {
       { title: "DataLayerStorage error", description: "liAccount not initialized", closable: true },
     ]);
 
-    await expect(
-      startInstanceWithRecovery(launcher, 42, 9222),
-    ).rejects.toThrow(
+    await expect(startInstanceWithRecovery(launcher, 42, 9222)).rejects.toThrow(
       "instance has error popups: DataLayerStorage error — liAccount not initialized",
     );
 
@@ -258,9 +235,7 @@ describe("startInstanceWithRecovery", () => {
     const launcher = createMockLauncher();
     vi.mocked(discoverInstancePort).mockResolvedValue(55123);
     vi.mocked(discoverTargets).mockResolvedValue(BOTH_TARGETS);
-    vi.mocked(InstanceService.prototype.connectUiOnly).mockRejectedValue(
-      new Error("connection refused"),
-    );
+    vi.mocked(InstanceService.prototype.connectUiOnly).mockRejectedValue(new Error("connection refused"));
 
     const result = await startInstanceWithRecovery(launcher, 42, 9222);
 
@@ -277,9 +252,7 @@ describe("startInstanceWithRecovery", () => {
       { title: "Error B", description: "details", closable: true },
     ]);
 
-    await expect(
-      startInstanceWithRecovery(launcher, 42, 9222),
-    ).rejects.toThrow(
+    await expect(startInstanceWithRecovery(launcher, 42, 9222)).rejects.toThrow(
       "instance has error popups: Error A; Error B — details",
     );
   });
@@ -329,9 +302,7 @@ describe("startInstanceWithRecovery", () => {
       const launcher = createMockLauncher();
       vi.mocked(discoverInstancePort).mockResolvedValue(55123);
       vi.mocked(discoverTargets).mockResolvedValue(BOTH_TARGETS);
-      mockedScanRunningInstances.mockResolvedValue([
-        makeRunningInstance({ pid: 9999, accountId: 99 }),
-      ]);
+      mockedScanRunningInstances.mockResolvedValue([makeRunningInstance({ pid: 9999, accountId: 99 })]);
 
       const resultPromise = startInstanceWithRecovery(launcher, 42, 9222);
       await vi.advanceTimersByTimeAsync(46_000);
@@ -342,9 +313,7 @@ describe("startInstanceWithRecovery", () => {
 
     it("sets verified: true for already_running path when matching instance found", async () => {
       const launcher = createMockLauncher({
-        startInstance: vi.fn().mockRejectedValue(
-          new StartInstanceError(42, "account is already running"),
-        ),
+        startInstance: vi.fn().mockRejectedValue(new StartInstanceError(42, "account is already running")),
       });
       vi.mocked(discoverInstancePort).mockResolvedValue(55123);
       vi.mocked(discoverTargets).mockResolvedValue(BOTH_TARGETS);
@@ -355,16 +324,82 @@ describe("startInstanceWithRecovery", () => {
       expect(result).toEqual({ status: "already_running", port: 55123, pid: 7777, verified: true });
     });
 
-    it("verification is best-effort: verified: false when scanRunningInstances throws", async () => {
+    it("times out instead of accepting an unverifiable generic port when process inspection fails", async () => {
       const launcher = createMockLauncher();
       vi.mocked(discoverInstancePort).mockResolvedValue(55123);
       vi.mocked(discoverTargets).mockResolvedValue(BOTH_TARGETS);
       mockedScanRunningInstances.mockRejectedValue(new Error("psList failed"));
 
-      const result = await startInstanceWithRecovery(launcher, 42, 9222);
+      const pending = startInstanceWithRecovery(launcher, 42, 9222);
+      await vi.advanceTimersByTimeAsync(46_000);
+      const result = await pending;
 
-      expect(result).toEqual({ status: "started", port: 55123, verified: false });
+      expect(result).toEqual({ status: "timeout" });
     });
+  });
+
+  /**
+   * An `Error` whose `message` is `value`.  The constructor coerces its
+   * argument, so the non-string has to be installed after the fact -- the same
+   * construction `error-message.test.ts` § `errorMessage totality` uses, for
+   * the same reason.
+   */
+  const startInstanceErrorWithMessage = (value: unknown): StartInstanceError => {
+    const error = new StartInstanceError(42, "placeholder");
+    Object.defineProperty(error, "message", { value, configurable: true });
+    return error;
+  };
+
+  /**
+   * `message` is typed `string` but is not one by construction: a subclass
+   * assigning `this.message`, an error rehydrated across a worker or IPC
+   * boundary, and a `Proxy` can each produce one, and the catch below accepts
+   * whatever `startInstance` rejected with.  `instanceof` establishes the
+   * value is a `StartInstanceError`; it establishes NOTHING about `message`,
+   * so reading `.includes` on a non-string one raises `TypeError` from inside
+   * the catch and the real failure never reaches the caller.
+   *
+   * Pinned on the classification's own terms rather than on "does not throw"
+   * alone: what the caller must still receive is the error the launcher
+   * actually rejected with.
+   */
+  it("classifies a non-string message rather than raising from inside the catch", async () => {
+    const rejected = startInstanceErrorWithMessage(42);
+    const launcher = createMockLauncher({
+      startInstance: vi.fn().mockRejectedValue(rejected),
+    });
+
+    const failure = await startInstanceWithRecovery(launcher, 42, 9222).catch((error: unknown) => error);
+
+    // The coerced text ("42") does not carry the phrase, so this is the
+    // non-already-running path: the launcher's own error propagates.
+    expect(failure).toBe(rejected);
+    expect(failure).toBeInstanceOf(StartInstanceError);
+    expect(failure).not.toBeInstanceOf(TypeError);
+    expect(launcher.stopInstanceWithDialogDismissal).not.toHaveBeenCalled();
+  });
+
+  /**
+   * The other half of the same coercion: a non-string message whose text DOES
+   * carry the phrase must still be classified as already-running.  Coercing
+   * rather than discarding is what keeps that true -- reading `""` for every
+   * non-string would be total too, and would silently re-route this case to
+   * the rethrow above.
+   */
+  it("still recognises already-running when the phrase arrives on a non-string message", async () => {
+    const launcher = createMockLauncher({
+      startInstance: vi.fn().mockRejectedValue(
+        startInstanceErrorWithMessage({
+          toString: () => "account is already running",
+        }),
+      ),
+    });
+    vi.mocked(discoverInstancePort).mockResolvedValue(55123);
+    vi.mocked(discoverTargets).mockResolvedValue(BOTH_TARGETS);
+
+    const result = await startInstanceWithRecovery(launcher, 42, 9222);
+
+    expect(result).toEqual(expect.objectContaining({ status: "already_running", port: 55123 }));
   });
 });
 
@@ -388,10 +423,7 @@ describe("waitForInstancePort", () => {
   });
 
   it("polls until port becomes available", async () => {
-    vi.mocked(discoverInstancePort)
-      .mockResolvedValueOnce(null)
-      .mockResolvedValueOnce(null)
-      .mockResolvedValue(55123);
+    vi.mocked(discoverInstancePort).mockResolvedValueOnce(null).mockResolvedValueOnce(null).mockResolvedValue(55123);
 
     const resultPromise = waitForInstancePort(9222);
     await vi.advanceTimersByTimeAsync(3_000);
@@ -434,9 +466,7 @@ describe("waitForInstanceForAccount", () => {
 
   it("ignores other accounts and keeps polling until the requested one appears", async () => {
     mockedScanRunningInstances
-      .mockResolvedValueOnce([
-        makeRunningInstance({ pid: 2001, accountId: 99, cdpPort: 60001 }),
-      ])
+      .mockResolvedValueOnce([makeRunningInstance({ pid: 2001, accountId: 99, cdpPort: 60001 })])
       .mockResolvedValueOnce([makeRunningInstance({ pid: 2002 })]);
     vi.mocked(discoverInstancePort).mockResolvedValue(null);
 
@@ -507,8 +537,7 @@ describe("waitForInstanceTargets", () => {
   });
 
   it("propagates non-CDP errors", async () => {
-    vi.mocked(discoverTargets)
-      .mockRejectedValue(new TypeError("unexpected response"));
+    vi.mocked(discoverTargets).mockRejectedValue(new TypeError("unexpected response"));
 
     await expect(waitForInstanceTargets(55123)).rejects.toThrow("unexpected response");
   });
@@ -534,10 +563,7 @@ describe("waitForInstanceShutdown", () => {
   });
 
   it("polls until port disappears", async () => {
-    vi.mocked(discoverInstancePort)
-      .mockResolvedValueOnce(55123)
-      .mockResolvedValueOnce(55123)
-      .mockResolvedValue(null);
+    vi.mocked(discoverInstancePort).mockResolvedValueOnce(55123).mockResolvedValueOnce(55123).mockResolvedValue(null);
 
     const promise = waitForInstanceShutdown(9222);
     await vi.advanceTimersByTimeAsync(3_000);

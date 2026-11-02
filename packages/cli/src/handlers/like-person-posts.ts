@@ -56,22 +56,23 @@ export async function handleLikePersonPosts(options: {
       options.allowRemote ?? false,
       () =>
         likePersonPosts({
-      personId: options.personId,
-      url: options.url,
-      numberOfArticles: options.numberOfArticles,
-      numberOfPosts: options.numberOfPosts,
-      maxAgeOfArticles: options.maxAgeOfArticles,
-      maxAgeOfPosts: options.maxAgeOfPosts,
-      shouldAddComment: options.shouldAddComment,
-      messageTemplate: parsedMessageTemplate,
-      skipIfNotLiked: options.skipIfNotLiked,
-      keepCampaign: options.keepCampaign,
-      timeout: options.timeout,
-      cdpPort: options.cdpPort,
-      cdpHost: options.cdpHost,
-      allowRemote: options.allowRemote,
-      accountId: options.accountId,
-      }),
+          personId: options.personId,
+          url: options.url,
+          numberOfArticles: options.numberOfArticles,
+          numberOfPosts: options.numberOfPosts,
+          maxAgeOfArticles: options.maxAgeOfArticles,
+          maxAgeOfPosts: options.maxAgeOfPosts,
+          shouldAddComment: options.shouldAddComment,
+          messageTemplate: parsedMessageTemplate,
+          skipIfNotLiked: options.skipIfNotLiked,
+          keepCampaign: options.keepCampaign,
+          timeout: options.timeout,
+          cdpPort: options.cdpPort,
+          cdpHost: options.cdpHost,
+          allowRemote: options.allowRemote,
+          accountId: options.accountId,
+        }),
+      { accountId: options.accountId },
     );
   } catch (error) {
     if (error instanceof CampaignExecutionError || error instanceof CampaignTimeoutError) {
@@ -88,6 +89,8 @@ export async function handleLikePersonPosts(options: {
   if (options.json) {
     process.stdout.write(JSON.stringify(result, null, 2) + "\n");
   } else {
-    process.stdout.write(`Like posts ${result.success ? "succeeded" : "failed"} (person #${String(result.personId)})\n`);
+    process.stdout.write(
+      `Like posts ${result.success ? "succeeded" : "failed"} (person #${String(result.personId)})\n`,
+    );
   }
 }

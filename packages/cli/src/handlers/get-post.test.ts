@@ -8,7 +8,7 @@ vi.mock("@insoftex/lhremote-core", async (importOriginal) => {
   return { ...actual, getPost: vi.fn() };
 });
 
-import { getPost, type GetPostOutput } from "@insoftex/lhremote-core";
+import { DOMVariantUnsupportedError, getPost, type GetPostOutput } from "@insoftex/lhremote-core";
 import { handleGetPost } from "./get-post.js";
 import { getStderr, getStdout } from "./testing/mock-helpers.js";
 
@@ -58,10 +58,7 @@ describe("handleGetPost", () => {
   it("prints JSON with --json", async () => {
     vi.mocked(getPost).mockResolvedValue(MOCK_RESULT);
 
-    await handleGetPost(
-      "https://www.linkedin.com/feed/update/urn:li:activity:7123456789012345678/",
-      { json: true },
-    );
+    await handleGetPost("https://www.linkedin.com/feed/update/urn:li:activity:7123456789012345678/", { json: true });
 
     expect(process.exitCode).toBeUndefined();
     const output = JSON.parse(getStdout(stdoutSpy));
@@ -73,10 +70,7 @@ describe("handleGetPost", () => {
   it("prints human-readable output with post details", async () => {
     vi.mocked(getPost).mockResolvedValue(MOCK_RESULT);
 
-    await handleGetPost(
-      "https://www.linkedin.com/feed/update/urn:li:activity:7123456789012345678/",
-      {},
-    );
+    await handleGetPost("https://www.linkedin.com/feed/update/urn:li:activity:7123456789012345678/", {});
 
     expect(process.exitCode).toBeUndefined();
     const output = getStdout(stdoutSpy);
@@ -93,10 +87,7 @@ describe("handleGetPost", () => {
   it("formats comments section with paging", async () => {
     vi.mocked(getPost).mockResolvedValue(MOCK_RESULT);
 
-    await handleGetPost(
-      "https://www.linkedin.com/feed/update/urn:li:activity:7123456789012345678/",
-      {},
-    );
+    await handleGetPost("https://www.linkedin.com/feed/update/urn:li:activity:7123456789012345678/", {});
 
     const output = getStdout(stdoutSpy);
     expect(output).toContain("Comments (1\u20131 of 1):");
@@ -120,10 +111,7 @@ describe("handleGetPost", () => {
       ],
     });
 
-    await handleGetPost(
-      "https://www.linkedin.com/feed/update/urn:li:activity:7123456789012345678/",
-      {},
-    );
+    await handleGetPost("https://www.linkedin.com/feed/update/urn:li:activity:7123456789012345678/", {});
 
     const output = getStdout(stdoutSpy);
     expect(output).toContain("[1 reaction]");
@@ -133,10 +121,7 @@ describe("handleGetPost", () => {
   it("shows plural reaction count for comments", async () => {
     vi.mocked(getPost).mockResolvedValue(MOCK_RESULT);
 
-    await handleGetPost(
-      "https://www.linkedin.com/feed/update/urn:li:activity:7123456789012345678/",
-      {},
-    );
+    await handleGetPost("https://www.linkedin.com/feed/update/urn:li:activity:7123456789012345678/", {});
 
     const output = getStdout(stdoutSpy);
     expect(output).toContain("[2 reactions]");
@@ -149,10 +134,7 @@ describe("handleGetPost", () => {
       commentsPaging: { start: 0, count: 100, total: 0 },
     });
 
-    await handleGetPost(
-      "https://www.linkedin.com/feed/update/urn:li:activity:7123456789012345678/",
-      {},
-    );
+    await handleGetPost("https://www.linkedin.com/feed/update/urn:li:activity:7123456789012345678/", {});
 
     const output = getStdout(stdoutSpy);
     expect(output).not.toContain("Comments (");
@@ -161,12 +143,30 @@ describe("handleGetPost", () => {
   it("sets exitCode on error", async () => {
     vi.mocked(getPost).mockRejectedValue(new Error("connection refused"));
 
-    await handleGetPost(
-      "https://www.linkedin.com/feed/update/urn:li:activity:7123456789012345678/",
-      {},
-    );
+    await handleGetPost("https://www.linkedin.com/feed/update/urn:li:activity:7123456789012345678/", {});
 
     expect(process.exitCode).toBe(1);
     expect(getStderr(stderrSpy)).toContain("connection refused");
+  });
+
+  /**
+   * The post-detail readiness gate puts its per-adapter detect probe counts
+   * in the error's `cause`, and those counts are what tell an operator which
+   * repair to make.  A CLI user reads stderr and nothing else, so asserting
+   * them on the error object would not prove they arrive.
+   */
+  it("writes the cause chain's diagnosis to stderr", async () => {
+    vi.mocked(getPost).mockRejectedValue(
+      new DOMVariantUnsupportedError("post-detail", ["sdui", "legacy"], {
+        cause: new Error("detect probes — sdui: 0, legacy: 0"),
+      }),
+    );
+
+    await handleGetPost("https://www.linkedin.com/feed/update/urn:li:activity:7123456789012345678/", {});
+
+    expect(process.exitCode).toBe(1);
+    const stderr = getStderr(stderrSpy);
+    expect(stderr).toContain("register an adapter");
+    expect(stderr).toContain("Caused by: detect probes — sdui: 0, legacy: 0");
   });
 });

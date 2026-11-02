@@ -8,6 +8,7 @@ export async function handleGetErrors(options: {
   cdpPort?: number;
   cdpHost?: string;
   allowRemote?: boolean;
+  accountId?: number;
   json?: boolean;
 }): Promise<void> {
   try {
@@ -15,6 +16,7 @@ export async function handleGetErrors(options: {
       cdpPort: options.cdpPort,
       cdpHost: options.cdpHost,
       allowRemote: options.allowRemote,
+      accountId: options.accountId,
     });
 
     if (options.json) {
@@ -23,12 +25,8 @@ export async function handleGetErrors(options: {
     }
 
     // Overall health
-    process.stdout.write(
-      `Health: ${result.healthy ? "healthy" : "BLOCKED"}\n`,
-    );
-    process.stdout.write(
-      `Account: ${String(result.accountId)}\n`,
-    );
+    process.stdout.write(`Health: ${result.healthy ? "healthy" : "BLOCKED"}\n`);
+    process.stdout.write(`Account: ${String(result.accountId)}\n`);
 
     // Instance issues
     if (result.issues.length === 0) {
@@ -37,16 +35,10 @@ export async function handleGetErrors(options: {
       process.stdout.write(`Issues: ${String(result.issues.length)}\n`);
       for (const issue of result.issues) {
         if (issue.type === "dialog") {
-          const controls = issue.data.options.controls
-            .map((c) => c.text)
-            .join(", ");
-          process.stdout.write(
-            `  Dialog: ${issue.data.options.message} [${controls}]\n`,
-          );
+          const controls = issue.data.options.controls.map((c) => c.text).join(", ");
+          process.stdout.write(`  Dialog: ${issue.data.options.message} [${controls}]\n`);
         } else {
-          process.stdout.write(
-            `  Critical error: ${issue.data.message}\n`,
-          );
+          process.stdout.write(`  Critical error: ${issue.data.message}\n`);
         }
       }
     }
@@ -56,18 +48,14 @@ export async function handleGetErrors(options: {
       process.stdout.write("Popup: none\n");
     } else {
       const closable = result.popup.closable ? "closable" : "unclosable";
-      process.stdout.write(
-        `Popup: ${result.popup.message ?? "blocking overlay"} (${closable})\n`,
-      );
+      process.stdout.write(`Popup: ${result.popup.message ?? "blocking overlay"} (${closable})\n`);
     }
 
     // Instance UI popups
     if (result.instancePopups.length === 0) {
       process.stdout.write("Instance popups: none\n");
     } else {
-      process.stdout.write(
-        `Instance popups: ${String(result.instancePopups.length)}\n`,
-      );
+      process.stdout.write(`Instance popups: ${String(result.instancePopups.length)}\n`);
       for (const p of result.instancePopups) {
         const closable = p.closable ? "closable" : "unclosable";
         const desc = p.description ? ` — ${p.description}` : "";

@@ -2,7 +2,15 @@
 // Copyright (C) 2026 Oleksii PELYKH
 
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { assertDefined, describeE2E, forceStopInstance, launchApp, quitApp, resolveAccountId, retryAsync } from "@insoftex/lhremote-core/testing";
+import {
+  assertDefined,
+  describeE2E,
+  forceStopInstance,
+  launchApp,
+  quitApp,
+  resolveAccountId,
+  retryAsync,
+} from "@insoftex/lhremote-core/testing";
 import {
   type AppService,
   discoverInstancePort,
@@ -10,7 +18,7 @@ import {
   LauncherService,
   startInstanceWithRecovery,
 } from "@insoftex/lhremote-core";
-import type { GetFeedOutput, GetPostEngagersOutput } from "@insoftex/lhremote-core";
+import type { GetFeedOutput, GetPostEngagersOutput, PostEngager } from "@insoftex/lhremote-core";
 
 // MCP tool registrations
 import { registerGetFeed, registerGetPostEngagers } from "@insoftex/lhremote-mcp/tools";
@@ -49,9 +57,7 @@ describeE2E("get-post-engagers operation", () => {
     await retryAsync(
       async () => {
         const targets = await discoverTargets(cdpPort);
-        const hasLinkedIn = targets.some(
-          (t) => t.type === "page" && t.url?.includes("linkedin.com"),
-        );
+        const hasLinkedIn = targets.some((t) => t.type === "page" && t.url?.includes("linkedin.com"));
         if (!hasLinkedIn) {
           throw new Error("LinkedIn target not available yet");
         }
@@ -84,13 +90,15 @@ describeE2E("get-post-engagers operation", () => {
         content: { type: string; text: string }[];
       };
       expect(feedResult.isError, "get-feed failed — cannot test engagers without a post").toBeUndefined();
-      const feedParsed = JSON.parse(
-        (feedResult.content[0] as { text: string }).text,
-      ) as GetFeedOutput;
+      const feedParsed = JSON.parse((feedResult.content[0] as { text: string }).text) as GetFeedOutput;
 
-      // Pick first post with reactions > 0; fall back to first post
+      // Pick first post with reactions > 0; fall back to first post.
+      // Which branch was taken is what tells an empty-engagers failure
+      // apart from an extraction regression, so keep the picked post
+      // itself — the precondition below reports its reactionCount.
       const postWithReactions = feedParsed.posts.find((p) => p.reactionCount > 0);
-      const postUrl = postWithReactions?.url ?? feedParsed.posts[0]?.url;
+      const pickedPost = postWithReactions ?? feedParsed.posts[0];
+      const postUrl = pickedPost?.url;
       assertDefined(postUrl, "No posts returned from get-feed");
 
       const { server, getHandler } = createMockServer();
@@ -105,20 +113,45 @@ describeE2E("get-post-engagers operation", () => {
       expect(result.isError, `MCP tool error: ${result.content?.[0]?.text}`).toBeUndefined();
       expect(result.content).toHaveLength(1);
 
-      const parsed = JSON.parse(
-        (result.content[0] as { text: string }).text,
-      ) as GetPostEngagersOutput;
+      const parsed = JSON.parse((result.content[0] as { text: string }).text) as GetPostEngagersOutput;
 
       expect(parsed).toHaveProperty("postUrn");
       expect(Array.isArray(parsed.engagers)).toBe(true);
       expect(parsed.paging).toHaveProperty("total");
 
-      if (parsed.engagers.length > 0) {
-        const engager = parsed.engagers[0] as (typeof parsed.engagers)[0];
-        expect(typeof engager.firstName).toBe("string");
-        expect(typeof engager.lastName).toBe("string");
-        expect(typeof engager.engagementType).toBe("string");
-      }
+      // Precondition, not a guard: a conditional here passes vacuously
+      // when extraction returns nothing (lhremote#829).  Zero engagers has
+      // two very different causes, and the pick above already settles
+      // which one applies — `find` misses only when no fetched post had
+      // reactions — so report the picked post's own reactionCount instead
+      // of leaving a red build to guess.
+      //
+      // The reactions-modal path is PROBED as of lhremote#830 (answered
+      // 2026-09-02: the modal has a container tier) and registered by
+      // lhremote#840, which narrows what reaching this line with zero
+      // engagers can mean.  Most extraction regressions no longer arrive
+      // here at all — they raise one assertion earlier, at `result.isError`,
+      // as `DOMVariantUnsupportedError` (no adapter claimed the modal),
+      // `DOMVariantAmbiguousError` (a hybrid page) or `ExtractionFailedError`
+      // (the modal reported N reactions and the scrape found none).  So the
+      // remaining reading is specific: the container resolved, held no rows,
+      // and the modal's own cardinal did not contradict that.
+      expect(
+        parsed.engagers.length,
+        `precondition: expected at least one engager for ${postUrl} — got 0. ` +
+          `get-feed reported reactionCount=${String(pickedPost?.reactionCount)} for that post: ` +
+          "0 means no fetched post had reactions and the test fell back to posts[0] " +
+          "(fixture problem — re-run against a feed that has reactions), " +
+          "while >0 means the modal opened and resolved but held no rows, with its own " +
+          "reaction total reading 0 — a stale row selector, or a trigger that opened " +
+          "the wrong control (run with LHREMOTE_CAPTURE_DIAGNOSTICS=1 and read " +
+          "variantDetection in the bundle)",
+      ).toBeGreaterThan(0);
+
+      const engager = parsed.engagers[0] as PostEngager;
+      expect(typeof engager.firstName).toBe("string");
+      expect(typeof engager.lastName).toBe("string");
+      expect(typeof engager.engagementType).toBe("string");
     }, 120_000);
   });
 });

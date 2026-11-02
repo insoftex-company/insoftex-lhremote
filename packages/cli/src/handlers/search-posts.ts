@@ -17,6 +17,7 @@ export async function handleSearchPosts(
     cdpPort?: number;
     cdpHost?: string;
     allowRemote?: boolean;
+    accountId?: number;
     json?: boolean;
   },
 ): Promise<void> {
@@ -28,13 +29,14 @@ export async function handleSearchPosts(
       options.allowRemote ?? false,
       () =>
         searchPosts({
-      query,
-      cursor: options.cursor,
-      count: options.count,
-      cdpPort: options.cdpPort,
-      cdpHost: options.cdpHost,
-      allowRemote: options.allowRemote,
-      }),
+          query,
+          cursor: options.cursor,
+          count: options.count,
+          cdpPort: options.cdpPort,
+          cdpHost: options.cdpHost,
+          allowRemote: options.allowRemote,
+          accountId: options.accountId,
+        }),
     );
   } catch (error) {
     const message = errorMessage(error);
@@ -65,10 +67,7 @@ export async function handleSearchPosts(
         process.stdout.write(`    Headline:  ${post.authorHeadline}\n`);
       }
       if (post.text) {
-        const preview =
-          post.text.length > 120
-            ? post.text.substring(0, 120) + "..."
-            : post.text;
+        const preview = post.text.length > 120 ? post.text.substring(0, 120) + "..." : post.text;
         process.stdout.write(`    Text:      ${preview}\n`);
       }
       process.stdout.write(
@@ -78,9 +77,7 @@ export async function handleSearchPosts(
     }
 
     if (result.nextCursor) {
-      process.stdout.write(
-        `More results available. Use --cursor ${String(result.nextCursor)} for next page.\n`,
-      );
+      process.stdout.write(`More results available. Use --cursor ${String(result.nextCursor)} for next page.\n`);
     }
   }
 }

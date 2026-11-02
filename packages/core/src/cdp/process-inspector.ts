@@ -1,6 +1,10 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 // Copyright (C) 2026 Oleksii PELYKH
 
+import { readinessTracker, DEFAULT_GRACE_WINDOW_MS } from "./instance-readiness.js";
+import { invalidateProcessCache } from "./gather-raw-processes.js";
+import { delay } from "../utils/delay.js";
+
 import { listListeningTcpPorts } from "./list-listening-ports.js";
 
 import { isCdpPort, parseCmdlineDebugPort } from "../utils/cdp-port.js";
@@ -75,11 +79,7 @@ type DetailedRole = "launcher" | "instance" | "helper-child" | "unknown";
  * 3. Neither `--type=` nor `--app-id=` present → launcher.
  * 4. Fallback: parent PID in LH PID set → instance; otherwise launcher.
  */
-function classifyDetailedRole(
-  cmdline: string | null,
-  ppid: number,
-  lhPids: Set<number>,
-): DetailedRole {
+function classifyDetailedRole(cmdline: string | null, ppid: number, lhPids: Set<number>): DetailedRole {
   if (cmdline) {
     if (/--type=/.test(cmdline)) {
       return "helper-child";
@@ -368,55 +368,36 @@ export async function scanRunningInstances(): Promise<RunningInstance[]> {
  *
  * @param liveInstances - The result of {@link scanRunningInstances} (connectable instances).
  */
-export async function scanOrphans(
-  liveInstances: RunningInstance[],
-): Promise<OrphanProcess[]> {
-  // Same cmdline: null retry as scanRunningInstances (see gather-lh-processes.ts) — without it, a
-  // freshly-spawned, legitimate instance whose --app-id hasn't shown up in WMI yet could be
-  // probed as non-connectable and flagged as an orphan candidate for reap-orphans to kill.
-  const lhProcs = await gatherLhProcesses();
-
-  if (lhProcs.length === 0) return [];
-
-  const lhPids = new Set(lhProcs.map((p) => p.pid));
-  const livePids = new Set(liveInstances.map((i) => i.pid));
-  const liveAccountIds = new Set<number>(
-    liveInstances
-      .filter((i): i is typeof i & { accountId: number } => i.connectable && i.accountId !== null)
-      .map((i) => i.accountId),
-  );
-
-  const orphans: OrphanProcess[] = [];
-
-  for (const proc of lhProcs) {
-    const role = classifyDetailedRole(proc.cmdline, proc.ppid, lhPids);
-
-    // Helper children are never orphans
-    if (role === "helper-child" || role === "launcher") continue;
-    // Already live — not an orphan
-    if (livePids.has(proc.pid)) continue;
-
-    // It's a non-live instance-side process — check if it's non-connectable
-    const { cdpPort, connectable } = await probeCdp(proc.pid, proc.cmdline);
-    if (connectable) continue; // Still connectable — not an orphan
-
-    const identity = parseIdentityFromCmdline(proc.cmdline ?? "");
-
-    // If the account is live under a different PID, this is a stale duplicate
-    const reason =
-      identity.accountId !== null && liveAccountIds.has(identity.accountId)
-        ? `non-connectable duplicate for account ${String(identity.accountId)} (live instance exists)`
-        : "non-connectable account-instance process with no live counterpart";
-
-    orphans.push({
-      pid: proc.pid,
-      cdpPort,
-      accountId: identity.accountId,
-      reason,
-    });
-  }
-
-  return orphans;
+export async function scanOrphans(liveInstances: RunningInstance[]): Promise<OrphanProcess[]> {
+  const livePids = new Set(liveInstances.filter((i) => i.connectable).map((i) => i.pid));
+  const initial = await scanRunningInstances();
+  const grace = Number(process.env["LHREMOTE_GRACE_WINDOW_MS"] ?? DEFAULT_GRACE_WINDOW_MS);
+  if (!Number.isFinite(grace) || grace < 0)
+    throw new TypeError("LHREMOTE_GRACE_WINDOW_MS must be non-negative and finite");
+  const states = readinessTracker.update(initial, grace);
+  const candidates = initial.filter((i) => !i.connectable && i.accountId !== null && !livePids.has(i.pid));
+  if (candidates.length === 0) return [];
+  // A fresh CLI process has no readiness history. Observe a full grace window
+  // before calling its first non-connectable snapshot orphaned.
+  if (candidates.some((i) => states.get(i.pid) !== "stuck")) await delay(grace);
+  invalidateProcessCache();
+  const refreshed = await scanRunningInstances();
+  const refreshedStates = readinessTracker.update(refreshed, grace);
+  return candidates.flatMap((candidate) => {
+    const current = refreshed.find((i) => i.pid === candidate.pid && i.accountId === candidate.accountId);
+    if (!current || current.connectable || refreshedStates.get(current.pid) !== "stuck") return [];
+    const duplicate = refreshed.some((i) => i.accountId === current.accountId && i.connectable);
+    return [
+      {
+        pid: current.pid,
+        cdpPort: current.cdpPort,
+        accountId: current.accountId,
+        reason: duplicate
+          ? `non-connectable duplicate for account ${current.accountId} (live instance exists)`
+          : "account-instance remained non-connectable throughout the grace window",
+      },
+    ];
+  });
 }
 
 /**
@@ -433,10 +414,26 @@ export async function reapOrphans(
   orphans: OrphanProcess[],
   confirm: boolean,
 ): Promise<Array<{ pid: number; action: "killed" | "skipped" | "dry-run"; reason?: string }>> {
+  // Recheck immediately before termination; never trust a caller-supplied PID alone.
+  let current: RunningInstance[] = [];
+  if (confirm && orphans.length > 0) {
+    invalidateProcessCache();
+    current = await scanRunningInstances();
+  }
+  const grace = Number(process.env["LHREMOTE_GRACE_WINDOW_MS"] ?? DEFAULT_GRACE_WINDOW_MS);
+  const states = confirm ? readinessTracker.update(current, grace) : new Map<number, string>();
   return Promise.all(
     orphans.map(async (o) => {
       if (!confirm) {
         return { pid: o.pid, action: "dry-run" as const };
+      }
+      const match = current.find((i) => i.pid === o.pid && i.accountId !== null && i.accountId === o.accountId);
+      if (!match || match.connectable || match.cdpPort !== o.cdpPort || states.get(o.pid) !== "stuck") {
+        return {
+          pid: o.pid,
+          action: "skipped" as const,
+          reason: "Process identity, connectivity, or grace-window eligibility changed; refusing termination",
+        };
       }
       try {
         process.kill(o.pid, "SIGKILL");

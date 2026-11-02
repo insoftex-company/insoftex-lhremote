@@ -1,11 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 // Copyright (C) 2026 Oleksii PELYKH
 
-import {
-  errorMessage,
-  getProfileActivity,
-  type GetProfileActivityOutput,
-} from "@insoftex/lhremote-core";
+import { errorMessage, getProfileActivity, type GetProfileActivityOutput } from "@insoftex/lhremote-core";
 
 /** Handle the {@link https://github.com/insoftex-company/insoftex-lhremote#get-profile-activity | get-profile-activity} CLI command. */
 export async function handleGetProfileActivity(
@@ -14,6 +10,7 @@ export async function handleGetProfileActivity(
     cdpPort?: number;
     cdpHost?: string;
     allowRemote?: boolean;
+    accountId?: number;
     count?: number;
     cursor?: string;
     json?: boolean;
@@ -26,6 +23,7 @@ export async function handleGetProfileActivity(
       cdpPort: options.cdpPort,
       cdpHost: options.cdpHost,
       allowRemote: options.allowRemote,
+      accountId: options.accountId,
       count: options.count,
       cursor: options.cursor,
     });
@@ -49,15 +47,10 @@ export async function handleGetProfileActivity(
         process.stdout.write(`    Author:    ${post.authorName}\n`);
       }
       if (post.timestamp) {
-        process.stdout.write(
-          `    Published: ${new Date(post.timestamp).toISOString()}\n`,
-        );
+        process.stdout.write(`    Published: ${new Date(post.timestamp).toISOString()}\n`);
       }
       if (post.text) {
-        const preview =
-          post.text.length > 120
-            ? post.text.slice(0, 120) + "..."
-            : post.text;
+        const preview = post.text.length > 120 ? post.text.slice(0, 120) + "..." : post.text;
         process.stdout.write(`    Text:      ${preview}\n`);
       }
       process.stdout.write(

@@ -109,10 +109,12 @@ npm install @insoftex/lhremote-core
 | `DEFAULT_CDP_PORT` | Default CDP port used by LinkedHelper |
 | `delay` | Promise-based delay helper |
 | `errorMessage` | Extract a human-readable message from an unknown error |
-| `isCdpPort` | Check whether a value is a valid CDP port number |
+| `isCdpPort` | Probe whether a port exposes a CDP `/json/list` endpoint (async; makes a local HTTP request) |
 | `isLoopbackAddress` | Check whether a string is a loopback IP address |
 
 ### Error Types
+
+Four layer base classes — `CDPError`, `DatabaseError`, `FormatError` and `ServiceError` — extend `Error` directly; every other error below descends from one of them. [ADR-005](https://github.com/alexey-pelykh/lhremote/blob/main/docs/adr/005-error-hierarchy-design.md) records why the hierarchy is split per layer rather than sharing a single root.
 
 | Export | Description |
 |--------|-------------|
@@ -121,12 +123,20 @@ npm install @insoftex/lhremote-core
 | `ActionExecutionError` | Action execution failed |
 | `AppLaunchError` | LinkedHelper application failed to launch |
 | `AppNotFoundError` | LinkedHelper application not found |
+| `BudgetExceededError` | Action's daily budget exhausted |
 | `CampaignExecutionError` | Campaign execution failed |
 | `CampaignTimeoutError` | Campaign operation timed out |
+| `DOMVariantAmbiguousError` | Two or more DOM adapters matched the page (transitional or hybrid markup) |
+| `DOMVariantUnsupportedError` | No DOM adapter matched the page, or the one that did resolved no scope |
+| `ExtractionFailedError` | An adapter matched, but a field came back empty while a same-observation corroborator contradicts it |
 | `ExtractionTimeoutError` | Data extraction timed out |
 | `InstanceNotRunningError` | Target instance is not running |
 | `InvalidProfileUrlError` | Invalid LinkedIn profile URL |
 | `LinkedHelperNotRunningError` | LinkedHelper is not running |
+| `LoggedInStatePersistedError` | LinkedIn ContentWindow still not in `LoggedInState` after the retry budget |
+| `LoggedInStateTimeoutError` | LinkedIn ContentWindow did not enter `LoggedInState` before the deadline |
+| `MonitorCollectingSagaTimeoutError` | Collecting saga did not reach idle before the deadline |
+| `NodeIntegrationUnavailableError` | LinkedHelper launcher does not expose Node.js APIs (`require` unavailable); may indicate an unsupported LinkedHelper version |
 | `StartInstanceError` | Instance failed to start |
 | `WrongPortError` | Connected to wrong port / unexpected endpoint |
 | `CampaignNotFoundError` | Campaign not found in the database |
@@ -144,7 +154,8 @@ npm install @insoftex/lhremote-core
 | `LinkedHelperUnreachableError` | LinkedHelper processes detected but CDP endpoint unreachable |
 | `CollectionError` | General collection operation error |
 | `CollectionBusyError` | Collection operation blocked (LinkedHelper busy) |
-| `UIBlockedError` | LinkedHelper UI blocked by dialog or popup |
+| `UIBlockedError` | LinkedHelper UI blocked by a dialog, a critical error, or a popup |
+| `FormatError` | Base class for format/validation errors; `CampaignFormatError` under [Campaign Formats](#campaign-formats) extends it |
 
 ## Usage
 

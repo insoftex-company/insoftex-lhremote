@@ -70,8 +70,8 @@ export interface WaitForConnectableOptions {
    */
   knownPort?: number;
   /**
-   * Cancellation signal.  When fired, polling stops immediately and the
-   * function returns `{ cdpPort: null, pid: undefined, verified: false }`.
+   * Cancellation signal. When fired, polling throws the abort reason so a
+   * cancelled operation cannot be reported as a successful timeout result.
    */
   signal?: AbortSignal;
 }
@@ -111,10 +111,7 @@ export class InstanceReadinessTracker {
    *
    * Stale entries for PIDs that are no longer running are pruned automatically.
    */
-  update(
-    instances: RunningInstance[],
-    graceWindowMs = getGraceWindowMs(),
-  ): Map<number, InstanceReadiness> {
+  update(instances: RunningInstance[], graceWindowMs = getGraceWindowMs()): Map<number, InstanceReadiness> {
     const now = Date.now();
     const livePids = new Set(instances.map((i) => i.pid));
 
@@ -199,7 +196,7 @@ export async function waitForConnectable(
   const signal = options?.signal;
 
   while (Date.now() < deadline) {
-    if (signal?.aborted) break;
+    signal?.throwIfAborted();
 
     // Cheap path: probe the known port directly before paying for a full scan.
     if (options?.knownPort !== undefined) {
@@ -208,10 +205,7 @@ export async function waitForConnectable(
         const instances = await scanRunningInstances();
         readinessTracker.update(instances);
         const match = instances.find(
-          (i) =>
-            i.accountId === accountId &&
-            i.connectable &&
-            i.cdpPort === options.knownPort,
+          (i) => i.accountId === accountId && i.connectable && i.cdpPort === options.knownPort,
         );
         if (match) {
           return { cdpPort: match.cdpPort, pid: match.pid, verified: true };
@@ -223,15 +217,13 @@ export async function waitForConnectable(
     // Full scan path.
     const instances = await scanRunningInstances();
     readinessTracker.update(instances);
-    const match = instances.find(
-      (i) => i.accountId === accountId && i.connectable,
-    );
+    const match = instances.find((i) => i.accountId === accountId && i.connectable);
     if (match) {
       return { cdpPort: match.cdpPort, pid: match.pid, verified: true };
     }
 
-    if (signal?.aborted) break;
-    await delay(intervalMs);
+    signal?.throwIfAborted();
+    await delay(intervalMs, signal);
   }
 
   return { cdpPort: null, pid: undefined, verified: false };

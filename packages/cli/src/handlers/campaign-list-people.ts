@@ -11,7 +11,7 @@ import {
 } from "@insoftex/lhremote-core";
 import { parseUrls, readUrlsFile } from "../url-list.js";
 
-/** Handle the {@link https://github.com/insoftex-company/insoftex-lhremote#campaigns | campaign-list-people} CLI command. */
+/** Handle the {@link https://github.com/alexey-pelykh/lhremote#campaign-targeting | campaign-list-people} CLI command. */
 export async function handleCampaignListPeople(
   campaignId: number,
   options: {
@@ -66,9 +66,7 @@ export async function handleCampaignListPeople(
     if (error instanceof CampaignNotFoundError) {
       process.stderr.write(`Campaign ${String(campaignId)} not found.\n`);
     } else if (error instanceof ActionNotFoundError) {
-      process.stderr.write(
-        `Action ${String(options.actionId)} not found in campaign ${String(campaignId)}.\n`,
-      );
+      process.stderr.write(`Action ${String(options.actionId)} not found in campaign ${String(campaignId)}.\n`);
     } else {
       const message = errorMessage(error);
       process.stderr.write(`${message}\n`);
@@ -80,17 +78,13 @@ export async function handleCampaignListPeople(
   if (options.json) {
     process.stdout.write(JSON.stringify(result, null, 2) + "\n");
   } else {
-    process.stdout.write(
-      `Campaign #${String(campaignId)} People (${String(result.total)} total)\n`,
-    );
+    process.stdout.write(`Campaign #${String(campaignId)} People (${String(result.total)} total)\n`);
 
     if (result.people.length === 0) {
       process.stdout.write("  No people found.\n");
     } else {
       for (const person of result.people) {
-        const name = person.lastName
-          ? `${person.firstName} ${person.lastName}`
-          : person.firstName;
+        const name = person.lastName ? `${person.firstName} ${person.lastName}` : person.firstName;
         const publicId = person.publicId ? ` (${person.publicId})` : "";
         process.stdout.write(
           `  #${String(person.personId)} ${name}${publicId} — ${person.status} at action #${String(person.currentActionId)}\n`,

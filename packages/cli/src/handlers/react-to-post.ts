@@ -17,6 +17,7 @@ export async function handleReactToPost(
     cdpPort?: number;
     cdpHost?: string;
     allowRemote?: boolean;
+    accountId?: number;
     dryRun?: boolean;
     json?: boolean;
   },
@@ -30,12 +31,14 @@ export async function handleReactToPost(
       () =>
         reactToPost({
           postUrl,
-          reactionType: (options.type as ReactionType | undefined),
+          reactionType: options.type as ReactionType | undefined,
           cdpPort: options.cdpPort,
           cdpHost: options.cdpHost,
           allowRemote: options.allowRemote,
+          accountId: options.accountId,
           dryRun: options.dryRun,
         }),
+      { accountId: options.accountId },
     );
   } catch (error) {
     const message = errorMessage(error);
@@ -49,24 +52,18 @@ export async function handleReactToPost(
   } else if (result.dryRun) {
     if (result.alreadyReacted) {
       process.stdout.write(
-        `[dry-run] Already reacted to post with "${result.reactionType}" (no change)\n` +
-          `  Post: ${result.postUrl}\n`,
+        `[dry-run] Already reacted to post with "${result.reactionType}" (no change)\n` + `  Post: ${result.postUrl}\n`,
       );
     } else {
       process.stdout.write(
-        `[dry-run] Would react to post with "${result.reactionType}"\n` +
-          `  Post: ${result.postUrl}\n`,
+        `[dry-run] Would react to post with "${result.reactionType}"\n` + `  Post: ${result.postUrl}\n`,
       );
     }
   } else if (result.alreadyReacted) {
     process.stdout.write(
-      `Already reacted to post with "${result.reactionType}" (no change)\n` +
-        `  Post: ${result.postUrl}\n`,
+      `Already reacted to post with "${result.reactionType}" (no change)\n` + `  Post: ${result.postUrl}\n`,
     );
   } else {
-    process.stdout.write(
-      `Reacted to post with "${result.reactionType}"\n` +
-        `  Post: ${result.postUrl}\n`,
-    );
+    process.stdout.write(`Reacted to post with "${result.reactionType}"\n` + `  Post: ${result.postUrl}\n`);
   }
 }

@@ -141,6 +141,9 @@ export {
   isParameterisedType,
   isSNSearchBuilderType,
   isSearchBuilderType,
+  DOMVariantAmbiguousError,
+  DOMVariantUnsupportedError,
+  ExtractionFailedError,
   ExtractionTimeoutError,
   type InstanceDatabaseContext,
   InstanceNotRunningError,
@@ -397,6 +400,8 @@ export {
   getPostEngagers,
   type GetPostEngagersInput,
   type GetPostEngagersOutput,
+  type EngagerCollectionStop,
+  type EngagerShortfall,
   // Post search
   searchPosts,
   type SearchPostsInput,
@@ -573,4 +578,16 @@ export {
 export { DEFAULT_CDP_PORT } from "./constants.js";
 
 // Utilities
-export { delay, randomDelay, gaussianRandom, gaussianDelay, gaussianBetween, maybeBreak, errorMessage, isCdpPort, isLoopbackAddress, SessionPacer, rhythmMultiplier } from "./utils/index.js";
+export {
+  delay,
+  randomDelay,
+  gaussianRandom,
+  gaussianDelay,
+  gaussianBetween,
+  maybeBreak,
+  errorMessage,
+  isCdpPort,
+  isLoopbackAddress,
+  SessionPacer,
+  rhythmMultiplier,
+} from "./utils/index.js";

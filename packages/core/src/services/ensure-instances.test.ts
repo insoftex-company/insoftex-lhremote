@@ -13,9 +13,7 @@ vi.mock("../cdp/index.js", async (importOriginal) => {
     ...actual,
     scanRunningInstances: vi.fn(),
     waitForConnectable: vi.fn(),
-    withLauncherQueue: vi.fn(
-      async (op: () => Promise<unknown>) => op(),
-    ),
+    withLauncherQueue: vi.fn(async (op: () => Promise<unknown>) => op()),
     invalidateProcessCache: vi.fn(),
   };
 });
@@ -25,12 +23,10 @@ vi.mock("./instance-lifecycle.js", () => ({
 }));
 
 vi.mock("./launcher-recovery.js", () => ({
-  withLauncherRecovery: vi.fn(
-    async (_launcher: unknown, op: () => Promise<unknown>) => ({
-      result: await op(),
-      launcherRecovered: false,
-    }),
-  ),
+  withLauncherRecovery: vi.fn(async (_launcher: unknown, op: () => Promise<unknown>) => ({
+    result: await op(),
+    launcherRecovered: false,
+  })),
 }));
 
 import { scanRunningInstances, waitForConnectable } from "../cdp/index.js";
@@ -213,20 +209,16 @@ describe("ensureInstances", () => {
     const startOrder: number[] = [];
     const verifyOrder: number[] = [];
 
-    vi.mocked(startInstanceWithRecovery).mockImplementation(
-      async (_launcher, accountId) => {
-        startOrder.push(accountId);
-        return { status: "started" as const, port: 55000 + accountId, verified: false };
-      },
-    );
+    vi.mocked(startInstanceWithRecovery).mockImplementation(async (_launcher, accountId) => {
+      startOrder.push(accountId);
+      return { status: "started" as const, port: 55000 + accountId, verified: false };
+    });
 
-    vi.mocked(waitForConnectable).mockImplementation(
-      async (accountId) => {
-        verifyOrder.push(accountId);
-        // All verifications start; we don't need to actually stagger them in tests
-        return { cdpPort: 55000 + accountId, pid: accountId * 100, verified: true };
-      },
-    );
+    vi.mocked(waitForConnectable).mockImplementation(async (accountId) => {
+      verifyOrder.push(accountId);
+      // All verifications start; we don't need to actually stagger them in tests
+      return { cdpPort: 55000 + accountId, pid: accountId * 100, verified: true };
+    });
 
     const results = await ensureInstances([1, 2, 3], mockLauncher, 9222);
 
@@ -239,12 +231,8 @@ describe("ensureInstances", () => {
 
   it("handles mix of already-running and new accounts", async () => {
     vi.mocked(scanRunningInstances)
-      .mockResolvedValueOnce([
-        makeInstance({ accountId: 1, connectable: true, cdpPort: 55001, pid: 10 }),
-      ])
-      .mockResolvedValueOnce([
-        makeInstance({ accountId: 1, connectable: true, cdpPort: 55001, pid: 10 }),
-      ]);
+      .mockResolvedValueOnce([makeInstance({ accountId: 1, connectable: true, cdpPort: 55001, pid: 10 })])
+      .mockResolvedValueOnce([makeInstance({ accountId: 1, connectable: true, cdpPort: 55001, pid: 10 })]);
 
     vi.mocked(startInstanceWithRecovery).mockResolvedValue({
       status: "started",
@@ -258,5 +246,29 @@ describe("ensureInstances", () => {
     expect(results).toHaveLength(2);
     expect(results[0]).toMatchObject({ accountId: 1, status: "already_running" });
     expect(results[1]).toMatchObject({ accountId: 2, status: "started" });
+  });
+});
+
+describe("ensureInstances cancellation", () => {
+  afterEach(() => vi.restoreAllMocks());
+  it("does not start the next account after cancellation during the first start", async () => {
+    vi.clearAllMocks();
+    const controller = new AbortController();
+    vi.mocked(scanRunningInstances).mockResolvedValue([]);
+    vi.mocked(startInstanceWithRecovery).mockImplementation(async () => {
+      controller.abort();
+      return { status: "started", port: 55001, verified: true };
+    });
+    await expect(ensureInstances([101, 202], mockLauncher, 9222, { signal: controller.signal })).rejects.toThrow();
+    expect(startInstanceWithRecovery).toHaveBeenCalledTimes(1);
+    expect(mockLauncher.disconnect).toHaveBeenCalled();
+  });
+  it("does not acquire or start anything for an already-cancelled batch", async () => {
+    vi.clearAllMocks();
+    const controller = new AbortController();
+    controller.abort();
+    await expect(ensureInstances([101], mockLauncher, 9222, { signal: controller.signal })).rejects.toThrow();
+    expect(startInstanceWithRecovery).not.toHaveBeenCalled();
+    expect(mockLauncher.connect).not.toHaveBeenCalled();
   });
 });

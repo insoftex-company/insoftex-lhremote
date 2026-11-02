@@ -15,6 +15,7 @@ export async function handleDismissFeedPost(
     cdpPort?: number;
     cdpHost?: string;
     allowRemote?: boolean;
+    accountId?: number;
     dryRun?: boolean;
     json?: boolean;
   },
@@ -27,12 +28,13 @@ export async function handleDismissFeedPost(
       options.allowRemote ?? false,
       () =>
         dismissFeedPost({
-      feedIndex,
-      cdpPort: options.cdpPort,
-      cdpHost: options.cdpHost,
-      allowRemote: options.allowRemote,
-      dryRun: options.dryRun,
-      }),
+          feedIndex,
+          cdpPort: options.cdpPort,
+          cdpHost: options.cdpHost,
+          allowRemote: options.allowRemote,
+          accountId: options.accountId,
+          dryRun: options.dryRun,
+        }),
     );
   } catch (error) {
     const message = errorMessage(error);
@@ -44,12 +46,8 @@ export async function handleDismissFeedPost(
   if (options.json) {
     process.stdout.write(JSON.stringify(result, null, 2) + "\n");
   } else if (result.dryRun) {
-    process.stdout.write(
-      `[dry-run] Would dismiss post from feed\n  Feed index: ${result.feedIndex}\n`,
-    );
+    process.stdout.write(`[dry-run] Would dismiss post from feed\n  Feed index: ${result.feedIndex}\n`);
   } else {
-    process.stdout.write(
-      `Dismissed post from feed\n  Feed index: ${result.feedIndex}\n`,
-    );
+    process.stdout.write(`Dismissed post from feed\n  Feed index: ${result.feedIndex}\n`);
   }
 }

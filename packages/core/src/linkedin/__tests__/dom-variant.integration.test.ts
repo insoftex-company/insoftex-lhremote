@@ -1,0 +1,794 @@
+// SPDX-License-Identifier: AGPL-3.0-only
+// Copyright (C) 2026 Oleksii PELYKH
+
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from "vitest";
+import { CDPClient } from "../../cdp/client.js";
+import { EMPTY_DOCUMENT_HTML, INSTALL_TEST_TIMEOUT_MS, installDocument } from "../../cdp/testing/install-document.js";
+import { launchChromium, type ChromiumInstance } from "../../cdp/testing/launch-chromium.js";
+import {
+  adaptersFor,
+  buildDetectionSource,
+  buildPostDetailExtractionSource,
+  buildReadinessPredicateSource,
+} from "../dom-variant.js";
+
+/** Timeout for beforeEach operations (connect + reset) on slow CI runners. */
+const BEFORE_EACH_TIMEOUT = 15_000;
+
+/**
+ * Integration tier for the adapter registry.
+ *
+ * The unit tier grades these scripts against a hand-rolled stand-in for
+ * `document`, which cannot prove the emitted source is valid in a browser or
+ * that real `querySelector` semantics agree with the stand-in.  This tier
+ * runs the *same generated strings* through `Runtime.evaluate` in headless
+ * Chromium against DOM built with real DOM APIs.
+ *
+ * It deliberately does NOT assert extracted field values against harvested
+ * LinkedIn markup — that needs real captured pages and is the fixture
+ * oracle's job.  What it asserts is *selection* — which adapter claims a
+ * page, and what happens when none or several do — plus the reads whose
+ * answer only a real browser can settle, against DOM built here: how sibling
+ * elements' text concatenates, whether `aria-label` carries a count the text
+ * omits, and CSS selector-list semantics.  Those cases are graded in the unit
+ * tier too, against a hand-rolled stand-in; the duplication is the point,
+ * because it is the stand-in's fidelity that is in question.
+ */
+describe("DOM variant adapters (integration)", { timeout: INSTALL_TEST_TIMEOUT_MS }, () => {
+  let chromium: ChromiumInstance;
+  let client: CDPClient;
+
+  beforeAll(async () => {
+    chromium = await launchChromium();
+  }, 30_000);
+
+  afterAll(async () => {
+    await chromium.close();
+  });
+
+  beforeEach(async () => {
+    client = new CDPClient(chromium.port, { timeout: BEFORE_EACH_TIMEOUT });
+    await client.connect();
+    // The document is replaced through CDP rather than drained from JS: the
+    // drain dereferenced `document.body` before the freshly-launched target
+    // had one, which is #866.  Installing a document also *creates* the body,
+    // so everything below can rely on it existing.  innerHTML stays
+    // unavailable either way (Trusted Types), so elements are still built
+    // through DOM APIs.  The shared helper is what makes "installed" mean
+    // "observable by the next `evaluate`" -- see `installDocument` (#888).
+    await installDocument(client, EMPTY_DOCUMENT_HTML);
+  }, INSTALL_TEST_TIMEOUT_MS);
+
+  afterEach(() => {
+    client.disconnect();
+  });
+
+  const adapters = adaptersFor("post-detail");
+  const [sdui, legacy] = adapters;
+
+  /**
+   * Build a `<main>` containing an author link — i.e. everything the OLD gate
+   * and the OLD scope cascade needed to declare success — plus whatever
+   * dialect-specific container the test asks for.
+   *
+   * `<main>` and the author link are present in EVERY case on purpose: they
+   * are the always-true terminal the cascade used to land on, so their
+   * presence is what makes "returns nothing" a meaningful assertion rather
+   * than a vacuous one.
+   */
+  async function buildPage(containers: readonly { attr: string; value: string }[]): Promise<void> {
+    const spec = JSON.stringify(containers);
+    await client.evaluate(`(() => {
+      const main = document.createElement('main');
+      const chrome = document.createElement('a');
+      chrome.setAttribute('href', 'https://www.linkedin.com/in/premium-upsell/');
+      chrome.textContent = 'Premium';
+      main.appendChild(chrome);
+      for (const c of ${spec}) {
+        const container = document.createElement('div');
+        container.setAttribute(c.attr, c.value);
+        const author = document.createElement('a');
+        author.setAttribute('href', 'https://www.linkedin.com/in/real-author/');
+        author.textContent = 'Real Author';
+        container.appendChild(author);
+        main.appendChild(container);
+      }
+      document.body.appendChild(main);
+      return true;
+    })()`);
+  }
+
+  const SDUI_CONTAINER = {
+    attr: "componentkey",
+    value: "expanded1234FeedType_FEED_DETAIL",
+  };
+  // Hand-written on purpose, and NOT sourced from the adapter: deriving it
+  // would make this tier assert against markup authored from the very anchor
+  // under test.  It carried the same wrong belief the anchor did until #872 —
+  // the activity URN lives on `data-urn`; `data-id` on a real legacy page
+  // carries `urn:li:comment:` entities only.
+  const LEGACY_CONTAINER = {
+    attr: "data-urn",
+    value: "urn:li:activity:7436698865522851840",
+  };
+  const SDUI_SCREEN = {
+    attr: "data-sdui-screen",
+    value: "com.linkedin.sdui.flagshipnav.feed.UpdateDetail",
+  };
+  // A `data-urn` whose URN is NOT an activity.  A comment URN is the value
+  // that makes this page realistic rather than contrived: on the captured
+  // legacy page every non-activity URN is a `urn:li:comment:` entity (#872),
+  // and a comment sits INSIDE the update carrying its own author link.  It
+  // also starts with `urn:li:` without starting with `urn:li:activity:`,
+  // which is what separates the shipped anchor from both of the widenings
+  // that would otherwise pass green.
+  const LEGACY_COMMENT_CONTAINER = {
+    attr: "data-urn",
+    value: "urn:li:comment:(urn:li:activity:7436698865522851840,7436707959465730049)",
+  };
+
+  describe("readiness predicate", () => {
+    const predicate = buildReadinessPredicateSource(adapters);
+
+    it("stays red on a page with <main> and an author link but no dialect container", async () => {
+      // This is the exact page shape the old gate went green on: `main
+      // a[href*="/in/"]` matches, so the old three-stage predicate passed and
+      // extraction ran against a scope whose field selectors matched nothing.
+      await buildPage([]);
+
+      expect(await client.evaluate<boolean>(predicate)).toBe(false);
+    });
+
+    it("goes green on an sdui page", async () => {
+      await buildPage([SDUI_CONTAINER]);
+
+      expect(await client.evaluate<boolean>(predicate)).toBe(true);
+    });
+
+    it("goes green on a legacy page", async () => {
+      await buildPage([LEGACY_CONTAINER]);
+
+      expect(await client.evaluate<boolean>(predicate)).toBe(true);
+    });
+
+    it("stays red when the container is present but the post body has not hydrated", async () => {
+      // Container without the author link inside it: the dialect is
+      // identifiable but the body is still a skeleton.  Gating on the
+      // container alone would let extraction run here and hand back an empty
+      // record, which is the failure mode being removed.
+      await client.evaluate(`(() => {
+        const main = document.createElement('main');
+        const chrome = document.createElement('a');
+        chrome.setAttribute('href', 'https://www.linkedin.com/in/premium-upsell/');
+        main.appendChild(chrome);
+        const container = document.createElement('div');
+        container.setAttribute('componentkey', 'expanded1234FeedType_FEED_DETAIL');
+        main.appendChild(container);
+        document.body.appendChild(main);
+        return true;
+      })()`);
+
+      expect(await client.evaluate<boolean>(predicate)).toBe(false);
+    });
+
+    it("stays red on a hybrid page claimed by both dialects", async () => {
+      await buildPage([SDUI_CONTAINER, LEGACY_CONTAINER]);
+
+      expect(await client.evaluate<boolean>(predicate)).toBe(false);
+    });
+
+    it("goes green on the sdui screen fallback when the container prefix is gone", async () => {
+      // The tolerance the pre-registry cascade had for the `expanded` prefix
+      // being renamed. Graded in a real browser because both `detect` and
+      // `ready` are CSS selector LISTS here, and list semantics are exactly
+      // what a hand-rolled document double cannot certify.
+      await buildPage([SDUI_SCREEN]);
+
+      expect(await client.evaluate<boolean>(predicate)).toBe(true);
+    });
+  });
+
+  describe("detection probe", () => {
+    const probe = buildDetectionSource(adapters);
+
+    it("reports zero matches with per-variant counts on an unknown dialect", async () => {
+      await buildPage([]);
+
+      const detection = await client.evaluate<{
+        matched: string[];
+        probes: Record<string, number>;
+      }>(probe);
+
+      expect(detection.matched).toEqual([]);
+      expect(detection.probes).toEqual({ sdui: 0, legacy: 0 });
+    });
+
+    it("reports both claimants on a hybrid page", async () => {
+      await buildPage([SDUI_CONTAINER, LEGACY_CONTAINER]);
+
+      const detection = await client.evaluate<{ matched: string[] }>(probe);
+
+      expect(detection.matched).toEqual(["sdui", "legacy"]);
+    });
+
+    it("reports zero matches when the only data-urn is not an activity URN", async () => {
+      // The `activity:` half of the legacy detect anchor, which nothing else
+      // grades (#878).  Both committed fixtures carry exactly one `data-urn`
+      // and it is an activity URN, so widening the anchor to `[data-urn]` or
+      // to `[data-urn^="urn:li:"]` leaves the fixture oracle green -- each of
+      // the three still matches exactly 1 there.  Only a page whose `data-urn`
+      // is NOT an activity separates them, and under either widening this one
+      // is claimed by `legacy`: a COMMENT would become the post, which is the
+      // cross-entity blending the registry exists to make impossible.
+      //
+      // Graded in a real browser rather than in the unit tier because that
+      // tier's document double compares selector STRINGS and never evaluates
+      // `^=`, so it cannot tell the shipped anchor from either widening.
+      await buildPage([LEGACY_COMMENT_CONTAINER]);
+
+      // Guard on the premise: the element really is on the page carrying the
+      // attribute.  Without this, the zero below is also what a page that
+      // failed to build reports -- a green that pins nothing.
+      expect(await client.evaluate<number>(`document.querySelectorAll('[data-urn]').length`)).toBe(1);
+
+      const detection = await client.evaluate<{
+        matched: string[];
+        probes: Record<string, number>;
+      }>(probe);
+
+      expect(detection.matched).toEqual([]);
+      expect(detection.probes).toEqual({ sdui: 0, legacy: 0 });
+    });
+  });
+
+  describe("post-detail extraction", () => {
+    const script = buildPostDetailExtractionSource(adapters);
+
+    it("returns null on a page with <main> — the terminal fallback is gone", async () => {
+      // The headline acceptance criterion, graded in a real browser: `<main>`
+      // exists, an author link inside it exists, and extraction still yields
+      // nothing.  Before this change the cascade landed on `<main>` and
+      // returned a record whose author was the Premium upsell banner.
+      await buildPage([]);
+
+      expect(await client.evaluate<unknown>(script)).toBeNull();
+      // ...and `<main>` really is on the page, so the null is a refusal
+      // rather than an empty document.
+      expect(await client.evaluate<boolean>(`document.querySelector('main a[href*="/in/"]') !== null`)).toBe(true);
+    });
+
+    it("selects sdui and tags the record on an sdui page", async () => {
+      await buildPage([SDUI_CONTAINER]);
+
+      const result = await client.evaluate<{
+        variant: string;
+        authorProfileUrl: string | null;
+      }>(script);
+
+      expect(result.variant).toBe("sdui");
+      // Scoped to the adapter's own container, so the Premium upsell anchor
+      // sitting in <main> is not picked up as the author.
+      expect(result.authorProfileUrl).toBe("https://www.linkedin.com/in/real-author/");
+    });
+
+    it("selects legacy and tags the record on a legacy page", async () => {
+      await buildPage([LEGACY_CONTAINER]);
+
+      const result = await client.evaluate<{
+        variant: string;
+        authorProfileUrl: string | null;
+      }>(script);
+
+      expect(result.variant).toBe("legacy");
+      expect(result.authorProfileUrl).toBe("https://www.linkedin.com/in/real-author/");
+    });
+
+    it("refuses to pick on a hybrid page", async () => {
+      await buildPage([SDUI_CONTAINER, LEGACY_CONTAINER]);
+
+      const result = await client.evaluate<{ ambiguousVariants: string[] }>(script);
+
+      expect(result.ambiguousVariants).toEqual(["sdui", "legacy"]);
+    });
+
+    it("reads each counter from the element that renders it (#836)", async () => {
+      // The counts row exactly as it rendered live on 2026-08-31: "2"
+      // reactions — a bare number whose words live only in the control's
+      // aria-label — beside "41 comments".  A reader sees "2 41 comments";
+      // the concatenation the previous whole-page read consumed sees
+      // "241 comments".  Only a real browser can settle which of the two a
+      // given markup shape actually produces, which is why this assertion is
+      // here and not in the unit tier.
+      await buildPage([LEGACY_CONTAINER]);
+      await client.evaluate(`(() => {
+        const container = document.querySelector('[data-urn^="urn:li:activity:"]');
+        const row = document.createElement('div');
+        row.className = 'social-details-social-counts';
+        const reactions = document.createElement('button');
+        reactions.setAttribute('aria-label', '2 reactions');
+        const reactionsValue = document.createElement('span');
+        reactionsValue.textContent = '2';
+        reactions.appendChild(reactionsValue);
+        const comments = document.createElement('button');
+        comments.setAttribute('aria-label', '41 comments');
+        comments.textContent = '41 comments';
+        row.appendChild(reactions);
+        row.appendChild(comments);
+        container.appendChild(row);
+        return true;
+      })()`);
+
+      // Guard on the premise: the two counters really do concatenate with no
+      // separator in a real DOM.  Without this the assertions below could be
+      // grading a page shape that never produced the defect.
+      expect(await client.evaluate<string>(`document.querySelector('.social-details-social-counts').textContent`)).toBe(
+        "241 comments",
+      );
+
+      const result = await client.evaluate<{
+        reactionCount: number;
+        commentCount: number;
+      }>(script);
+
+      expect(result.commentCount).toBe(41);
+      expect(result.reactionCount).toBe(2);
+    });
+
+    it("reads a counts row that renders both counters as one node (#836)", async () => {
+      // The same criterion string against a row built the other way: one
+      // element whose whole text is "2 41 comments".  Nothing inside it
+      // renders a counter on its own, so the anchored read finds none — and
+      // reporting zero comments for a row that visibly says "41 comments"
+      // would be the same class of wrong the whole-page read was.  Inside a
+      // row the adapter itself declared, the looser read recovers 41.
+      await buildPage([LEGACY_CONTAINER]);
+      await client.evaluate(`(() => {
+        const container = document.querySelector('[data-urn^="urn:li:activity:"]');
+        const row = document.createElement('div');
+        row.className = 'social-details-social-counts';
+        row.textContent = '2 41 comments';
+        container.appendChild(row);
+        return true;
+      })()`);
+
+      const result = await client.evaluate<{
+        reactionCount: number;
+        commentCount: number;
+      }>(script);
+
+      // 0 reactions is the honest answer, not a miss: this rendering carries
+      // no "reactions" token anywhere for a read to find.
+      expect(result.commentCount).toBe(41);
+      expect(result.reactionCount).toBe(0);
+    });
+
+    it("reads the reposts counter off its control's aria-label (#891)", async () => {
+      // The counts row built the way the committed legacy fixture renders it:
+      // a `<ul>` of per-counter `<li>`s inside `.social-details-social-counts`,
+      // which is this adapter's own declared `counts` candidate. The reposts
+      // item goes in the slot that fixture leaves as two empty Ember
+      // placeholders beside the comments item.
+      //
+      // Each counter renders differently on purpose, and each shape is copied
+      // from that fixture rather than invented:
+      //
+      //   - reactions: a bare "2", the word only on the control's aria-label
+      //   - comments:  "41 comments" in the text, while the aria-label carries
+      //                a trailing "on <name> post" that the anchored pattern
+      //                deliberately does not match
+      //   - reposts:   the reactions shape — a bare "7" whose word lives only
+      //                on the aria-label
+      //
+      // That third shape had no oracle at any tier before this test: nothing
+      // in this repo, unit tier included, has ever read a reposts counter off
+      // an aria-label. It is also the rendering the counts read was rebuilt
+      // for — `__lhReadCount` consults `aria-label` alongside the text
+      // precisely because the whole-page text read returned `reactionCount: 0`
+      // on a post carrying two reactions, while `commentCount` on that same
+      // row came back as the two counters' digits run together (#824). So
+      // per-counter divergence on this row is demonstrated rather than
+      // hypothetical — which is why grading two counters and inferring the
+      // third is not grading the third.
+      await buildPage([LEGACY_CONTAINER]);
+      await client.evaluate(`(() => {
+        function item(label, rendered) {
+          const li = document.createElement('li');
+          const button = document.createElement('button');
+          button.setAttribute('aria-label', label);
+          const value = document.createElement('span');
+          value.setAttribute('aria-hidden', 'true');
+          value.textContent = rendered;
+          button.appendChild(value);
+          li.appendChild(button);
+          return li;
+        }
+        const container = document.querySelector('[data-urn^="urn:li:activity:"]');
+        const row = document.createElement('div');
+        row.className = 'social-details-social-counts';
+        const list = document.createElement('ul');
+        list.appendChild(item('2 reactions', '2'));
+        list.appendChild(item('41 comments on Test Person post', '41 comments'));
+        list.appendChild(item('7 reposts', '7'));
+        row.appendChild(list);
+        container.appendChild(row);
+        return true;
+      })()`);
+
+      // Guard on the premise, and it carries this case: the row's own text
+      // holds no "reposts" token anywhere, so no text read reaches 7 — not the
+      // anchored read over any element, not the loose fallback over the row.
+      // The aria-label is the only place the word exists.
+      expect(await client.evaluate<string>(`document.querySelector('.social-details-social-counts').textContent`)).toBe(
+        "241 comments7",
+      );
+
+      const result = await client.evaluate<{
+        reactionCount: number;
+        commentCount: number;
+        shareCount: number;
+      }>(script);
+
+      expect(result.shareCount).toBe(7);
+      // ...and the other two still read correctly beside it, so a green
+      // shareCount is not bought by a read that stopped telling the counters
+      // apart.
+      expect(result.reactionCount).toBe(2);
+      expect(result.commentCount).toBe(41);
+    });
+
+    it("recovers a reposts count from a row rendering every counter as one node (#891)", async () => {
+      // The one-node case above, extended by the counter it never covered.
+      // Nothing inside this row renders a counter on its own, so the anchored
+      // read finds nothing and the `narrowed`-gated loose fallback over the
+      // row's own text is what has to recover the numbers. Graded here for
+      // reposts because that fallback runs once per counter against a
+      // different pattern each time: two of them landing says nothing about
+      // the third.
+      await buildPage([LEGACY_CONTAINER]);
+      await client.evaluate(`(() => {
+        const container = document.querySelector('[data-urn^="urn:li:activity:"]');
+        const row = document.createElement('div');
+        row.className = 'social-details-social-counts';
+        row.textContent = '2 41 comments 7 reposts';
+        container.appendChild(row);
+        return true;
+      })()`);
+
+      const result = await client.evaluate<{
+        reactionCount: number;
+        commentCount: number;
+        shareCount: number;
+      }>(script);
+
+      expect(result.shareCount).toBe(7);
+      expect(result.commentCount).toBe(41);
+      // 0 reactions for the same reason as the two-counter case: this
+      // rendering carries no "reactions" token for any read to find.
+      expect(result.reactionCount).toBe(0);
+    });
+
+    it("leaves a reposts control the declared counts row does not contain unread (#891)", async () => {
+      // The second shape #891 names: a reposts control rendered inside the
+      // post but OUTSIDE the adapter's own `counts` candidate. The counts root
+      // narrows to `.social-details-social-counts`, so this control is neither
+      // walked by the anchored read nor reached by the loose fallback, and
+      // `shareCount` comes back 0 beside a correct 2 and 41.
+      //
+      // This pins PRESENT behaviour, not desired behaviour. It is the
+      // narrowing contract every counter is subject to — the same scoping that
+      // keeps a number in the post's own prose from being read as a count —
+      // and 0 is not asserted as the right answer for a page that visibly
+      // renders 7 reposts. What the assertion buys is that the boundary is
+      // observable: move the narrowing, or widen `counts`, and this goes red
+      // instead of changing silently. No selector is declared to reach the
+      // control, because where a real reposts control renders has not been
+      // measured on either dialect; the only property modelled below is that
+      // it sits outside the row.
+      await buildPage([LEGACY_CONTAINER]);
+      await client.evaluate(`(() => {
+        const container = document.querySelector('[data-urn^="urn:li:activity:"]');
+        const row = document.createElement('div');
+        row.className = 'social-details-social-counts';
+        const reactions = document.createElement('button');
+        reactions.setAttribute('aria-label', '2 reactions');
+        const reactionsValue = document.createElement('span');
+        reactionsValue.textContent = '2';
+        reactions.appendChild(reactionsValue);
+        const comments = document.createElement('button');
+        comments.setAttribute('aria-label', '41 comments');
+        comments.textContent = '41 comments';
+        row.appendChild(reactions);
+        row.appendChild(comments);
+        container.appendChild(row);
+        const elsewhere = document.createElement('div');
+        const reposts = document.createElement('button');
+        reposts.setAttribute('aria-label', '7 reposts');
+        const repostsValue = document.createElement('span');
+        repostsValue.textContent = '7';
+        reposts.appendChild(repostsValue);
+        elsewhere.appendChild(reposts);
+        container.appendChild(elsewhere);
+        return true;
+      })()`);
+
+      // Guard on the premise, or the 0 below is vacuous: the control really is
+      // on the page, really is inside the post container, and really is not
+      // inside the counts row. That makes the 0 a refusal rather than an
+      // absence.
+      expect(
+        await client.evaluate<boolean>(
+          `document.querySelector('[data-urn^="urn:li:activity:"] [aria-label="7 reposts"]') !== null &&
+           document.querySelector('.social-details-social-counts [aria-label="7 reposts"]') === null`,
+        ),
+      ).toBe(true);
+
+      const result = await client.evaluate<{
+        reactionCount: number;
+        commentCount: number;
+        shareCount: number;
+      }>(script);
+
+      expect(result.shareCount).toBe(0);
+      expect(result.reactionCount).toBe(2);
+      expect(result.commentCount).toBe(41);
+    });
+
+    // ─────────────────────────────────────────────────────────────────────
+    // #852 — `countsRootNarrowed`, the flag the corroboration check consults.
+    //
+    // The captured legacy fixtures grade it against real markup
+    // (`fixture-oracle.integration.test.ts`), which is the stronger tier and
+    // the one that grounds the rule.  What they cannot reach is the `sdui`
+    // arm: no SDUI page has been captured, and it is the arm that decides
+    // whether the check can ever fire on that dialect.
+    // ─────────────────────────────────────────────────────────────────────
+
+    it("reports the counts root as narrowed when the declared row resolves", async () => {
+      await buildPage([LEGACY_CONTAINER]);
+      await client.evaluate(`(() => {
+        const container = document.querySelector('[data-urn^="urn:li:activity:"]');
+        const row = document.createElement('div');
+        row.className = 'social-details-social-counts';
+        const reactions = document.createElement('button');
+        reactions.setAttribute('aria-label', '2 reactions');
+        reactions.textContent = '2';
+        const comments = document.createElement('button');
+        comments.textContent = '41 comments';
+        row.appendChild(reactions);
+        row.appendChild(comments);
+        container.appendChild(row);
+        return true;
+      })()`);
+
+      const result = await client.evaluate<{ countsRootNarrowed: boolean }>(script);
+
+      expect(result.countsRootNarrowed).toBe(true);
+    });
+
+    it("reports the counts root as unnarrowed when no declared row resolves", async () => {
+      // The legal-empty shape: `post-zero-comments` renders no counts row at
+      // all, and this is what the extraction says about such a page.  Without
+      // it the corroboration check would fire on every post with no
+      // engagement.
+      await buildPage([LEGACY_CONTAINER]);
+
+      const result = await client.evaluate<{ countsRootNarrowed: boolean }>(script);
+
+      expect(result.countsRootNarrowed).toBe(false);
+    });
+
+    // The property the flag's whole warrant rests on, and the one arm no
+    // other test reaches.  `countsRootNarrowed` is SCOPE-RELATIVE — it means
+    // "this adapter's declared counts anchor resolved INSIDE the resolved
+    // scope", never "such a row exists on the page".  Since #852 that
+    // distinction gates a REFUSAL rather than a private fallback, so a row
+    // belonging to some other module (a related-post rail, a recommendation
+    // unit) must not narrow this post's root: it would raise
+    // `ExtractionFailedError` on an ordinary zero-engagement post.
+    //
+    // The sibling "ignores a counter rendered outside the selected adapter's
+    // scope" grades the counter VALUE across that boundary and appends a bare
+    // span, so it never exercises the candidate resolution this asserts.  The
+    // discriminating mutation is `scope.querySelector` -> `document
+    // .querySelector` in `__lhCountsRoot`; it is currently caught only
+    // incidentally, by tests grading counter values, and only because the flag
+    // and the value happen to come from one call.
+    it("does not narrow the counts root to a row outside the selected scope", async () => {
+      await buildPage([LEGACY_CONTAINER]);
+      await client.evaluate(`(() => {
+        const stray = document.createElement('div');
+        stray.className = 'social-details-social-counts';
+        const comments = document.createElement('button');
+        comments.textContent = '999 comments';
+        stray.appendChild(comments);
+        // Appended to <body>, deliberately OUTSIDE the post container the
+        // legacy adapter scopes to.
+        document.body.appendChild(stray);
+        return true;
+      })()`);
+
+      // Guard the premise, or the assertions below are vacuous: the row is
+      // really on the page, and really NOT inside the selected scope.
+      expect(
+        await client.evaluate<boolean>(`document.querySelectorAll('.social-details-social-counts').length === 1`),
+      ).toBe(true);
+      expect(
+        await client.evaluate<boolean>(
+          `document.querySelector('[data-urn^="urn:li:activity:"] .social-details-social-counts') === null`,
+        ),
+      ).toBe(true);
+
+      const result = await client.evaluate<{
+        countsRootNarrowed: boolean;
+        commentCount: number;
+      }>(script);
+
+      expect(result.countsRootNarrowed).toBe(false);
+      // And the stray count is not read either — the pair together is what
+      // makes this the legal empty rather than a contradiction: an unnarrowed
+      // root beside three zeroes is a post with no engagement.
+      expect(result.commentCount).toBe(0);
+    });
+
+    it("reports an sdui counts root as unnarrowed even beside a rendered row", async () => {
+      // `counts: []` is a recorded absence of measurement, not a decision that
+      // no row exists — so the flag stays false however the page renders, and
+      // the corroboration check is unreachable on this dialect.  Stated as a
+      // test rather than only in prose because it is what bounds the fix: the
+      // legacy row below is present, matched by a selector the OTHER adapter
+      // declares, and still does not narrow this one.
+      await buildPage([SDUI_CONTAINER]);
+      await client.evaluate(`(() => {
+        const container = document.querySelector('[componentkey^="expanded"]');
+        const row = document.createElement('div');
+        row.className = 'social-details-social-counts';
+        const comments = document.createElement('button');
+        comments.textContent = '41 comments';
+        row.appendChild(comments);
+        container.appendChild(row);
+        return true;
+      })()`);
+
+      // Guard on the premise, or the false below is vacuous: the row really is
+      // on the page and really is inside the selected adapter's scope.
+      expect(
+        await client.evaluate<boolean>(
+          `document.querySelector('[componentkey^="expanded"] .social-details-social-counts') !== null`,
+        ),
+      ).toBe(true);
+
+      const result = await client.evaluate<{
+        countsRootNarrowed: boolean;
+        commentCount: number;
+      }>(script);
+
+      expect(result.countsRootNarrowed).toBe(false);
+      // And the counter is still READ — the flag gates only the loose
+      // fallback, so an unnarrowed root is a precision loss, never a blind
+      // one.  A `0` here would mean this dialect returns zeroes for a page
+      // that plainly renders 41, which is the defect, not the fix.
+      expect(result.commentCount).toBe(41);
+    });
+
+    it("ignores a counter rendered outside the selected adapter's scope", async () => {
+      // The whole-page read took the first "<N> comments"-shaped run anywhere
+      // in the document, chrome and sibling modules included.  A count from
+      // outside the post is not the post's count.
+      await buildPage([LEGACY_CONTAINER]);
+      await client.evaluate(`(() => {
+        const stray = document.createElement('span');
+        stray.textContent = '999 comments';
+        document.body.appendChild(stray);
+        return true;
+      })()`);
+
+      const result = await client.evaluate<{ commentCount: number }>(script);
+
+      expect(result.commentCount).toBe(0);
+    });
+
+    it("reads the author's name once and the headline as the headline (#836)", async () => {
+      // The legacy actor block writes each field twice inside the anchor —
+      // the copy a reader sees, wrapped in aria-hidden="true", and an
+      // assistive-technology twin beside it — with span[dir="ltr"] wrapping
+      // the PAIR.  Reading that wrapper returned the name doubled and pushed
+      // the plain name into the headline.
+      await client.evaluate(`(() => {
+        function pair(text) {
+          const outer = document.createElement('span');
+          const visible = document.createElement('span');
+          visible.setAttribute('aria-hidden', 'true');
+          visible.textContent = text;
+          const twin = document.createElement('span');
+          twin.textContent = text;
+          outer.appendChild(visible);
+          outer.appendChild(twin);
+          return outer;
+        }
+        const main = document.createElement('main');
+        const container = document.createElement('div');
+        container.setAttribute('data-urn', 'urn:li:activity:7436698865522851840');
+        const anchor = document.createElement('a');
+        anchor.setAttribute('href', 'https://www.linkedin.com/in/alexey-pelykh/');
+        const title = pair('Alexey Pelykh');
+        title.setAttribute('dir', 'ltr');
+        anchor.appendChild(title);
+        anchor.appendChild(pair('Software Architect | Agentic AI'));
+        container.appendChild(anchor);
+        main.appendChild(container);
+        document.body.appendChild(main);
+        return true;
+      })()`);
+
+      // Guard on the premise: the anchor's own text really is the two fields
+      // with both copies of each run together, which is the shape measured
+      // live.
+      expect(
+        await client.evaluate<string>(`document.querySelector('[data-urn^="urn:li:activity:"] a').textContent`),
+      ).toBe("Alexey PelykhAlexey PelykhSoftware Architect | Agentic AISoftware Architect | Agentic AI");
+
+      const result = await client.evaluate<{
+        authorName: string | null;
+        authorHeadline: string | null;
+      }>(script);
+
+      expect(result.authorName).toBe("Alexey Pelykh");
+      expect(result.authorHeadline).toBe("Software Architect | Agentic AI");
+    });
+
+    it("extracts post text through the selected adapter's own field selectors", async () => {
+      // Not a fixture assertion: the container is synthetic.  What it proves
+      // is that the adapter's extractor actually runs against the scope the
+      // registry resolved, in a real browser, rather than merely parsing.
+      await buildPage([SDUI_CONTAINER]);
+      await client.evaluate(`(() => {
+        const container = document.querySelector('[componentkey^="expanded"]');
+        const body = document.createElement('span');
+        body.setAttribute('data-testid', 'expandable-text-box');
+        body.textContent = 'Monday starts with a test';
+        container.appendChild(body);
+        return true;
+      })()`);
+
+      const result = await client.evaluate<{ text: string | null }>(script);
+
+      expect(result.text).toBe("Monday starts with a test");
+    });
+  });
+
+  it("registers a third adapter without any call-site change", async () => {
+    // Same production generator, one extra row, a dialect no source file
+    // mentions.  Selection, readiness and extraction all follow.
+    const third = {
+      surface: "post-detail" as const,
+      variant: "hypothetical",
+      detect: '[data-hypothetical-post="1"]',
+      ready: '[data-hypothetical-post="1"] a[href*="/in/"]',
+      scopes: ['[data-hypothetical-post="1"]'],
+      counts: [],
+      extract: `(function (scope) {
+        const a = scope.querySelector('a[href*="/in/"]');
+        return {
+          authorName: a ? a.textContent : null,
+          authorHeadline: null,
+          authorProfileUrl: a ? a.href : null,
+          text: null,
+          timestamp: null,
+        };
+      })`,
+    };
+    const extended = [...adapters, third];
+    await buildPage([{ attr: "data-hypothetical-post", value: "1" }]);
+
+    expect(await client.evaluate<boolean>(buildReadinessPredicateSource(extended))).toBe(true);
+    const result = await client.evaluate<{
+      variant: string;
+      authorName: string | null;
+    }>(buildPostDetailExtractionSource(extended));
+    expect(result.variant).toBe("hypothetical");
+    expect(result.authorName).toBe("Real Author");
+    // The previously-registered dialects are untouched by the addition.
+    expect(sdui?.variant).toBe("sdui");
+    expect(legacy?.variant).toBe("legacy");
+  });
+});

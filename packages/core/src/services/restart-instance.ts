@@ -124,9 +124,7 @@ export async function restartInstance(
       // --- Step 1: Idempotency guard (process inspection only, no launcher) ---
       emit("scanning-instances");
       const initial = await scanRunningInstances();
-      const existing = initial.find(
-        (i) => i.accountId === accountId && i.connectable,
-      );
+      const existing = initial.find((i) => i.accountId === accountId && i.connectable);
 
       if (existing && !force) {
         emit("already-connectable — skipping restart");
@@ -148,13 +146,14 @@ export async function restartInstance(
       try {
         await withLauncherCDPGate(async () => {
           signal?.throwIfAborted?.();
-          const { launcher, launcherPreRecovered: stopPreRec } =
-            await acquireLauncherWithRecovery(cdpPort, cdpOptions, signal !== undefined ? { signal } : undefined);
+          const { launcher, launcherPreRecovered: stopPreRec } = await acquireLauncherWithRecovery(
+            cdpPort,
+            cdpOptions,
+            signal !== undefined ? { signal } : undefined,
+          );
           if (stopPreRec) launcherRecovered = true;
 
-          emit(
-            `stopping ${accountId}${oldPid !== undefined ? ` (pid ${oldPid})` : ""}`,
-          );
+          emit(`stopping ${accountId}${oldPid !== undefined ? ` (pid ${oldPid})` : ""}`);
           try {
             const { launcherRecovered: stopInFlight } = await withLauncherRecovery(
               launcher,
@@ -167,6 +166,7 @@ export async function restartInstance(
           }
         });
       } catch {
+        signal?.throwIfAborted();
         // Stop failure is non-fatal — the instance may already be gone.
         // Proceed to the exit-wait and start.
       }
@@ -187,25 +187,22 @@ export async function restartInstance(
       try {
         await withLauncherCDPGate(async () => {
           signal?.throwIfAborted?.();
-          const { launcher, launcherPreRecovered: startPreRec } =
-            await acquireLauncherWithRecovery(cdpPort, cdpOptions, signal !== undefined ? { signal } : undefined);
+          const { launcher, launcherPreRecovered: startPreRec } = await acquireLauncherWithRecovery(
+            cdpPort,
+            cdpOptions,
+            signal !== undefined ? { signal } : undefined,
+          );
           if (startPreRec) launcherRecovered = true;
 
           emit(`starting ${accountId}`);
           try {
             // Use launcher.currentPort (not a snapshot) so that if the launcher
             // port hopped during recovery the fresh port is used.
-            const { result: outcome, launcherRecovered: startInFlight } =
-              await withLauncherRecovery(
-                launcher,
-                () =>
-                  startInstanceWithRecovery(
-                    launcher,
-                    accountId,
-                    launcher.currentPort,
-                  ),
-                signal !== undefined ? { signal } : undefined,
-              );
+            const { result: outcome, launcherRecovered: startInFlight } = await withLauncherRecovery(
+              launcher,
+              () => startInstanceWithRecovery(launcher, accountId, launcher.currentPort, signal),
+              signal !== undefined ? { signal } : undefined,
+            );
             if (startInFlight) launcherRecovered = true;
             startCommandIssued = true;
             if (outcome.status !== "timeout") {
@@ -216,6 +213,7 @@ export async function restartInstance(
           }
         });
       } catch {
+        signal?.throwIfAborted();
         // Launcher CDP dropped while issuing the start command and did not
         // recover within budget.  The command may or may not have been
         // accepted — process inspection in step 5 is the ground truth.
@@ -227,16 +225,12 @@ export async function restartInstance(
       // CDP required.  This succeeds even while the launcher is unreachable.
       emit("waiting-for-connectable");
       const waitResult = await waitForConnectable(accountId, {
-        ...(options?.connectableTimeoutMs !== undefined
-          ? { timeoutMs: options.connectableTimeoutMs }
-          : {}),
+        ...(options?.connectableTimeoutMs !== undefined ? { timeoutMs: options.connectableTimeoutMs } : {}),
         ...(knownPort !== undefined ? { knownPort } : {}),
         ...(signal !== undefined ? { signal } : {}),
       });
 
-      emit(
-        `verifying (pid ${waitResult.pid ?? "unknown"}, port ${waitResult.cdpPort ?? "none"})`,
-      );
+      emit(`verifying (pid ${waitResult.pid ?? "unknown"}, port ${waitResult.cdpPort ?? "none"})`);
 
       if (!waitResult.verified) {
         return {
@@ -261,9 +255,7 @@ export async function restartInstance(
       // or the old instance must have exited (oldPid is gone).
       const distinctPort =
         waitResult.cdpPort !== null &&
-        (existing === undefined ||
-          waitResult.cdpPort !== existing.cdpPort ||
-          oldPid === undefined);
+        (existing === undefined || waitResult.cdpPort !== existing.cdpPort || oldPid === undefined);
 
       emit(
         distinctPort
@@ -283,6 +275,6 @@ export async function restartInstance(
     },
     // Settle barrier: wait for launcher CDP to be reachable after the op.
     // Instance connectability is already confirmed in step 5 above.
-    { type: "launcher" },
+    { type: "launcher", ...(signal !== undefined ? { signal } : {}) },
   );
 }

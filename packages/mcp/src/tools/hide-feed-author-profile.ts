@@ -2,10 +2,7 @@
 // Copyright (C) 2026 Oleksii PELYKH
 
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
-import {
-  hideFeedAuthorProfile,
-  withLoggedInStateRetryAtPort,
-} from "@insoftex/lhremote-core";
+import { hideFeedAuthorProfile, withLoggedInStateRetryAtPort } from "@insoftex/lhremote-core";
 import { z } from "zod";
 import { cdpConnectionSchema, mcpCatchAll, mcpSuccess } from "../helpers.js";
 
@@ -15,19 +12,12 @@ export function registerHideFeedAuthorProfile(server: McpServer): void {
     "hide-feed-author-profile",
     "Mute a LinkedIn profile's posts in the home feed by navigating to the profile page and invoking 'Mute {Name}' from the More menu. Prefer this over `hide-feed-author` for bulk feed-hygiene workflows: feed-based tools are limited to one action per feed fetch because the feed DOM refreshes after each hide/unfollow, invalidating other indexes. Works regardless of whether the author is currently in the feed. Returns structured results: success when muted; { success: false, reason: 'mute_not_available' } for non-connections or profiles where Mute is not exposed; { success: false, reason: 'already_muted' } when the profile is already muted.",
     {
-      profileUrl: z
-        .string()
-        .url()
-        .describe(
-          "LinkedIn profile URL (e.g. https://www.linkedin.com/in/{publicId}/)",
-        ),
+      profileUrl: z.string().url().describe("LinkedIn profile URL (e.g. https://www.linkedin.com/in/{publicId}/)"),
       dryRun: z
         .boolean()
         .optional()
         .default(false)
-        .describe(
-          "When true, open the More menu and detect mute availability but do not click Mute",
-        ),
+        .describe("When true, open the More menu and detect mute availability but do not click Mute"),
       ...cdpConnectionSchema,
     },
     async ({ profileUrl, dryRun, cdpPort, cdpHost, allowRemote, accountId }) => {
@@ -38,13 +28,14 @@ export function registerHideFeedAuthorProfile(server: McpServer): void {
           allowRemote ?? false,
           () =>
             hideFeedAuthorProfile({
-          profileUrl,
-          cdpPort,
-          cdpHost,
-          allowRemote,
-          accountId,
-          dryRun,
-          }),
+              profileUrl,
+              cdpPort,
+              cdpHost,
+              allowRemote,
+              accountId,
+              dryRun,
+            }),
+          { accountId: accountId },
         );
         return mcpSuccess(JSON.stringify(result, null, 2));
       } catch (error) {

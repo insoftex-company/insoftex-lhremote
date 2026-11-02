@@ -53,11 +53,9 @@ export function registerStartInstance(server: McpServer): void {
                   { signal },
                 );
                 try {
-                  const { result: accounts } = await withLauncherRecovery(
-                    launcher,
-                    () => launcher.listAccounts(),
-                    { signal },
-                  );
+                  const { result: accounts } = await withLauncherRecovery(launcher, () => launcher.listAccounts(), {
+                    signal,
+                  });
                   if (accounts.length === 0) throw new Error("No accounts found.");
                   if (accounts.length > 1) {
                     throw new Error(
@@ -85,12 +83,7 @@ export function registerStartInstance(server: McpServer): void {
                   try {
                     const { result } = await withLauncherRecovery(
                       launcher,
-                      () =>
-                        startInstanceWithRecovery(
-                          launcher,
-                          resolvedId as number,
-                          launcherPort,
-                        ),
+                      () => startInstanceWithRecovery(launcher, resolvedId as number, launcherPort, signal),
                       { signal },
                     );
                     return result;
@@ -98,7 +91,7 @@ export function registerStartInstance(server: McpServer): void {
                     launcher.disconnect();
                   }
                 }),
-              { type: "start", accountId: resolvedId as number },
+              { type: "start", accountId: resolvedId as number, signal },
             );
 
             if (opOutcome.status === "timeout") {

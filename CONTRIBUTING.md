@@ -32,6 +32,8 @@ You can add this automatically with `git commit -s`.
 
 - **Node.js** >= 24
 - **pnpm** 9.15.4
+- **Python** >= 3.9 — only for the memory-freshness checker below. Standard library only, so
+  there is nothing to install beyond the interpreter, and nothing else in the repo needs it.
 
 ### Setup
 
@@ -54,6 +56,23 @@ npx playwright-core install chromium --with-deps
 pnpm test          # unit + integration tests
 pnpm lint          # lint checks
 ```
+
+### Memory Freshness
+
+Entries under `.claude/memory/` each declare how fast their claim rots (`volatility`) and when it
+was last checked against reality (`last-verified`). A stdlib-only Python checker grades them:
+
+```sh
+python3 tools/check-memory-freshness.py        # fails on entries past their budget
+python3 tools/check-memory-freshness.test.py   # tests for the checker itself
+```
+
+CI runs it with `--warn-only` until the corpus is clean (issue #912). That flag forgives *drift*
+and only drift: an entry whose frontmatter cannot be graded at all — missing field, unparseable
+or future date, unknown volatility — still fails the build, as does scanning zero entries.
+
+When re-verifying an entry, set `last-verified` to the date the walk actually happened — the field
+records a check against reality, so advancing it without one is a false record rather than a fix.
 
 ### Project Structure
 

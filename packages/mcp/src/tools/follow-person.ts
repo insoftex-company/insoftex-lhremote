@@ -2,10 +2,7 @@
 // Copyright (C) 2026 Oleksii PELYKH
 
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
-import {
-  followPerson,
-  withLoggedInStateRetryAtPort,
-} from "@insoftex/lhremote-core";
+import { followPerson, withLoggedInStateRetryAtPort } from "@insoftex/lhremote-core";
 import { z } from "zod";
 import { cdpConnectionSchema, mcpCatchAll, mcpError, mcpSuccess } from "../helpers.js";
 
@@ -15,28 +12,11 @@ export function registerFollowPerson(server: McpServer): void {
     "follow-person",
     "Follow or unfollow a LinkedIn profile via an ephemeral campaign. Accepts a person ID or LinkedIn profile URL. Deducts from the daily action budget.",
     {
-      personId: z
-        .number()
-        .int()
-        .positive()
-        .optional()
-        .describe("Internal person ID"),
-      url: z
-        .string()
-        .optional()
-        .describe("LinkedIn profile URL (e.g. https://www.linkedin.com/in/jane-doe)"),
-      mode: z
-        .enum(["follow", "unfollow"])
-        .optional()
-        .describe('Follow or unfollow (default: "follow")'),
-      skipIfUnfollowable: z
-        .boolean()
-        .optional()
-        .describe("Skip if person cannot be unfollowed (default: true)"),
-      keepCampaign: z
-        .boolean()
-        .optional()
-        .describe("Archive the ephemeral campaign instead of deleting it"),
+      personId: z.number().int().positive().optional().describe("Internal person ID"),
+      url: z.string().optional().describe("LinkedIn profile URL (e.g. https://www.linkedin.com/in/jane-doe)"),
+      mode: z.enum(["follow", "unfollow"]).optional().describe('Follow or unfollow (default: "follow")'),
+      skipIfUnfollowable: z.boolean().optional().describe("Skip if person cannot be unfollowed (default: true)"),
+      keepCampaign: z.boolean().optional().describe("Archive the ephemeral campaign instead of deleting it"),
       timeout: z
         .number()
         .int()
@@ -45,7 +25,18 @@ export function registerFollowPerson(server: McpServer): void {
         .describe("Maximum time to wait for action completion in milliseconds (default: 5 min)"),
       ...cdpConnectionSchema,
     },
-    async ({ personId, url, mode, skipIfUnfollowable, keepCampaign, timeout, cdpPort, cdpHost, allowRemote, accountId }) => {
+    async ({
+      personId,
+      url,
+      mode,
+      skipIfUnfollowable,
+      keepCampaign,
+      timeout,
+      cdpPort,
+      cdpHost,
+      allowRemote,
+      accountId,
+    }) => {
       if ((personId == null) === (url == null)) {
         return mcpError("Exactly one of personId or url must be provided.");
       }
@@ -57,8 +48,18 @@ export function registerFollowPerson(server: McpServer): void {
           allowRemote ?? false,
           () =>
             followPerson({
-          personId, url, mode, skipIfUnfollowable, keepCampaign, timeout, cdpPort, cdpHost, allowRemote, accountId,
-          }),
+              personId,
+              url,
+              mode,
+              skipIfUnfollowable,
+              keepCampaign,
+              timeout,
+              cdpPort,
+              cdpHost,
+              allowRemote,
+              accountId,
+            }),
+          { accountId: accountId },
         );
         return mcpSuccess(JSON.stringify(result, null, 2));
       } catch (error) {

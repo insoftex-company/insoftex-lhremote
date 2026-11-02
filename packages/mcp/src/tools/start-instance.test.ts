@@ -15,12 +15,10 @@ vi.mock("@insoftex/lhremote-core", async (importOriginal) => {
     startInstanceWithRecovery: vi.fn(),
     waitForConnectable: vi.fn().mockResolvedValue({ verified: false, cdpPort: null }),
     withLauncherQueue: vi.fn(async (op: () => Promise<unknown>) => op()),
-    withLauncherRecovery: vi.fn(
-      async (_launcher: unknown, op: () => Promise<unknown>) => ({
-        result: await op(),
-        launcherRecovered: false,
-      }),
-    ),
+    withLauncherRecovery: vi.fn(async (_launcher: unknown, op: () => Promise<unknown>) => ({
+      result: await op(),
+      launcherRecovered: false,
+    })),
   };
 });
 
@@ -64,9 +62,9 @@ function mockLauncherConnection(overrides: Record<string, unknown> = {}) {
     listAccounts: vi.fn().mockResolvedValue([]),
     ...overrides,
   };
-  vi.mocked(acquireLauncherWithRecovery).mockResolvedValue(
-    { launcher: mockLauncher } as unknown as Awaited<ReturnType<typeof acquireLauncherWithRecovery>>,
-  );
+  vi.mocked(acquireLauncherWithRecovery).mockResolvedValue({ launcher: mockLauncher } as unknown as Awaited<
+    ReturnType<typeof acquireLauncherWithRecovery>
+  >);
   return { disconnect, mockLauncher };
 }
 
@@ -78,7 +76,9 @@ describe("registerStartInstance", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     // Default: waitForConnectable returns unverified
-    vi.mocked(waitForConnectable).mockResolvedValue({ verified: false, cdpPort: null } as unknown as Awaited<ReturnType<typeof waitForConnectable>>);
+    vi.mocked(waitForConnectable).mockResolvedValue({ verified: false, cdpPort: null } as unknown as Awaited<
+      ReturnType<typeof waitForConnectable>
+    >);
   });
 
   afterEach(() => {
@@ -174,9 +174,7 @@ describe("registerStartInstance", () => {
     const { server, getHandler } = createMockServer();
     registerStartInstance(server);
 
-    const accounts: Account[] = [
-      { id: 42, liId: 42, name: "Alice" },
-    ];
+    const accounts: Account[] = [{ id: 42, liId: 42, name: "Alice" }];
 
     mockLauncherConnection({
       listAccounts: vi.fn().mockResolvedValue(accounts),
@@ -189,11 +187,7 @@ describe("registerStartInstance", () => {
     const handler = getHandler("start-instance");
     const result = await handler({ cdpPort: 9222 });
 
-    expect(startInstanceWithRecovery).toHaveBeenCalledWith(
-      expect.anything(),
-      42,
-      9222,
-    );
+    expect(startInstanceWithRecovery).toHaveBeenCalledWith(expect.anything(), 42, 9222, expect.any(AbortSignal));
     expect(result).toEqual({
       content: [
         {
@@ -252,9 +246,7 @@ describe("registerStartInstance", () => {
     const { server, getHandler } = createMockServer();
     registerStartInstance(server);
 
-    vi.mocked(acquireLauncherWithRecovery).mockRejectedValue(
-      new LinkedHelperNotRunningError(9222),
-    );
+    vi.mocked(acquireLauncherWithRecovery).mockRejectedValue(new LinkedHelperNotRunningError(9222));
 
     const handler = getHandler("start-instance");
     const result = await handler({ accountId: 42, cdpPort: 9222 });
@@ -320,9 +312,7 @@ describe("registerStartInstance", () => {
     registerStartInstance(server);
 
     mockLauncherConnection();
-    vi.mocked(startInstanceWithRecovery).mockRejectedValue(
-      new Error("unexpected failure"),
-    );
+    vi.mocked(startInstanceWithRecovery).mockRejectedValue(new Error("unexpected failure"));
 
     const handler = getHandler("start-instance");
     const result = await handler({ accountId: 42, cdpPort: 9222 });
@@ -351,11 +341,7 @@ describe("registerStartInstance", () => {
     const handler = getHandler("start-instance");
     await handler({ accountId: 42, cdpPort: 4567 });
 
-    expect(vi.mocked(acquireLauncherWithRecovery)).toHaveBeenCalledWith(
-      4567,
-      expect.any(Object),
-      expect.anything(),
-    );
+    expect(vi.mocked(acquireLauncherWithRecovery)).toHaveBeenCalledWith(4567, expect.any(Object), expect.anything());
   });
 
   it("disconnects after successful call", async () => {

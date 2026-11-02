@@ -62,6 +62,7 @@ export type SettleType = "none" | "launcher" | "start" | "stop";
 /** Options for the settle barrier run after a queued operation. */
 export interface LauncherQueueSettleOptions {
   type: SettleType;
+  signal?: AbortSignal;
   /**
    * Launcher CDP port used for launcher-reachability settling.
    * When omitted, the settle barrier re-discovers it via process inspection.
@@ -95,6 +96,7 @@ export async function withLauncherQueue<T>(
   op: () => Promise<T>,
   settle: LauncherQueueSettleOptions = { type: "none" },
 ): Promise<T> {
+  settle.signal?.throwIfAborted();
   // Append a new gate to the queue tail.
   let resolveGate!: () => void;
   const gate = new Promise<void>((r) => {
@@ -108,7 +110,9 @@ export async function withLauncherQueue<T>(
 
   let result: T;
   try {
+    settle.signal?.throwIfAborted();
     result = await op();
+    settle.signal?.throwIfAborted();
 
     // Settle barrier: give the launcher and instance time to stabilise before
     // allowing the next queued operation to start.
@@ -116,6 +120,7 @@ export async function withLauncherQueue<T>(
       await applySettleBarrier(settle).catch(() => {
         // Settle is best-effort — a timeout must not block the queue forever.
       });
+      settle.signal?.throwIfAborted();
     }
   } finally {
     // Invalidate the process-inspection cache after every lifecycle op so the
@@ -139,7 +144,7 @@ async function applySettleBarrier(opts: LauncherQueueSettleOptions): Promise<voi
   if (opts.type !== "none") {
     const remaining = Math.max(1_000, deadline - Date.now());
     try {
-      await resolveAppPort("launcher", remaining);
+      await resolveAppPort("launcher", remaining, opts.signal);
     } catch {
       // Launcher didn't recover within the budget; proceed so the queue
       // is not held indefinitely.  The next queued op's withLauncherRecovery
@@ -153,6 +158,7 @@ async function applySettleBarrier(opts: LauncherQueueSettleOptions): Promise<voi
     if (remaining > 0) {
       await waitForConnectable(opts.accountId, {
         timeoutMs: remaining,
+        ...(opts.signal !== undefined ? { signal: opts.signal } : {}),
         ...(opts.knownPort !== undefined ? { knownPort: opts.knownPort } : {}),
       });
     }

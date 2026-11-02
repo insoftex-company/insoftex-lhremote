@@ -2,7 +2,7 @@
 // Copyright (C) 2026 Oleksii PELYKH
 
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
-import { acquireLauncherWithRecovery, ensureInstances, withLauncherCDPGate } from "@insoftex/lhremote-core";
+import { acquireLauncherWithRecovery, ensureInstances } from "@insoftex/lhremote-core";
 import { z } from "zod";
 import { buildCdpOptions, cdpConnectionSchema, mcpCatchAll, mcpError, mcpSuccess, wrapProgress } from "../helpers.js";
 import { operationRegistry, runAsyncOp } from "../operation-registry.js";
@@ -16,10 +16,7 @@ export function registerEnsureInstances(server: McpServer): void {
       "Returns a per-account result table, or { status:'in_progress', operationId } if the operation takes >2 s. " +
       "Poll get-operation for status. Cancel with cancel-operation.",
     {
-      accountIds: z
-        .array(z.number().int().positive())
-        .min(1)
-        .describe("List of account IDs that should be running."),
+      accountIds: z.array(z.number().int().positive()).min(1).describe("List of account IDs that should be running."),
       ...cdpConnectionSchema,
     },
     async ({ accountIds, cdpPort, cdpHost, allowRemote }, extra) => {
@@ -40,19 +37,15 @@ export function registerEnsureInstances(server: McpServer): void {
             const progress = wrapProgress(registryProgress, extra);
 
             progress("Acquiring launcher connection");
-            return await withLauncherCDPGate(async () => {
-              const { launcher } = await acquireLauncherWithRecovery(
-                cdpPort,
-                buildCdpOptions({ cdpHost, allowRemote }),
-                { signal },
-              );
-              try {
-                progress(`Starting ${accountIds.length} instance(s)`);
-                return await ensureInstances(accountIds, launcher, launcher.currentPort);
-              } finally {
-                launcher.disconnect();
-              }
+            const { launcher } = await acquireLauncherWithRecovery(cdpPort, buildCdpOptions({ cdpHost, allowRemote }), {
+              signal,
             });
+            try {
+              progress(`Starting ${accountIds.length} instance(s)`);
+              return await ensureInstances(accountIds, launcher, launcher.currentPort, { signal, progress });
+            } finally {
+              launcher.disconnect();
+            }
           },
           extra?.signal !== undefined ? { signal: extra.signal } : undefined,
         );

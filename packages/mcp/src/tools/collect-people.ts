@@ -17,40 +17,32 @@ export function registerCollectPeople(server: McpServer): void {
     "collect-people",
     "Collect people from a LinkedIn page into a campaign. Detects the source type from the URL automatically. Returns immediately — poll campaign-status for progress.",
     {
-      campaignId: z
-        .number()
-        .int()
-        .positive()
-        .describe("Campaign ID to collect people into"),
+      campaignId: z.number().int().positive().describe("Campaign ID to collect people into"),
       sourceUrl: z
         .string()
         .url()
         .describe("LinkedIn page URL to collect people from (e.g., search results, company people, group members)"),
-      limit: z
-        .number()
-        .int()
-        .positive()
-        .optional()
-        .describe("Maximum number of profiles to collect"),
-      maxPages: z
-        .number()
-        .int()
-        .positive()
-        .optional()
-        .describe("Maximum number of pages to process"),
-      pageSize: z
-        .number()
-        .int()
-        .positive()
-        .optional()
-        .describe("Number of results per page"),
+      limit: z.number().int().positive().optional().describe("Maximum number of profiles to collect"),
+      maxPages: z.number().int().positive().optional().describe("Maximum number of pages to process"),
+      pageSize: z.number().int().positive().optional().describe("Number of results per page"),
       sourceType: z
         .string()
         .optional()
         .describe("Explicit source type to bypass URL detection (e.g., SearchPage, MyConnections)"),
       ...cdpConnectionSchema,
     },
-    async ({ campaignId, sourceUrl, limit, maxPages, pageSize, sourceType, cdpPort, cdpHost, allowRemote, accountId }) => {
+    async ({
+      campaignId,
+      sourceUrl,
+      limit,
+      maxPages,
+      pageSize,
+      sourceType,
+      cdpPort,
+      cdpHost,
+      allowRemote,
+      accountId,
+    }) => {
       try {
         const result = await withLoggedInStateRetryAtPort(
           cdpPort,
@@ -58,17 +50,18 @@ export function registerCollectPeople(server: McpServer): void {
           allowRemote ?? false,
           () =>
             collectPeople({
-          campaignId,
-          sourceUrl,
-          ...(limit !== undefined && { limit }),
-          ...(maxPages !== undefined && { maxPages }),
-          ...(pageSize !== undefined && { pageSize }),
-          ...(sourceType !== undefined && { sourceType }),
-          cdpPort,
-          ...(cdpHost !== undefined && { cdpHost }),
-          ...(allowRemote !== undefined && { allowRemote }),
-          ...(accountId !== undefined && { accountId }),
-          }),
+              campaignId,
+              sourceUrl,
+              ...(limit !== undefined && { limit }),
+              ...(maxPages !== undefined && { maxPages }),
+              ...(pageSize !== undefined && { pageSize }),
+              ...(sourceType !== undefined && { sourceType }),
+              cdpPort,
+              ...(cdpHost !== undefined && { cdpHost }),
+              ...(allowRemote !== undefined && { allowRemote }),
+              ...(accountId !== undefined && { accountId }),
+            }),
+          { accountId: accountId },
         );
         return mcpSuccess(JSON.stringify(result, null, 2));
       } catch (error) {

@@ -118,6 +118,25 @@ describe("createProgram", () => {
     expect(commandNames).toHaveLength(80);
   });
 
+  describe("--account-id", () => {
+    // Account selection binds every direct DOM operation to the requested session.
+    // Budget checks are an additional consumer, not the boundary for exposing it.
+    it.each([
+      "react-to-post",
+      "comment-on-post",
+      "react-to-comment",
+      "unfollow-profile",
+      "get-post",
+      "get-post-stats",
+      "get-feed",
+      "search-posts",
+      "dismiss-errors",
+    ])("%s accepts --account-id", (name) => {
+      const cmd = createProgram().commands.find((c) => c.name() === name);
+      expect(cmd?.options.find((o) => o.long === "--account-id")).toBeDefined();
+    });
+  });
+
   describe("launch-app", () => {
     it("does not have --cdp-port option", () => {
       const program = createProgram();
@@ -180,9 +199,7 @@ describe("createProgram", () => {
       const program = createProgram();
       program.exitOverride().configureOutput({ writeErr: () => {} });
 
-      await expect(
-        program.parseAsync(["node", "lhremote", "start-instance", "abc"]),
-      ).rejects.toThrow();
+      await expect(program.parseAsync(["node", "lhremote", "start-instance", "abc"])).rejects.toThrow();
     });
   });
 
@@ -193,9 +210,16 @@ describe("createProgram", () => {
 
       await expect(
         program.parseAsync([
-          "node", "lhremote", "campaign-add-action", "1",
-          "--name", "test", "--action-type", "VisitAndExtract",
-          "--max-results", "abc",
+          "node",
+          "lhremote",
+          "campaign-add-action",
+          "1",
+          "--name",
+          "test",
+          "--action-type",
+          "VisitAndExtract",
+          "--max-results",
+          "abc",
         ]),
       ).rejects.toThrow();
     });
@@ -206,9 +230,16 @@ describe("createProgram", () => {
 
       await expect(
         program.parseAsync([
-          "node", "lhremote", "campaign-add-action", "1",
-          "--name", "test", "--action-type", "VisitAndExtract",
-          "--max-results", "3.7",
+          "node",
+          "lhremote",
+          "campaign-add-action",
+          "1",
+          "--name",
+          "test",
+          "--action-type",
+          "VisitAndExtract",
+          "--max-results",
+          "3.7",
         ]),
       ).rejects.toThrow();
     });
@@ -219,9 +250,16 @@ describe("createProgram", () => {
 
       await expect(
         program.parseAsync([
-          "node", "lhremote", "campaign-add-action", "1",
-          "--name", "test", "--action-type", "VisitAndExtract",
-          "--max-results", "0",
+          "node",
+          "lhremote",
+          "campaign-add-action",
+          "1",
+          "--name",
+          "test",
+          "--action-type",
+          "VisitAndExtract",
+          "--max-results",
+          "0",
         ]),
       ).rejects.toThrow();
     });
@@ -232,9 +270,16 @@ describe("createProgram", () => {
 
       await expect(
         program.parseAsync([
-          "node", "lhremote", "campaign-add-action", "1",
-          "--name", "test", "--action-type", "VisitAndExtract",
-          "--max-results", "-2",
+          "node",
+          "lhremote",
+          "campaign-add-action",
+          "1",
+          "--name",
+          "test",
+          "--action-type",
+          "VisitAndExtract",
+          "--max-results",
+          "-2",
         ]),
       ).rejects.toThrow();
     });

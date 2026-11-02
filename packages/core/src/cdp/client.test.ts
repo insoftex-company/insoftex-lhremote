@@ -2,11 +2,7 @@
 // Copyright (C) 2026 Oleksii PELYKH
 
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import {
-  CDPConnectionError,
-  CDPEvaluationError,
-  CDPTimeoutError,
-} from "./errors.js";
+import { CDPConnectionError, CDPEvaluationError, CDPTimeoutError } from "./errors.js";
 import { CDPClient } from "./client.js";
 
 // Mock discovery so CDPClient.connect() resolves a WebSocket URL
@@ -90,7 +86,13 @@ class MockWebSocket {
   }
 }
 
-// Replace the global WebSocket with our mock
+// Replace the global WebSocket with our mock.  Module scope, and deliberately
+// never unstubbed: this file's whole subject is CDP over a WebSocket, so the
+// mock has to hold for every test in it.  That does mean the file runs without
+// the Tier-1 WebSocket guard `vitest.setup.ts` installs — which is the point,
+// not an oversight, and is why the rule in
+// `.github/instructions/tests.instructions.md` exempts a module-scope stub
+// while requiring an `afterEach` for one taken inside a test or hook.
 vi.stubGlobal("WebSocket", MockWebSocket);
 
 const MOCK_TARGETS = [
@@ -119,6 +121,14 @@ describe("CDPClient", () => {
   beforeEach(() => {
     MockWebSocket.instances = [];
     MockWebSocket.nextBehaviors = [];
+    // The afterEach below clears no mock state: `restoreAllMocks()` touches
+    // `vi.spyOn` spies and nothing else.  Without this the `discoverTargets`
+    // CALL RECORDS accumulated across every test in the file, and
+    // `expect(discoverTargets).toHaveBeenCalledWith(...)` could be satisfied by
+    // any earlier test's call.  Reset first, then re-establish the baseline on
+    // the next line — resetting drops implementations too.  Do not normalise
+    // this back to `clearAllMocks` (#846, #928).
+    vi.resetAllMocks();
     vi.mocked(discoverTargets).mockResolvedValue(MOCK_TARGETS);
     client = new CDPClient(9222, { timeout: 500 });
   });
@@ -134,29 +144,19 @@ describe("CDPClient", () => {
     });
 
     it("should reject non-loopback host without allowRemote", () => {
-      expect(() => new CDPClient(9222, { host: "192.168.1.1" })).toThrow(
-        CDPConnectionError,
-      );
-      expect(() => new CDPClient(9222, { host: "example.com" })).toThrow(
-        /arbitrary code execution/,
-      );
+      expect(() => new CDPClient(9222, { host: "192.168.1.1" })).toThrow(CDPConnectionError);
+      expect(() => new CDPClient(9222, { host: "example.com" })).toThrow(/arbitrary code execution/);
     });
 
     it("should allow non-loopback host with allowRemote", () => {
-      expect(
-        () => new CDPClient(9222, { host: "192.168.1.1", allowRemote: true }),
-      ).not.toThrow();
-      expect(
-        () => new CDPClient(9222, { host: "example.com", allowRemote: true }),
-      ).not.toThrow();
+      expect(() => new CDPClient(9222, { host: "192.168.1.1", allowRemote: true })).not.toThrow();
+      expect(() => new CDPClient(9222, { host: "example.com", allowRemote: true })).not.toThrow();
     });
 
     it("should warn when allowRemote is used with non-loopback host", () => {
       const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
       new CDPClient(9222, { host: "192.168.1.1", allowRemote: true });
-      expect(warnSpy).toHaveBeenCalledWith(
-        expect.stringContaining("[SECURITY WARNING]"),
-      );
+      expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining("[SECURITY WARNING]"));
       warnSpy.mockRestore();
     });
 
@@ -180,9 +180,7 @@ describe("CDPClient", () => {
       expect(client.isConnected).toBe(true);
       expect(discoverTargets).toHaveBeenCalledWith(9222, "127.0.0.1");
       expect(MockWebSocket.instances).toHaveLength(1);
-      expect(lastMockWs().url).toBe(
-        "ws://127.0.0.1:9222/devtools/page/PAGE1",
-      );
+      expect(lastMockWs().url).toBe("ws://127.0.0.1:9222/devtools/page/PAGE1");
     });
 
     it("should connect to a specific target by ID", async () => {
@@ -192,9 +190,7 @@ describe("CDPClient", () => {
     });
 
     it("should throw when target ID not found", async () => {
-      await expect(client.connect("NONEXISTENT")).rejects.toThrow(
-        CDPConnectionError,
-      );
+      await expect(client.connect("NONEXISTENT")).rejects.toThrow(CDPConnectionError);
     });
 
     it("should throw when target has no webSocketDebuggerUrl", async () => {
@@ -209,17 +205,13 @@ describe("CDPClient", () => {
         },
       ]);
 
-      await expect(client.connect()).rejects.toThrow(
-        /webSocketDebuggerUrl/,
-      );
+      await expect(client.connect()).rejects.toThrow(/webSocketDebuggerUrl/);
     });
   });
 
   describe("send", () => {
     it("should throw when not connected", async () => {
-      await expect(client.send("Runtime.evaluate")).rejects.toThrow(
-        CDPConnectionError,
-      );
+      await expect(client.send("Runtime.evaluate")).rejects.toThrow(CDPConnectionError);
     });
 
     it("should correlate request and response by message ID", async () => {
@@ -283,9 +275,7 @@ describe("CDPClient", () => {
         /* swallow, never respond */
       };
 
-      await expect(client.send("Slow.method")).rejects.toThrow(
-        CDPTimeoutError,
-      );
+      await expect(client.send("Slow.method")).rejects.toThrow(CDPTimeoutError);
     });
   });
 
@@ -326,12 +316,8 @@ describe("CDPClient", () => {
         });
       };
 
-      await expect(client.evaluate("x")).rejects.toThrow(
-        CDPEvaluationError,
-      );
-      await expect(client.evaluate("x")).rejects.toThrow(
-        /ReferenceError/,
-      );
+      await expect(client.evaluate("x")).rejects.toThrow(CDPEvaluationError);
+      await expect(client.evaluate("x")).rejects.toThrow(/ReferenceError/);
     });
   });
 
@@ -375,34 +361,22 @@ describe("CDPClient", () => {
     it("should reject file: URLs", async () => {
       await client.connect();
 
-      await expect(client.navigate("file:///etc/passwd")).rejects.toThrow(
-        TypeError,
-      );
-      await expect(client.navigate("file:///etc/passwd")).rejects.toThrow(
-        /Unsafe URL scheme: file:/,
-      );
+      await expect(client.navigate("file:///etc/passwd")).rejects.toThrow(TypeError);
+      await expect(client.navigate("file:///etc/passwd")).rejects.toThrow(/Unsafe URL scheme: file:/);
     });
 
     it("should reject javascript: URLs", async () => {
       await client.connect();
 
-      await expect(
-        client.navigate("javascript:alert(1)"),
-      ).rejects.toThrow(TypeError);
-      await expect(
-        client.navigate("javascript:alert(1)"),
-      ).rejects.toThrow(/Unsafe URL scheme: javascript:/);
+      await expect(client.navigate("javascript:alert(1)")).rejects.toThrow(TypeError);
+      await expect(client.navigate("javascript:alert(1)")).rejects.toThrow(/Unsafe URL scheme: javascript:/);
     });
 
     it("should reject data: URLs", async () => {
       await client.connect();
 
-      await expect(
-        client.navigate("data:text/html,<h1>Test</h1>"),
-      ).rejects.toThrow(TypeError);
-      await expect(
-        client.navigate("data:text/html,<h1>Test</h1>"),
-      ).rejects.toThrow(/Unsafe URL scheme: data:/);
+      await expect(client.navigate("data:text/html,<h1>Test</h1>")).rejects.toThrow(TypeError);
+      await expect(client.navigate("data:text/html,<h1>Test</h1>")).rejects.toThrow(/Unsafe URL scheme: data:/);
     });
 
     it("should throw on invalid URL strings", async () => {
@@ -473,9 +447,7 @@ describe("CDPClient", () => {
     it("should reject waitForEvent on timeout", async () => {
       await client.connect();
 
-      await expect(
-        client.waitForEvent("Never.happens", 50),
-      ).rejects.toThrow(CDPTimeoutError);
+      await expect(client.waitForEvent("Never.happens", 50)).rejects.toThrow(CDPTimeoutError);
     });
   });
 
@@ -516,7 +488,9 @@ describe("CDPClient", () => {
     it("rejects in-flight requests when the WebSocket closes unexpectedly", async () => {
       await client.connect();
       const ws = lastMockWs();
-      ws.send = () => { /* swallow — never respond */ };
+      ws.send = () => {
+        /* swallow — never respond */
+      };
 
       const pendingPromise = client.send("Runtime.evaluate", { expression: "1" });
 

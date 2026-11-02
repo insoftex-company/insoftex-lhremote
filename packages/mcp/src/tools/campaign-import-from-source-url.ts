@@ -17,40 +17,32 @@ export function registerCampaignImportFromSourceUrl(server: McpServer): void {
     "campaign-import-from-source-url",
     "Import people into a campaign from a LinkedIn source URL such as people search results, company people, group members, or my connections",
     {
-      campaignId: z
-        .number()
-        .int()
-        .positive()
-        .describe("Campaign ID to import people into"),
+      campaignId: z.number().int().positive().describe("Campaign ID to import people into"),
       sourceUrl: z
         .string()
         .url()
         .describe("LinkedIn source URL, e.g. people search results, company people, group members, or my connections"),
-      limit: z
-        .number()
-        .int()
-        .positive()
-        .optional()
-        .describe("Maximum number of profiles to collect"),
-      maxPages: z
-        .number()
-        .int()
-        .positive()
-        .optional()
-        .describe("Maximum number of pages to process"),
-      pageSize: z
-        .number()
-        .int()
-        .positive()
-        .optional()
-        .describe("Number of results per page"),
+      limit: z.number().int().positive().optional().describe("Maximum number of profiles to collect"),
+      maxPages: z.number().int().positive().optional().describe("Maximum number of pages to process"),
+      pageSize: z.number().int().positive().optional().describe("Number of results per page"),
       sourceType: z
         .string()
         .optional()
         .describe("Explicit source type to bypass URL detection, e.g. SearchPage or MyConnections"),
       ...cdpConnectionSchema,
     },
-    async ({ campaignId, sourceUrl, limit, maxPages, pageSize, sourceType, cdpPort, cdpHost, allowRemote, accountId }) => {
+    async ({
+      campaignId,
+      sourceUrl,
+      limit,
+      maxPages,
+      pageSize,
+      sourceType,
+      cdpPort,
+      cdpHost,
+      allowRemote,
+      accountId,
+    }) => {
       try {
         const result = await withLoggedInStateRetryAtPort(
           cdpPort,
@@ -69,6 +61,7 @@ export function registerCampaignImportFromSourceUrl(server: McpServer): void {
               ...(allowRemote !== undefined && { allowRemote }),
               ...(accountId !== undefined && { accountId }),
             }),
+          { accountId: accountId },
         );
         return mcpSuccess(JSON.stringify(result, null, 2));
       } catch (error) {

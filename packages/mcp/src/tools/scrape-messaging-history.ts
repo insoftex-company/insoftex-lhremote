@@ -2,10 +2,7 @@
 // Copyright (C) 2026 Oleksii PELYKH
 
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
-import {
-  scrapeMessagingHistory,
-  withLoggedInStateRetryAtPort,
-} from "@insoftex/lhremote-core";
+import { scrapeMessagingHistory, withLoggedInStateRetryAtPort } from "@insoftex/lhremote-core";
 import { z } from "zod";
 import { cdpConnectionSchema, mcpCatchAll, mcpSuccess } from "../helpers.js";
 
@@ -22,9 +19,7 @@ export function registerScrapeMessagingHistory(server: McpServer): void {
       pauseOthers: z
         .boolean()
         .optional()
-        .describe(
-          "Pause all other campaigns during execution to ensure the runner is available, then restore them",
-        ),
+        .describe("Pause all other campaigns during execution to ensure the runner is available, then restore them"),
       ...cdpConnectionSchema,
     },
     async ({ personIds, pauseOthers, cdpPort, cdpHost, allowRemote, accountId }) => {
@@ -34,6 +29,7 @@ export function registerScrapeMessagingHistory(server: McpServer): void {
           cdpHost ?? "127.0.0.1",
           allowRemote ?? false,
           () => scrapeMessagingHistory({ personIds, pauseOthers, cdpPort, cdpHost, allowRemote, accountId }),
+          { accountId: accountId },
         );
         return mcpSuccess(JSON.stringify(result, null, 2));
       } catch (error) {

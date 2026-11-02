@@ -35,22 +35,14 @@ import {
  * Query the number of elements matching a CSS selector in the LinkedIn
  * WebView via CDP `Runtime.evaluate`.
  */
-async function queryCount(
-  client: CDPClient,
-  selector: string,
-): Promise<number> {
-  return client.evaluate<number>(
-    `document.querySelectorAll(${JSON.stringify(selector)}).length`,
-  );
+async function queryCount(client: CDPClient, selector: string): Promise<number> {
+  return client.evaluate<number>(`document.querySelectorAll(${JSON.stringify(selector)}).length`);
 }
 
 /**
  * Get the center coordinates of the first element matching `selector`.
  */
-async function getCenter(
-  client: CDPClient,
-  selector: string,
-): Promise<{ x: number; y: number } | null> {
+async function getCenter(client: CDPClient, selector: string): Promise<{ x: number; y: number } | null> {
   return client.evaluate<{ x: number; y: number } | null>(
     `(() => {
       const el = document.querySelector(${JSON.stringify(selector)});
@@ -65,10 +57,7 @@ async function getCenter(
 /**
  * Navigate the CDP client to a URL and wait for the page load event.
  */
-async function navigateAndWait(
-  client: CDPClient,
-  url: string,
-): Promise<void> {
+async function navigateAndWait(client: CDPClient, url: string): Promise<void> {
   await client.send("Page.enable");
   try {
     const loadPromise = client.waitForEvent("Page.loadEventFired", 30_000);
@@ -116,10 +105,7 @@ describeE2E("LinkedIn selectors registry", () => {
     const liTarget = await retryAsync(
       async () => {
         const t = await discoverTargets(instancePort);
-        const li = t.find(
-          (tgt) =>
-            tgt.type === "page" && tgt.url.includes("linkedin.com"),
-        );
+        const li = t.find((tgt) => tgt.type === "page" && tgt.url.includes("linkedin.com"));
         if (!li) throw new Error("LinkedIn target not found yet");
         return li;
       },
@@ -153,35 +139,18 @@ describeE2E("LinkedIn selectors registry", () => {
   }, 60_000);
 
   // -- Module export sanity checks -----------------------------------------
-
-  describe("module exports", () => {
-    it("SELECTORS object contains all expected keys", () => {
-      const expectedKeys: string[] = [
-        "FEED_POST_CONTAINER",
-        "COMMENT_INPUT",
-        "REACTION_TRIGGER",
-        "REACTION_LIKE",
-        "REACTION_CELEBRATE",
-        "REACTION_SUPPORT",
-        "REACTION_LOVE",
-        "REACTION_INSIGHTFUL",
-        "REACTION_FUNNY",
-        "COMMENT_SUBMIT_BUTTON",
-      ];
-
-      for (const key of expectedKeys) {
-        expect(SELECTORS).toHaveProperty(key);
-        expect(
-          typeof SELECTORS[key as keyof typeof SELECTORS],
-          `${key} should be a non-empty string`,
-        ).toBe("string");
-        expect(
-          (SELECTORS[key as keyof typeof SELECTORS] as string).length,
-          `${key} should not be empty`,
-        ).toBeGreaterThan(0);
-      }
-    });
-  });
+  //
+  // Moved to Tier 1: packages/core/src/linkedin/selectors.test.ts.
+  //
+  // They have no live-DOM dependency, so behind this suite's LinkedHelper
+  // launch they were a gate CI never fired.  The replacement derives its
+  // cases from the SELECTORS aggregate instead of the hand-maintained
+  // `expectedKeys` array, which had drifted to covering 10 of 16 entries
+  // (lhremote#856).  That is a trade rather than a strict widening -- it
+  // gains every entry and loses removal detection; the reasoning and the
+  // reason it was not restored are stated in full at the Tier-1 home.
+  //
+  // What stays here is what genuinely needs a browser: liveness.
 
   // -- Feed page selectors -------------------------------------------------
 
@@ -195,7 +164,68 @@ describeE2E("LinkedIn selectors registry", () => {
       const count = await queryCount(linkedInClient, REACTION_TRIGGER);
       expect(count, `Selector "${REACTION_TRIGGER}" matched 0 elements`).toBeGreaterThan(0);
     });
+
+    // The 15 s poll below outlives vitest's 5 s default test timeout, which
+    // would abort it a third of the way through and report a timeout instead
+    // of the assertion's own message.
+    it("FEED_POST_MENU_BUTTON matches at least one element", { timeout: 30_000 }, async () => {
+      // Read off the aggregate rather than imported by name: the package
+      // barrel re-exports a subset of the registry and does not currently
+      // include this constant.  SELECTORS is exported, so this reaches it
+      // without widening the public API from a test.
+      const selector = SELECTORS.FEED_POST_MENU_BUTTON;
+
+      // Polled rather than read once off the suite's flat 3 s settle.
+      // Production treats this same element as the feed-readiness signal and
+      // polls 15 s for it (`waitForFeedLoad` in get-feed.ts), so against a
+      // flat sleep a zero here would mean "not hydrated yet" as readily as
+      // "selector is stale" -- and a gate that cannot tell its own failure
+      // modes apart is worse than none, which is the same standard applied
+      // to the five entries recorded below.
+      //
+      // The poll WAITS; it does not decide. Nothing is caught here, so a CDP
+      // or evaluate failure propagates verbatim instead of collapsing into a
+      // zero — a transport fault must not be reportable as a stale selector,
+      // which is the same conflation this whole block exists to avoid.
+      const count = await retryAsync(
+        async () => {
+          const n = await queryCount(linkedInClient, selector);
+          if (n === 0) {
+            throw new Error(
+              `Selector "${selector}" matched 0 elements — either the selector is stale, or the feed never hydrated`,
+            );
+          }
+          return n;
+        },
+        { retries: 15, delay: 1_000 },
+      );
+
+      // Not redundant with the throw above: it pins retryAsync's contract of
+      // rethrowing its last error once the retries are exhausted. Were that
+      // to change, this test would otherwise pass on a zero.
+      expect(count, `Selector "${selector}" matched 0 elements`).toBeGreaterThan(0);
+    });
   });
+
+  // -- Registry entries with no liveness assertion in THIS suite -----------
+  //
+  // The remaining five uncovered aggregate entries (lhremote#856) are left
+  // deliberately unasserted here rather than bolted on, because this suite
+  // loads /feed/ and never leaves it.  Against that page state a red would
+  // mean "wrong page", not "stale selector" -- a gate that cannot tell its
+  // own failure modes apart is worse than none.  All five are covered
+  // structurally in Tier 1; what each would need here is:
+  //
+  //   COMMENT_REPLY_BUTTON      a post-detail page with comments
+  //   COMMENT_REACTION_TRIGGER  a post-detail page with comments
+  //   COMMENT_REACTIONS_MENU    a post-detail page with comments
+  //   MENTION_TYPEAHEAD         `@` typed into the comment editor
+  //   MENTION_OPTION            a typeahead that returned results
+  //
+  // Recorded as a comment rather than `it.todo`: nothing else under
+  // `packages/` uses `it.todo`, `.skip` or `.only`, and the reporter line a
+  // todo would buy is worth little in a suite that is `describe.skipIf`-gated
+  // and never runs in CI.
 
   // -- Reactions popup selectors (hover-triggered) -------------------------
 
@@ -260,9 +290,7 @@ describeE2E("LinkedIn selectors registry", () => {
       await delay(500);
 
       // Click the "Comment" button on the first post to expand the section
-      await linkedInClient.evaluate(
-        `(() => { const btn = ${COMMENT_BUTTON_JS}; if (btn) btn.click(); })()`,
-      );
+      await linkedInClient.evaluate(`(() => { const btn = ${COMMENT_BUTTON_JS}; if (btn) btn.click(); })()`);
       await delay(1_500);
     });
 

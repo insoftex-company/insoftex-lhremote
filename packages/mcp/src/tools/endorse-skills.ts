@@ -2,10 +2,7 @@
 // Copyright (C) 2026 Oleksii PELYKH
 
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
-import {
-  endorseSkills,
-  withLoggedInStateRetryAtPort,
-} from "@insoftex/lhremote-core";
+import { endorseSkills, withLoggedInStateRetryAtPort } from "@insoftex/lhremote-core";
 import { z } from "zod";
 import { cdpConnectionSchema, mcpCatchAll, mcpError, mcpSuccess } from "../helpers.js";
 
@@ -15,16 +12,8 @@ export function registerEndorseSkills(server: McpServer): void {
     "endorse-skills",
     "Endorse skills on a LinkedIn profile via an ephemeral campaign. Accepts a person ID or LinkedIn profile URL. Deducts from the daily action budget.",
     {
-      personId: z
-        .number()
-        .int()
-        .positive()
-        .optional()
-        .describe("Internal person ID"),
-      url: z
-        .string()
-        .optional()
-        .describe("LinkedIn profile URL (e.g. https://www.linkedin.com/in/jane-doe)"),
+      personId: z.number().int().positive().optional().describe("Internal person ID"),
+      url: z.string().optional().describe("LinkedIn profile URL (e.g. https://www.linkedin.com/in/jane-doe)"),
       skillNames: z
         .array(z.string())
         .optional()
@@ -35,14 +24,8 @@ export function registerEndorseSkills(server: McpServer): void {
         .positive()
         .optional()
         .describe("Max number of skills to endorse (mutually exclusive with skillNames)"),
-      skipIfNotEndorsable: z
-        .boolean()
-        .optional()
-        .describe("Skip if person has no endorsable skills (default: true)"),
-      keepCampaign: z
-        .boolean()
-        .optional()
-        .describe("Archive the ephemeral campaign instead of deleting it"),
+      skipIfNotEndorsable: z.boolean().optional().describe("Skip if person has no endorsable skills (default: true)"),
+      keepCampaign: z.boolean().optional().describe("Archive the ephemeral campaign instead of deleting it"),
       timeout: z
         .number()
         .int()
@@ -51,7 +34,19 @@ export function registerEndorseSkills(server: McpServer): void {
         .describe("Maximum time to wait for action completion in milliseconds (default: 5 min)"),
       ...cdpConnectionSchema,
     },
-    async ({ personId, url, skillNames, limit, skipIfNotEndorsable, keepCampaign, timeout, cdpPort, cdpHost, allowRemote, accountId }) => {
+    async ({
+      personId,
+      url,
+      skillNames,
+      limit,
+      skipIfNotEndorsable,
+      keepCampaign,
+      timeout,
+      cdpPort,
+      cdpHost,
+      allowRemote,
+      accountId,
+    }) => {
       if ((personId == null) === (url == null)) {
         return mcpError("Exactly one of personId or url must be provided.");
       }
@@ -63,8 +58,19 @@ export function registerEndorseSkills(server: McpServer): void {
           allowRemote ?? false,
           () =>
             endorseSkills({
-          personId, url, skillNames, limit, skipIfNotEndorsable, keepCampaign, timeout, cdpPort, cdpHost, allowRemote, accountId,
-          }),
+              personId,
+              url,
+              skillNames,
+              limit,
+              skipIfNotEndorsable,
+              keepCampaign,
+              timeout,
+              cdpPort,
+              cdpHost,
+              allowRemote,
+              accountId,
+            }),
+          { accountId: accountId },
         );
         return mcpSuccess(JSON.stringify(result, null, 2));
       } catch (error) {

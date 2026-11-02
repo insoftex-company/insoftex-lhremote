@@ -2,10 +2,7 @@
 // Copyright (C) 2026 Oleksii PELYKH
 
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
-import {
-  commentOnPost,
-  withLoggedInStateRetryAtPort,
-} from "@insoftex/lhremote-core";
+import { commentOnPost, withLoggedInStateRetryAtPort } from "@insoftex/lhremote-core";
 import { z } from "zod";
 import { cdpConnectionSchema, mcpCatchAll, mcpSuccess } from "../helpers.js";
 
@@ -17,12 +14,8 @@ export function registerCommentOnPost(server: McpServer): void {
     {
       postUrl: z
         .string()
-        .describe(
-          "LinkedIn post URL (e.g. https://www.linkedin.com/feed/update/urn:li:activity:1234567890/)",
-        ),
-      text: z
-        .string()
-        .describe("Comment text to post on the LinkedIn post"),
+        .describe("LinkedIn post URL (e.g. https://www.linkedin.com/feed/update/urn:li:activity:1234567890/)"),
+      text: z.string().describe("Comment text to post on the LinkedIn post"),
       parentCommentUrn: z
         .string()
         .optional()
@@ -34,9 +27,7 @@ export function registerCommentOnPost(server: McpServer): void {
       mentions: z
         .array(
           z.object({
-            name: z
-              .string()
-              .describe("Display name to @mention (must appear as @Name in text)"),
+            name: z.string().describe("Display name to @mention (must appear as @Name in text)"),
           }),
         )
         .optional()
@@ -49,7 +40,9 @@ export function registerCommentOnPost(server: McpServer): void {
         .boolean()
         .optional()
         .default(false)
-        .describe("When true, validate the comment input and submit button are present, but skip typing and submitting"),
+        .describe(
+          "When true, validate the comment input and submit button are present, but skip typing and submitting",
+        ),
       ...cdpConnectionSchema,
     },
     async ({ postUrl, text, parentCommentUrn, mentions, dryRun, cdpPort, cdpHost, allowRemote, accountId }) => {
@@ -58,7 +51,19 @@ export function registerCommentOnPost(server: McpServer): void {
           cdpPort,
           cdpHost ?? "127.0.0.1",
           allowRemote ?? false,
-          () => commentOnPost({ postUrl, text, parentCommentUrn, mentions, dryRun, cdpPort, cdpHost, allowRemote, accountId }),
+          () =>
+            commentOnPost({
+              postUrl,
+              text,
+              parentCommentUrn,
+              mentions,
+              dryRun,
+              cdpPort,
+              cdpHost,
+              allowRemote,
+              accountId,
+            }),
+          { accountId: accountId },
         );
         return mcpSuccess(JSON.stringify(result, null, 2));
       } catch (error) {

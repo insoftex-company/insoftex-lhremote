@@ -15,6 +15,7 @@ export async function handleUnfollowFromFeed(
     cdpPort?: number;
     cdpHost?: string;
     allowRemote?: boolean;
+    accountId?: number;
     dryRun?: boolean;
     json?: boolean;
   },
@@ -27,12 +28,13 @@ export async function handleUnfollowFromFeed(
       options.allowRemote ?? false,
       () =>
         unfollowFromFeed({
-      feedIndex,
-      cdpPort: options.cdpPort,
-      cdpHost: options.cdpHost,
-      allowRemote: options.allowRemote,
-      dryRun: options.dryRun,
-      }),
+          feedIndex,
+          cdpPort: options.cdpPort,
+          cdpHost: options.cdpHost,
+          allowRemote: options.allowRemote,
+          accountId: options.accountId,
+          dryRun: options.dryRun,
+        }),
     );
   } catch (error) {
     const message = errorMessage(error);
@@ -45,13 +47,9 @@ export async function handleUnfollowFromFeed(
     process.stdout.write(JSON.stringify(result, null, 2) + "\n");
   } else if (result.dryRun) {
     process.stdout.write(
-      `[dry-run] Would unfollow "${result.unfollowedName}" from feed\n` +
-        `  Feed index: ${result.feedIndex}\n`,
+      `[dry-run] Would unfollow "${result.unfollowedName}" from feed\n` + `  Feed index: ${result.feedIndex}\n`,
     );
   } else {
-    process.stdout.write(
-      `Unfollowed "${result.unfollowedName}" from feed\n` +
-        `  Feed index: ${result.feedIndex}\n`,
-    );
+    process.stdout.write(`Unfollowed "${result.unfollowedName}" from feed\n` + `  Feed index: ${result.feedIndex}\n`);
   }
 }

@@ -2,10 +2,7 @@
 // Copyright (C) 2026 Oleksii PELYKH
 
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
-import {
-  searchPosts,
-  withLoggedInStateRetryAtPort,
-} from "@insoftex/lhremote-core";
+import { searchPosts, withLoggedInStateRetryAtPort } from "@insoftex/lhremote-core";
 import { z } from "zod";
 import { cdpConnectionSchema, mcpCatchAll, mcpSuccess } from "../helpers.js";
 
@@ -15,26 +12,14 @@ export function registerSearchPosts(server: McpServer): void {
     "search-posts",
     "Search LinkedIn for posts by keyword or hashtag. Returns structured post data (URL, author, text, media type, engagement counts, timestamp) with cursor-based pagination.",
     {
-      query: z
-        .string()
-        .describe(
-          'Search query — keywords (e.g. "AI agents") or hashtag (e.g. "#AIAgents")',
-        ),
-      count: z
-        .number()
-        .int()
-        .positive()
-        .optional()
-        .default(10)
-        .describe("Number of results per page (default: 10)"),
+      query: z.string().describe('Search query — keywords (e.g. "AI agents") or hashtag (e.g. "#AIAgents")'),
+      count: z.number().int().positive().optional().default(10).describe("Number of results per page (default: 10)"),
       cursor: z
         .number()
         .int()
         .nonnegative()
         .optional()
-        .describe(
-          "Index-based cursor from a previous search-posts call for the next page",
-        ),
+        .describe("Index-based cursor from a previous search-posts call for the next page"),
       ...cdpConnectionSchema,
     },
     async ({ query, count, cursor, cdpPort, cdpHost, allowRemote, accountId }) => {
@@ -45,14 +30,15 @@ export function registerSearchPosts(server: McpServer): void {
           allowRemote ?? false,
           () =>
             searchPosts({
-          query,
-          count,
-          cursor,
-          cdpPort,
-          cdpHost,
-          allowRemote,
-          accountId,
-          }),
+              query,
+              count,
+              cursor,
+              cdpPort,
+              cdpHost,
+              allowRemote,
+              accountId,
+            }),
+          { accountId: accountId },
         );
         return mcpSuccess(JSON.stringify(result, null, 2));
       } catch (error) {

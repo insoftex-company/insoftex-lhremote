@@ -15,6 +15,7 @@ export async function handleUnfollowProfile(
     cdpPort?: number;
     cdpHost?: string;
     allowRemote?: boolean;
+    accountId?: number;
     dryRun?: boolean;
     json?: boolean;
   },
@@ -27,12 +28,13 @@ export async function handleUnfollowProfile(
       options.allowRemote ?? false,
       () =>
         unfollowProfile({
-      profileUrl,
-      cdpPort: options.cdpPort,
-      cdpHost: options.cdpHost,
-      allowRemote: options.allowRemote,
-      dryRun: options.dryRun,
-      }),
+          profileUrl,
+          cdpPort: options.cdpPort,
+          cdpHost: options.cdpHost,
+          allowRemote: options.allowRemote,
+          accountId: options.accountId,
+          dryRun: options.dryRun,
+        }),
     );
   } catch (error) {
     const message = errorMessage(error);
@@ -47,13 +49,10 @@ export async function handleUnfollowProfile(
   }
 
   const targetLabel = result.targetKind === "company" ? "Company" : "Profile";
-  const pageLabel =
-    result.targetKind === "company" ? "company page" : "profile page";
+  const pageLabel = result.targetKind === "company" ? "company page" : "profile page";
 
   if (result.priorState === "not_following") {
-    process.stdout.write(
-      `${targetLabel} "${result.publicId}" was not being followed (no action taken)\n`,
-    );
+    process.stdout.write(`${targetLabel} "${result.publicId}" was not being followed (no action taken)\n`);
     return;
   }
 
@@ -62,10 +61,7 @@ export async function handleUnfollowProfile(
     // "restricted" rather than "private", so use kind-specific wording
     // so the message accurately describes why the page may have hidden
     // the Follow / Following toggle.
-    const accessReason =
-      result.targetKind === "company"
-        ? "restricted/unavailable company"
-        : "private/blocked profile";
+    const accessReason = result.targetKind === "company" ? "restricted/unavailable company" : "private/blocked profile";
     process.stdout.write(
       `Could not detect follow state for "${result.publicId}" ` +
         `(${accessReason}, or LinkedIn DOM changed — no action taken)\n`,
@@ -76,13 +72,9 @@ export async function handleUnfollowProfile(
   const name = result.unfollowedName ?? result.publicId;
   if (result.dryRun) {
     process.stdout.write(
-      `[dry-run] Would unfollow "${name}" from the ${pageLabel}\n` +
-        `  ${targetLabel}: ${result.profileUrl}\n`,
+      `[dry-run] Would unfollow "${name}" from the ${pageLabel}\n` + `  ${targetLabel}: ${result.profileUrl}\n`,
     );
   } else {
-    process.stdout.write(
-      `Unfollowed "${name}" from the ${pageLabel}\n` +
-        `  ${targetLabel}: ${result.profileUrl}\n`,
-    );
+    process.stdout.write(`Unfollowed "${name}" from the ${pageLabel}\n` + `  ${targetLabel}: ${result.profileUrl}\n`);
   }
 }

@@ -3,11 +3,7 @@
 
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import {
-  FAST_PATH_GRACE_MS,
-  OperationRegistry,
-  runAsyncOp,
-} from "./operation-registry.js";
+import { FAST_PATH_GRACE_MS, OperationRegistry, runAsyncOp } from "./operation-registry.js";
 
 // ---------------------------------------------------------------------------
 // OperationRegistry
@@ -199,7 +195,9 @@ describe("runAsyncOp", () => {
   });
 
   it("throws synchronously when fast work throws", async () => {
-    const work = vi.fn((): Promise<never> => { throw new Error("fast-fail"); });
+    const work = vi.fn((): Promise<never> => {
+      throw new Error("fast-fail");
+    });
 
     const promise = runAsyncOp(registry, "stop-instance", work);
     // Attach the rejection handler BEFORE advancing timers so it is already
@@ -215,7 +213,10 @@ describe("runAsyncOp", () => {
     runAsyncOp(
       registry,
       "restart-instance",
-      () => new Promise<void>((r) => { resolveFirst = r; }),
+      () =>
+        new Promise<void>((r) => {
+          resolveFirst = r;
+        }),
     );
     await vi.advanceTimersByTimeAsync(FAST_PATH_GRACE_MS + 1);
 
@@ -326,12 +327,7 @@ describe("runAsyncOp", () => {
         }),
     );
 
-    const promise = runAsyncOp(
-      registry,
-      "start-instance",
-      work,
-      { signal: externalController.signal },
-    );
+    const promise = runAsyncOp(registry, "start-instance", work, { signal: externalController.signal });
     await vi.advanceTimersByTimeAsync(FAST_PATH_GRACE_MS + 1);
     const outcome = await promise;
 
@@ -353,7 +349,9 @@ describe("runAsyncOp", () => {
     let resolveWork!: () => void;
     const work = vi.fn((signal: AbortSignal) => {
       capturedSignal = signal;
-      return new Promise<void>((resolve) => { resolveWork = resolve; });
+      return new Promise<void>((resolve) => {
+        resolveWork = resolve;
+      });
     });
 
     const promise = runAsyncOp(registry, "stop-instance", work, { signal: externalController.signal });
@@ -370,7 +368,44 @@ describe("runAsyncOp", () => {
 
     resolveWork();
     await vi.runAllTimersAsync();
-    // Operation resolved normally after signal fired (work didn't throw).
-    expect(registry.get(operationId)?.status).toBe("succeeded");
+    // A late normal return must not turn an aborted operation into success.
+    expect(registry.get(operationId)?.status).toBe("cancelled");
+  });
+});
+
+describe("cancelled writer ownership", () => {
+  it("rejects replacement work until the cancelled operation actually unwinds", async () => {
+    const registry = new OperationRegistry();
+    let release!: () => void;
+    const blocked = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const pending = runAsyncOp(registry, "ensure-instances", async () => {
+      await blocked;
+      return "late success";
+    });
+    const active = registry.getActiveWriteOp();
+    expect(active).toBeDefined();
+    if (!active) throw new Error("Expected an active operation");
+    const id = active.operationId;
+    registry.cancel(id);
+    const replacement = vi.fn(async () => "replacement");
+    expect((await runAsyncOp(registry, "start-instance", replacement)).status).toBe("rejected");
+    expect(replacement).not.toHaveBeenCalled();
+    release();
+    await expect(pending).rejects.toThrow();
+    expect(registry.get(id)?.status).toBe("cancelled");
+    expect(registry.getActiveWriteOp()).toBeUndefined();
+    expect((await runAsyncOp(registry, "start-instance", replacement)).status).toBe("completed");
+  });
+  it("does not enter work when the MCP request was already aborted", async () => {
+    const controller = new AbortController();
+    controller.abort();
+    const registry = new OperationRegistry();
+    const work = vi.fn(async () => "should not run");
+    await expect(runAsyncOp(registry, "start-instance", work, { signal: controller.signal })).rejects.toThrow();
+    expect(work).not.toHaveBeenCalled();
+    expect(registry.list()[0]?.status).toBe("cancelled");
+    expect(registry.getActiveWriteOp()).toBeUndefined();
   });
 });

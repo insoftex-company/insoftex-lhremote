@@ -24,11 +24,7 @@ export async function handleCommentOnPost(options: {
   json?: boolean;
 }): Promise<void> {
   const dryTag = options.dryRun ? "[dry-run] " : "";
-  process.stderr.write(
-    options.parentCommentUrn
-      ? `${dryTag}Posting reply...\n`
-      : `${dryTag}Posting comment...\n`,
-  );
+  process.stderr.write(options.parentCommentUrn ? `${dryTag}Posting reply...\n` : `${dryTag}Posting comment...\n`);
 
   let parsedMentions: MentionEntry[] | undefined;
   if (options.mentions) {
@@ -70,16 +66,17 @@ export async function handleCommentOnPost(options: {
       options.allowRemote ?? false,
       () =>
         commentOnPost({
-      postUrl: options.url,
-      text: options.text,
-      parentCommentUrn: options.parentCommentUrn,
-      mentions: parsedMentions,
-      cdpPort: options.cdpPort,
-      cdpHost: options.cdpHost,
-      allowRemote: options.allowRemote,
-      accountId: options.accountId,
-      dryRun: options.dryRun,
-      }),
+          postUrl: options.url,
+          text: options.text,
+          parentCommentUrn: options.parentCommentUrn,
+          mentions: parsedMentions,
+          cdpPort: options.cdpPort,
+          cdpHost: options.cdpHost,
+          allowRemote: options.allowRemote,
+          accountId: options.accountId,
+          dryRun: options.dryRun,
+        }),
+      { accountId: options.accountId },
     );
   } catch (error) {
     if (error instanceof BudgetExceededError) {
@@ -104,10 +101,7 @@ export async function handleCommentOnPost(options: {
           `Text: ${result.commentText}\n`,
       );
     } else {
-      process.stdout.write(
-        `[dry-run] Would post comment on ${result.postUrl}\n` +
-          `Text: ${result.commentText}\n`,
-      );
+      process.stdout.write(`[dry-run] Would post comment on ${result.postUrl}\n` + `Text: ${result.commentText}\n`);
     }
   } else {
     if (result.parentCommentUrn) {

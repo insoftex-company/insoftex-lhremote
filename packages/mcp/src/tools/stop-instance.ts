@@ -52,11 +52,9 @@ export function registerStopInstance(server: McpServer): void {
                   { signal },
                 );
                 try {
-                  const { result: accounts } = await withLauncherRecovery(
-                    launcher,
-                    () => launcher.listAccounts(),
-                    { signal },
-                  );
+                  const { result: accounts } = await withLauncherRecovery(launcher, () => launcher.listAccounts(), {
+                    signal,
+                  });
                   if (accounts.length === 0) throw new Error("No accounts found.");
                   if (accounts.length > 1) {
                     throw new Error(
@@ -93,7 +91,7 @@ export function registerStopInstance(server: McpServer): void {
                     launcher.disconnect();
                   }
                 }),
-              { type: "stop" },
+              { type: "stop", signal },
             );
 
             return `Instance stopped for account ${resolvedId}`;

@@ -28,7 +28,64 @@ jobs:
       - run: pnpm build
       - run: pnpm lint
       - run: pnpm license-check
-      - run: pnpm test ${{ matrix.os == 'ubuntu-latest' && '-- -- --coverage' || '' }}
+      - run: pnpm exec turbo run test ${{ matrix.os == 'ubuntu-latest' && '-- --coverage' || '' }}
+
+      # The action-budget query filters on `date('now', 'localtime')`, so its
+      # fixture must build the same local calendar day.  A UTC runner cannot
+      # observe a disagreement — there the local and UTC days coincide by
+      # construction, which is exactly why #942 stayed green in CI while
+      # failing nightly on any developer machine at a non-zero offset.
+      #
+      # Two fixed-offset zones, because the seam only opens for part of a day
+      # and which part depends on the sign of the offset: a machine at UTC+14
+      # has already rolled over for UTC hours 10-23, one at UTC-11 has not yet
+      # rolled over for hours 00-10.  Their union is every hour of every day,
+      # so the pair cannot pass vacuously whenever CI happens to run.
+      #
+      # That argument holds only while both zones resolve to the offsets it
+      # assumes, so the step asserts them rather than trusting them.  Missing
+      # tzdata makes `tzset()` fall back to UTC, which would quietly reduce
+      # this step to a second copy of the UTC run above and still exit 0; the
+      # same assertion also catches either zone acquiring DST or being
+      # re-pointed by a future tzdata release, both of which would move the
+      # windows out from under the union above.  It reads the offset through
+      # the C library because that is the resolver SQLite's `localtime`
+      # modifier calls, and only a *two-sided* fallback can pass vacuously: if
+      # just one of Node and the C library resolves the zone, the fixture and
+      # the query disagree and the test fails loudly on its own.
+      #
+      # Invoked as the package script rather than `pnpm test`: the root script
+      # is `turbo run test` across all four packages and cannot target a single
+      # file, and only this one file is at stake here.
+      #
+      # One platform is enough — the seam is in how the fixture derives a date,
+      # not in the OS — and ubuntu is where the rest of the coverage already
+      # runs.  It must not be Windows in any case: an IANA zone name in `TZ` is
+      # honoured by both Node and the C library on Linux and macOS, but not by
+      # the Windows CRT, where the two would disagree for reasons that have
+      # nothing to do with this code.
+      - name: Timezone regression guard (action-budget)
+        if: matrix.os == 'ubuntu-latest'
+        run: |
+          # Explicit, rather than leaning on the runner's default `bash -e`: a
+          # `for` loop reports the exit status of its *last* iteration, so
+          # without this a failure in the first zone would be masked by a pass
+          # in the second.
+          set -euo pipefail
+          for spec in Pacific/Kiritimati:+1400 Pacific/Midway:-1100; do
+            tz="${spec%%:*}"
+            want="${spec##*:}"
+            got="$(TZ="$tz" date +%z)"
+            if [ "$got" != "$want" ]; then
+              echo "::error::TZ=$tz resolved to UTC offset $got, expected $want."
+              echo "The two zones no longer cover every hour, so this step would"
+              echo "evaluate nothing rather than guard anything. Check tzdata."
+              exit 1
+            fi
+            echo "--- TZ=$tz (UTC$want) ---"
+            TZ="$tz" pnpm --filter @insoftex/lhremote-core test src/db/repositories/action-budget.test.ts
+          done
+
       - name: Upload coverage to Codecov
         if: matrix.os == 'ubuntu-latest' && env.CODECOV_TOKEN != ''
         uses: codecov/codecov-action@v6
@@ -36,6 +93,34 @@ jobs:
           CODECOV_TOKEN: ${{ secrets.CODECOV_TOKEN }}
         with:
           token: ${{ secrets.CODECOV_TOKEN }}
+
+  memory-freshness:
+    name: Memory Freshness
+    timeout-minutes: 5
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v6
+
+      # Grade the instrument before trusting its reading: if these fail, the
+      # check below carries no information about the corpus.
+      - name: Test the freshness checker
+        run: python3 tools/check-memory-freshness.test.py
+
+      # `--warn-only` reports drift and annotates the PR without failing the
+      # build. It is here because one entry was already overdue when this job
+      # landed, and the honest alternatives were to re-walk that memory (which
+      # needs a licensed LinkedHelper install) or to bump its `last-verified`
+      # date — which would fabricate a verification that never happened.
+      # Drop the flag once the corpus is clean: see issue #912.
+      #
+      # The flag forgives measured drift and nothing else. Scanning zero
+      # entries still fails, so a check that silently stops finding the corpus
+      # cannot pass as a clean bill; and so does an entry whose frontmatter
+      # cannot be graded at all, which has no age and so could never resurface
+      # through the overdue path once the flag is dropped.
+      - name: Check memory freshness frontmatter
+        run: python3 tools/check-memory-freshness.py --warn-only
 
   package:
     timeout-minutes: 10
@@ -55,7 +140,7 @@ jobs:
 
       - uses: ./.github/actions/setup
         with:
-          skip-playwright: 'true'
+          skip-playwright: "true"
 
       - name: Build packages
         run: pnpm build

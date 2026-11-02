@@ -32,31 +32,28 @@ export async function handleCollectPeople(
       options.allowRemote ?? false,
       () =>
         collectPeople({
-      campaignId,
-      sourceUrl,
-      ...(options.limit !== undefined && { limit: options.limit }),
-      ...(options.maxPages !== undefined && { maxPages: options.maxPages }),
-      ...(options.pageSize !== undefined && { pageSize: options.pageSize }),
-      ...(options.sourceType !== undefined && { sourceType: options.sourceType }),
-      cdpPort: options.cdpPort,
-      ...(options.cdpHost !== undefined && { cdpHost: options.cdpHost }),
-      ...(options.allowRemote !== undefined && { allowRemote: options.allowRemote }),
-      ...(options.accountId !== undefined && { accountId: options.accountId }),
-      }),
+          campaignId,
+          sourceUrl,
+          ...(options.limit !== undefined && { limit: options.limit }),
+          ...(options.maxPages !== undefined && { maxPages: options.maxPages }),
+          ...(options.pageSize !== undefined && { pageSize: options.pageSize }),
+          ...(options.sourceType !== undefined && { sourceType: options.sourceType }),
+          cdpPort: options.cdpPort,
+          ...(options.cdpHost !== undefined && { cdpHost: options.cdpHost }),
+          ...(options.allowRemote !== undefined && { allowRemote: options.allowRemote }),
+          ...(options.accountId !== undefined && { accountId: options.accountId }),
+        }),
+      { accountId: options.accountId },
     );
 
     if (options.json) {
       process.stdout.write(JSON.stringify(result, null, 2) + "\n");
     } else {
-      process.stdout.write(
-        `Started collecting people (${result.sourceType}) into campaign ${String(campaignId)}.\n`,
-      );
+      process.stdout.write(`Started collecting people (${result.sourceType}) into campaign ${String(campaignId)}.\n`);
     }
   } catch (error) {
     if (error instanceof CollectionBusyError) {
-      process.stderr.write(
-        `Cannot collect — instance is busy (state: ${error.runnerState}).\n`,
-      );
+      process.stderr.write(`Cannot collect — instance is busy (state: ${error.runnerState}).\n`);
     } else if (error instanceof CollectionError) {
       process.stderr.write(`${error.message}\n`);
     } else {

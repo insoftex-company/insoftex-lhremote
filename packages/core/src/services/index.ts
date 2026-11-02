@@ -11,11 +11,7 @@ export {
   waitForPidExit,
   type StartInstanceOutcome,
 } from "./instance-lifecycle.js";
-export {
-  restartInstance,
-  type RestartInstanceOptions,
-  type RestartInstanceResult,
-} from "./restart-instance.js";
+export { restartInstance, type RestartInstanceOptions, type RestartInstanceResult } from "./restart-instance.js";
 export { DEFAULT_LAUNCHER_RECOVERY_TIMEOUT_MS, LauncherService } from "./launcher.js";
 export {
   acquireLauncherWithRecovery,
@@ -32,17 +28,11 @@ export {
   type LauncherStatus,
   type StatusReport,
 } from "./status.js";
-export {
-  ensureInstances,
-  type EnsureInstanceResult,
-} from "./ensure-instances.js";
+export { ensureInstances, type EnsureInstanceResult } from "./ensure-instances.js";
 
 export { CampaignService } from "./campaign.js";
 export { EphemeralCampaignService } from "./ephemeral-campaign.js";
-export {
-  AccountResolutionError,
-  resolveAccount,
-} from "./account-resolution.js";
+export { AccountResolutionError, resolveAccount } from "./account-resolution.js";
 export {
   withDatabase,
   withInstanceDatabase,
@@ -72,6 +62,9 @@ export {
   CampaignTimeoutError,
   CollectionBusyError,
   CollectionError,
+  DOMVariantAmbiguousError,
+  DOMVariantUnsupportedError,
+  ExtractionFailedError,
   ExtractionTimeoutError,
   InstanceNotRunningError,
   InvalidProfileUrlError,

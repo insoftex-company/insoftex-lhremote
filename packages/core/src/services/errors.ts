@@ -20,9 +20,7 @@ export class ServiceError extends Error {
  */
 export class AppNotFoundError extends ServiceError {
   constructor(message?: string) {
-    super(
-      message ?? "LinkedHelper application binary not found. Set LINKEDHELPER_PATH to override.",
-    );
+    super(message ?? "LinkedHelper application binary not found. Set LINKEDHELPER_PATH to override.");
     this.name = "AppNotFoundError";
   }
 }
@@ -78,9 +76,7 @@ export class LinkedHelperUnreachableError extends ServiceError {
  */
 export class StartInstanceError extends ServiceError {
   constructor(accountId: number, reason?: string) {
-    super(
-      `Failed to start instance for account ${String(accountId)}${reason ? `: ${reason}` : ""}`,
-    );
+    super(`Failed to start instance for account ${String(accountId)}${reason ? `: ${reason}` : ""}`);
     this.name = "StartInstanceError";
   }
 }
@@ -138,10 +134,7 @@ export class ActionExecutionError extends ServiceError {
   readonly actionType: string;
 
   constructor(actionType: string, message?: string, options?: ErrorOptions) {
-    super(
-      message ?? `Action '${actionType}' failed`,
-      options,
-    );
+    super(message ?? `Action '${actionType}' failed`, options);
     this.name = "ActionExecutionError";
     this.actionType = actionType;
   }
@@ -153,23 +146,142 @@ export class ActionExecutionError extends ServiceError {
  */
 export class InvalidProfileUrlError extends ServiceError {
   constructor(url: string) {
-    super(
-      `Invalid profile URL: ${url} — expected https://www.linkedin.com/in/<slug>`,
-    );
+    super(`Invalid profile URL: ${url} — expected https://www.linkedin.com/in/<slug>`);
     this.name = "InvalidProfileUrlError";
   }
 }
 
 /**
- * Thrown when profile extraction times out waiting for data
- * to appear in the database.
+ * Thrown when extraction times out waiting for data to appear.
+ *
+ * `subject` defaults to `"Profile"` for backward compatibility with the
+ * original database-extraction call shape; the post-detail readiness gate
+ * passes `"Post-detail"` and names the selector that never matched.
  */
 export class ExtractionTimeoutError extends ServiceError {
-  constructor(profileUrl: string, timeoutMs: number) {
-    super(
-      `Profile extraction timed out after ${String(timeoutMs)}ms for ${profileUrl}`,
-    );
+  /** What was being waited for — a URL, or a description of the anchor. */
+  readonly target: string;
+  readonly timeoutMs: number;
+  /** Which extraction subject timed out (e.g. 'Profile', 'Post-detail'). */
+  readonly subject: string;
+
+  constructor(target: string, timeoutMs: number, subject = "Profile") {
+    super(`${subject} extraction timed out after ${String(timeoutMs)}ms for ${target}`);
     this.name = "ExtractionTimeoutError";
+    this.target = target;
+    this.timeoutMs = timeoutMs;
+    this.subject = subject;
+  }
+}
+
+/**
+ * Thrown when no registered `VariantAdapter` matched the page, or the
+ * matching adapter resolved no scope — its own `scopes` candidates, and on
+ * `reactions-modal` its own resolver too.
+ *
+ * This is the "LinkedIn changed" signal. It is deliberately distinct from
+ * {@link ExtractionFailedError}: nothing is stale here, there is no usable
+ * adapter for the page, and the operator action is to register a new adapter
+ * rather than repair an existing one.
+ *
+ * "No usable adapter" is ADR-008 § Decision 3's own framing, and it is
+ * deliberately not a claim about the page's dialect. Under the second
+ * condition an adapter's `detect` DID match, so a diagnostic bundle's
+ * `variantDetection` reports exactly one: a dialect this repo already has an
+ * adapter for, whose scope resolution is the part that stopped working.
+ *
+ * What that changes is WHICH adapter gets written, never whether one does.
+ * *Register an adapter* is ADR-008 § 5's operator action for both conditions
+ * and the message below is right to assert it. But a reader told the page
+ * speaks a dialect no adapter knows writes a SECOND adapter for a dialect
+ * already covered, and its `detect` then overlaps the first — the
+ * {@link DOMVariantAmbiguousError} precondition, trading one diagnosable
+ * failure for a different failure on every page of that dialect.
+ *
+ * It is also deliberately NOT {@link ExtractionTimeoutError} — nothing timed
+ * out. The whole defect class this models is a gate going green promptly on
+ * a page the scrapers cannot read.
+ */
+export class DOMVariantUnsupportedError extends ServiceError {
+  /** The surface being read (e.g. 'post-detail', 'feed'). */
+  readonly surface: string;
+  /** Variants that were offered the page and declined it. */
+  readonly triedVariants: readonly string[];
+
+  constructor(surface: string, triedVariants: readonly string[], options?: ErrorOptions) {
+    super(
+      `No DOM adapter matched the ${surface} page ` +
+        `(tried: ${triedVariants.length > 0 ? triedVariants.join(", ") : "none registered"}). ` +
+        "LinkedIn has changed its markup — register an adapter for the new variant.",
+      options,
+    );
+    this.name = "DOMVariantUnsupportedError";
+    this.surface = surface;
+    this.triedVariants = triedVariants;
+  }
+}
+
+/**
+ * Thrown when an adapter matched the page but a field came back empty and
+ * its same-observation corroborator contradicts that emptiness.
+ *
+ * This is the "partially stale adapter" signal: the dialect is recognised,
+ * so the fix is to repair the named field's selectors rather than register
+ * a new adapter. Naming both the variant and the field is load-bearing —
+ * an agent consuming the MCP tool is the least able party to diagnose this.
+ */
+export class ExtractionFailedError extends ServiceError {
+  readonly surface: string;
+  readonly variant: string;
+  /** The field whose emptiness was contradicted. */
+  readonly field: string;
+  /** The corroborating observation that contradicted it. */
+  readonly corroborator: string;
+
+  constructor(
+    args: {
+      surface: string;
+      variant: string;
+      field: string;
+      corroborator: string;
+    },
+    options?: ErrorOptions,
+  ) {
+    super(
+      `Extraction failed on the ${args.surface} page: adapter "${args.variant}" matched, ` +
+        `but field "${args.field}" came back empty while ${args.corroborator} contradicts it. ` +
+        `Adapter "${args.variant}" is partially stale — repair the selectors for "${args.field}".`,
+      options,
+    );
+    this.name = "ExtractionFailedError";
+    this.surface = args.surface;
+    this.variant = args.variant;
+    this.field = args.field;
+    this.corroborator = args.corroborator;
+  }
+}
+
+/**
+ * Thrown when two or more adapters claim the same page.
+ *
+ * A transitional or hybrid page. Failing loudly is deliberate: picking one
+ * adapter would build a record from two dialects with no way to notice,
+ * which is the failure mode the whole variant model exists to prevent.
+ */
+export class DOMVariantAmbiguousError extends ServiceError {
+  readonly surface: string;
+  readonly matchedVariants: readonly string[];
+
+  constructor(surface: string, matchedVariants: readonly string[], options?: ErrorOptions) {
+    super(
+      `Multiple DOM adapters matched the ${surface} page ` +
+        `(${matchedVariants.join(", ")}). This is a transitional or hybrid page; ` +
+        "refusing to guess which adapter owns it — tighten the detect anchors.",
+      options,
+    );
+    this.name = "DOMVariantAmbiguousError";
+    this.surface = surface;
+    this.matchedVariants = matchedVariants;
   }
 }
 
@@ -193,10 +305,7 @@ export class CollectionBusyError extends CollectionError {
   readonly runnerState: string;
 
   constructor(runnerState: string, options?: ErrorOptions) {
-    super(
-      `Cannot start collection — instance is busy (runner state: ${runnerState})`,
-      options,
-    );
+    super(`Cannot start collection — instance is busy (runner state: ${runnerState})`, options);
     this.name = "CollectionBusyError";
     this.runnerState = runnerState;
   }
@@ -240,10 +349,7 @@ export class BudgetExceededError extends ServiceError {
   readonly totalUsed: number;
 
   constructor(limitType: string, dailyLimit: number, totalUsed: number) {
-    super(
-      `Action budget exceeded for ${limitType}: ` +
-        `${String(totalUsed)}/${String(dailyLimit)} used today`,
-    );
+    super(`Action budget exceeded for ${limitType}: ` + `${String(totalUsed)}/${String(dailyLimit)} used today`);
     this.name = "BudgetExceededError";
     this.limitType = limitType;
     this.dailyLimit = dailyLimit;
@@ -277,13 +383,12 @@ export class UIBlockedError extends ServiceError {
     }
 
     for (const instancePopup of health.instancePopups) {
-      reasons.push(`Instance popup: ${instancePopup.title}${instancePopup.description ? ` — ${instancePopup.description}` : ""}`);
+      reasons.push(
+        `Instance popup: ${instancePopup.title}${instancePopup.description ? ` — ${instancePopup.description}` : ""}`,
+      );
     }
 
-    super(
-      `LinkedHelper UI is blocked — ${reasons.join("; ")}`,
-      options,
-    );
+    super(`LinkedHelper UI is blocked — ${reasons.join("; ")}`, options);
     this.name = "UIBlockedError";
     this.health = health;
   }

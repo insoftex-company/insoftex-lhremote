@@ -32,7 +32,12 @@ STAGING_DIR="tmp/lhremote-windows-package"
 rm -rf "$STAGING_DIR"
 
 echo "Deploying production-only package to staging directory..."
-pnpm --filter ./packages/lhremote deploy --prod "$STAGING_DIR"
+pnpm --filter ./packages/lhremote deploy --legacy --prod "$STAGING_DIR"
+
+# pnpm 11's legacy deploy records production-only workspace state. Refresh
+# the development install so subsequent build/test commands do not try to
+# purge node_modules or prompt for a reinstall in a non-interactive shell.
+pnpm install --frozen-lockfile --ignore-scripts --prod=false
 
 mkdir -p tmp
 OUTPUT_FILE="tmp/lhremote-windows-$(date +%Y%m%d%H%M%S).zip"

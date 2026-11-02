@@ -2,10 +2,22 @@
 // Copyright (C) 2026 Oleksii PELYKH
 
 import { resolveInstancePort } from "../cdp/index.js";
+import { DOMVariantAmbiguousError, DOMVariantUnsupportedError } from "../services/errors.js";
 import type { PostComment, PostDetail } from "../types/post.js";
 import { CDPClient } from "../cdp/client.js";
 import { discoverTargets } from "../cdp/discovery.js";
-import { waitForPostLoad } from "../cdp/wait-for-post-load.js";
+import {
+  assertPostDetailCountsCorroboration,
+  capturePostDetailExtractionFailure,
+  waitForPostLoad,
+} from "../cdp/wait-for-post-load.js";
+import { assertCardinalCorroboration } from "../linkedin/corroboration.js";
+import {
+  adaptersFor,
+  buildPostDetailExtractionSource,
+  unreadableAfterReadinessCause,
+  variantNamesFor,
+} from "../linkedin/dom-variant.js";
 import { denormalizeCommentUrnToLegacy } from "../linkedin/selectors.js";
 import { gaussianDelay } from "../utils/delay.js";
 import type { ConnectionOptions } from "./types.js";
@@ -35,10 +47,26 @@ export interface GetPostOutput {
   readonly post: PostDetail;
   /** Comments on this post. */
   readonly comments: PostComment[];
-  /** Comment pagination metadata. */
+  /**
+   * Pagination metadata for {@link comments}, DERIVED from the returned list
+   * alone.
+   *
+   * `total` is `comments.length`, so it carries no information `count` does
+   * not: it describes this response, never how many comments the post has.
+   * The post's own count is {@link PostDetail.commentCount}, read off the
+   * page, and the two legitimately differ — a `commentCount` input truncates
+   * the list, and `commentCount: 0` skips comment loading entirely.
+   *
+   * Documented rather than made independent (#836).  Setting `total` from
+   * the scraped count would change what a shipped field means, and would
+   * make `total < count` reachable on any page whose counts row is absent —
+   * a behaviour change that belongs with its own acceptance criteria, not
+   * alongside a fix to the count it would start reporting.
+   */
   readonly commentsPaging: {
     readonly start: number;
     readonly count: number;
+    /** Always `count`.  See the note on {@link commentsPaging}. */
     readonly total: number;
   };
 }
@@ -56,6 +84,35 @@ interface RawPostDetail {
   commentCount: number;
   shareCount: number;
   timestamp: string | null;
+  /**
+   * Which adapter produced this record.  Absent only when the scrape
+   * predates the registry (no live path does).
+   */
+  variant?: string;
+  /**
+   * Did the selected adapter's own engagement-counts anchor resolve?
+   *
+   * Read since #951, and it is not an output.  It is the corroborator for the
+   * three counters above: they are the only fields here with no second reading
+   * beside them, so whether the row they were read out of was there at all is
+   * the one thing that can contradict a zero.  See
+   * {@link assertPostDetailCountsCorroboration}.
+   */
+  countsRootNarrowed: boolean;
+}
+
+/**
+ * Returned instead of a field bag when two or more adapters claimed the
+ * page.  A transitional or hybrid page: picking one would build a record
+ * out of two dialects with no way to notice, so it is reported rather than
+ * resolved.
+ */
+interface AmbiguousPostDetail {
+  ambiguousVariants: string[];
+}
+
+function isAmbiguous(raw: RawPostDetail | AmbiguousPostDetail): raw is AmbiguousPostDetail {
+  return Array.isArray((raw as AmbiguousPostDetail).ambiguousVariants);
 }
 
 interface RawComment {
@@ -72,170 +129,30 @@ interface RawComment {
 // In-page DOM scraping scripts
 // ---------------------------------------------------------------------------
 
+/** The page kind this operation reads; picks the adapter list it binds to. */
+const POST_DETAIL_SURFACE = "post-detail" as const;
+
 /**
  * JavaScript source evaluated inside the LinkedIn post detail page to
  * extract post metadata from the rendered DOM.
  *
- * Post-2026-05 LinkedIn migrated `/posts/...` to a React + CSS Modules
- * + SDUI stack (see lhremote#800 + research file
- * `post-detail-body-dom-react-sdui-20260507.md`).  The legacy anchors
- * `[data-testid="mainFeed"]`, `<article>`, and `span[dir="ltr"]` are
- * all gone.  The script now scopes to the post-detail container by
- * `[componentkey^="expanded"][componentkey$="FeedType_FEED_DETAIL"]`,
- * which contains EXACTLY the post body (author links, headline, text,
- * post-level reactions trigger) and excludes the LinkedIn chrome
- * (Premium banner, sidebar, comment list, comment authors) — all of
- * which the legacy fallback-to-`<main>` cascade was incorrectly
- * picking up.
+ * Generated from the post-detail adapter registry, not hand-written: the
+ * script selects the one adapter whose detect anchor claims the page, scopes
+ * to that adapter's own container, and runs that adapter's field extractors.
+ *
+ * **There is no terminal fallback.**  The cascade this replaced ended in
+ * `document.querySelector('main') || document`, both of which always match —
+ * so a page whose field selectors matched nothing still produced a valid
+ * scope and returned an empty record with an HTTP success.  That is the
+ * mechanism that turned a selector miss into a silent success.  Selection now
+ * has three outcomes and none of them is a default: exactly one adapter
+ * (extract), zero (`null`, raised as {@link DOMVariantUnsupportedError}), or
+ * two-or-more (reported as `ambiguousVariants`).
+ *
+ * Registering a third dialect is an edit to the registry alone — nothing
+ * here branches on the variant.
  */
-const SCRAPE_POST_DETAIL_SCRIPT = `(() => {
-  let authorName = null;
-  let authorHeadline = null;
-  let authorProfileUrl = null;
-  let text = null;
-  let reactionCount = 0;
-  let commentCount = 0;
-  let shareCount = 0;
-  let timestamp = null;
-
-  // Scope to the post-detail container (lhremote#800).  Cascades down
-  // to the SDUI screen and finally <main> if the componentkey prefix
-  // changes.
-  const scope =
-    document.querySelector('[componentkey^="expanded"][componentkey$="FeedType_FEED_DETAIL"]') ||
-    document.querySelector('[data-sdui-screen="com.linkedin.sdui.flagshipnav.feed.UpdateDetail"]') ||
-    document.querySelector('main') ||
-    document;
-
-  // --- Author info ---
-  // The post-author has 3 anchors inside scope: avatar (text empty),
-  // name link ("<Name>  • <degree>"), and a height-zero "extended click
-  // area".  All point to the same /in/{publicId}/.  Use the first
-  // anchor for the URL; find the first anchor with non-empty text for
-  // the display name.
-  //
-  // Defense-in-depth (lhremote#800): when the primary post-detail
-  // selector misses and we fall back to the SDUI screen or <main>, the
-  // scope includes the comment list as descendants.  Skip anchors that
-  // sit inside any [componentkey^="replaceableComment_"] subtree so a
-  // commenter never gets picked as the post author — which is exactly
-  // the failure mode this fallback chain is meant to recover from.
-  let authorLink = null;
-  for (const a of scope.querySelectorAll('a[href*="/in/"], a[href*="/company/"]')) {
-    if (a.closest('[componentkey^="replaceableComment_"]')) continue;
-    authorLink = a;
-    break;
-  }
-  if (authorLink) {
-    authorProfileUrl = (authorLink.href || '').split('?')[0] || null;
-
-    // Find a sibling anchor with the same href but non-empty text.  Iterate
-    // and compare attribute values directly rather than building a CSS
-    // attribute selector via concatenation — the latter throws on hrefs
-    // containing CSS-special characters (quotes, backslashes), and the raw
-    // attribute can include LinkedIn-injected query strings.
-    const targetHref = authorLink.getAttribute('href');
-    let nameText = '';
-    for (const a of scope.querySelectorAll('a')) {
-      if (a.getAttribute('href') !== targetHref) continue;
-      const t = (a.textContent || '').trim();
-      if (t.length > 0) { nameText = t; break; }
-    }
-
-    // Strip the SDUI " • <degree>" suffix from the name link text.
-    // Format: "<Name>  • 1st" / "<Name> • 2nd" / "<Name>  • You" /
-    // "<Name>  • 3rd".  Connection-degree separator is bullet (•).
-    const m = nameText.match(/^(.+?)\\s+•\\s+(?:1st|2nd|3rd|Out of network|You)\\s*$/);
-    authorName = (m ? m[1] : nameText).trim() || null;
-  }
-
-  // --- Author headline ---
-  // After the author block, there's a headline element in <p> or <span>
-  // form. Scan post container for a non-empty text leaf with length
-  // 5..200 that is NOT the author name, NOT a relative-time marker,
-  // NOT a UI label, and NOT a composite "<Name> • <degree>" span.
-  //
-  // Defense-in-depth (lhremote#800): same filter as the author-link
-  // lookup above — when the SDUI-screen / <main> fallback fires, the
-  // comment list is a descendant of scope, and a commenter's headline
-  // would otherwise win.
-  const headlineCandidates = scope.querySelectorAll('p, span');
-  for (const el of headlineCandidates) {
-    if (el.closest('[componentkey^="replaceableComment_"]')) continue;
-    const txt = (el.textContent || '').trim();
-    if (
-      txt &&
-      txt.length > 5 &&
-      txt.length < 200 &&
-      txt !== authorName &&
-      !txt.match(/^\\d+[smhdw]$/) &&
-      !txt.match(/^\\d[\\d,]*\\s+(reactions?|comments?|reposts?|likes?)$/i) &&
-      !txt.match(/^Follow$|^Promoted$|^Boost$|^Author$|^You$/i) &&
-      !txt.match(/^Skip to|^Keyboard shortcuts$|^Close jump menu$/i) &&
-      !txt.match(/^Feed\\s+(?:post|detail\\s+update)$/i) &&
-      !txt.match(/^Promote\\s+this\\s+post/i) &&
-      !txt.match(/Reaction button state:/) &&
-      !txt.includes('•') &&
-      !txt.match(/^https?:\\/\\//)
-    ) {
-      authorHeadline = txt;
-      break;
-    }
-  }
-
-  // --- Post text ---
-  // Cascade per research: data-testid leaf -> componentkey wrapper.
-  // Both selectors are stable and verified across all 4 post types
-  // (regular / share / ugcPost / self).  Very short posts may have
-  // neither — accept null in that case rather than synthesizing.
-  let textEl = scope.querySelector('[data-testid="expandable-text-box"]');
-  if (!textEl) {
-    textEl = scope.querySelector('[componentkey^="feed-commentary_"]');
-  }
-  if (textEl) {
-    const t = (textEl.textContent || '').trim();
-    if (t.length > 0) text = t;
-  }
-
-  // --- Engagement counts (UNCHANGED — text-content regex survives
-  // the DOM rewrite; verified by lhremote#800 reporting correct counts
-  // even when other fields are placeholder data) ---
-  const countText = document.body.textContent || '';
-
-  function parseCount(pattern) {
-    const m = countText.match(pattern);
-    if (!m) return 0;
-    const raw = m[1].replace(/,/g, '');
-    const num = parseInt(raw, 10);
-    return isNaN(num) ? 0 : num;
-  }
-
-  reactionCount = parseCount(/(\\d[\\d,]*)\\s+reactions?/i);
-  commentCount = parseCount(/(\\d[\\d,]*)\\s+comments?/i);
-  shareCount = parseCount(/(\\d[\\d,]*)\\s+reposts?/i);
-
-  // --- Timestamp ---
-  // The SDUI post-detail page has NO <time> element inside the post
-  // container (verified across all 4 post types).  Extract the
-  // relative-time prefix from container textContent: "<degree>2w •",
-  // "<degree>1mo •", etc.  "Edited" is a status flag, not a timestamp,
-  // so it is intentionally excluded from the alternation.
-  const scopeText = scope.textContent || '';
-  const timeMatch = scopeText.match(/(?:1st|2nd|3rd|You)(\\d+[smhdw]|[1-9]\\d*mo)\\s+•/) ||
-                     scopeText.match(/(?:^|\\s)(\\d+[smhdw]|[1-9]\\d*mo)\\s+•/);
-  if (timeMatch) timestamp = timeMatch[1];
-
-  return {
-    authorName,
-    authorHeadline,
-    authorProfileUrl,
-    text,
-    reactionCount,
-    commentCount,
-    shareCount,
-    timestamp,
-  };
-})()`;
+const SCRAPE_POST_DETAIL_SCRIPT = buildPostDetailExtractionSource(adaptersFor(POST_DETAIL_SURFACE));
 
 /**
  * JavaScript source evaluated inside the LinkedIn post detail page to
@@ -449,7 +366,7 @@ function extractPublicId(url: string | null): string | null {
  * @returns Post detail with comments and pagination metadata.
  */
 export async function getPost(input: GetPostInput): Promise<GetPostOutput> {
-  const cdpPort = await resolveInstancePort(input.cdpPort, input.cdpHost);
+  const cdpPort = await resolveInstancePort(input.cdpPort, input.cdpHost, undefined, input.accountId);
   const cdpHost = input.cdpHost ?? "127.0.0.1";
   const allowRemote = input.allowRemote ?? false;
   const maxComments = input.commentCount ?? 100;
@@ -473,14 +390,11 @@ export async function getPost(input: GetPostInput): Promise<GetPostOutput> {
   }
 
   const targets = await discoverTargets(cdpPort, cdpHost);
-  const linkedInTarget = targets.find(
-    (t) => t.type === "page" && t.url?.includes("linkedin.com"),
-  );
+  const linkedInTarget = targets.find((t) => t.type === "page" && t.url?.includes("linkedin.com"));
 
   if (!linkedInTarget) {
     throw new Error(
-      "No LinkedIn page found in LinkedHelper. " +
-        "Ensure LinkedHelper is running with an active LinkedIn session.",
+      "No LinkedIn page found in LinkedHelper. " + "Ensure LinkedHelper is running with an active LinkedIn session.",
     );
   }
 
@@ -497,13 +411,77 @@ export async function getPost(input: GetPostInput): Promise<GetPostOutput> {
     // Wait for the post content to render
     await waitForPostLoad(client);
 
-    // Extract post metadata from the DOM
-    const rawPost = await client.evaluate<RawPostDetail>(SCRAPE_POST_DETAIL_SCRIPT);
-    if (!rawPost) {
-      throw new Error(
-        "Failed to extract post detail from the DOM",
-      );
+    // Extract post metadata from the DOM.  The script has already selected
+    // the adapter; what arrives here is one of the three selection outcomes.
+    const rawPost = await client.evaluate<RawPostDetail | AmbiguousPostDetail>(SCRAPE_POST_DETAIL_SCRIPT);
+    if (!rawPost || isAmbiguous(rawPost)) {
+      // Both branches are deadline-free extraction failures on a page whose
+      // readiness gate went green milliseconds ago, so #835's widening covers
+      // them for the same reason it covers the cardinal contradiction below —
+      // and the issue names all three error classes, not just the third.
+      await capturePostDetailExtractionFailure(client);
+      if (!rawPost) {
+        // ADR-011 § 5's criterion has two halves — zero adapters claimed the
+        // page, or the claiming adapter could not resolve its own scope — and
+        // on THIS surface only the first is reachable.  That rests on TWO
+        // premises, both pinned in `dom-variant.test.ts` (#923): every
+        // post-detail adapter's `scopes` are the members of its own `detect`
+        // list, AND `buildPostDetailExtractionSource` selects and resolves in
+        // ONE page read, so nothing can flip the dialect between them.  A
+        // matched detect therefore entails a resolved scope.  Either way
+        // nothing read the page, and there is no `<main>` left to pretend
+        // otherwise with.
+        //
+        // The `cause` says that outright rather than repeating the disjunction,
+        // and turns it into the sharper reading the message cannot give:
+        // `waitForPostLoad` above went green, so a dialect DID match moments
+        // ago, and the page stopped matching between the two reads.
+        throw new DOMVariantUnsupportedError(POST_DETAIL_SURFACE, variantNamesFor(POST_DETAIL_SURFACE).map(String), {
+          cause: unreadableAfterReadinessCause(POST_DETAIL_SURFACE),
+        });
+      }
+      // Two or more adapters claimed it.  Refuse rather than pick: a record
+      // assembled from two dialects is wrong in a way nothing downstream can
+      // detect.
+      throw new DOMVariantAmbiguousError(POST_DETAIL_SURFACE, rawPost.ambiguousVariants);
     }
+
+    // Corroborate the counters BEFORE anything reads one (#951).  `getPost`
+    // publishes the same three counters `getPostStats` does, off the same
+    // record, so it inherits the same seam #852 closed there: a counts row
+    // that resolved and yielded nothing is one observation contradicting
+    // itself, and returning zeroes off it reports "no engagement" for a row
+    // this parse simply could not read.
+    //
+    // **Ordering is the substance of #951, and this is deliberately first.**
+    // `commentCount` is read out of that row, and the cardinal check below
+    // consults it to decide whether an empty `comments: []` is legitimate — so
+    // an unread row does not merely produce a wrong count, it produces a
+    // corroborator that agrees with anything.  A cardinal is only worth
+    // consulting once the region it came from has been vouched for, and the
+    // diagnosis follows the same order: `countsRoot=rendered` sends the reader
+    // to the counter patterns, where the repair is, rather than to the comment
+    // selectors, which are fine.
+    //
+    // On today's counter domain the two tiers cannot both fire — every counter
+    // is a non-negative integer, so `commentCount > 0` implies a non-zero sum
+    // and the region tier returns before the cardinal tier could — which makes
+    // this ordering unobservable rather than inert.  That disjointness is
+    // derived from the domain, not designed into either predicate, so writing
+    // the precedence down is what keeps a later per-counter corroborator from
+    // silently changing which diagnosis a page produces.
+    //
+    // Unconditional, unlike the cardinal check below.  `post` carries the
+    // counters whatever `commentCount` was asked for — `commentCount: 0` skips
+    // comment loading, not counter reading — so gating this on `maxComments`
+    // would leave `getPost({ commentCount: 0 })` a way to obtain counters
+    // `getPostStats` would have refused to return, off the identical record.
+    //
+    // `sdui` is out of reach here for the reason it is out of reach there: that
+    // adapter declares `counts: []`, so `countsRootNarrowed` is unconditionally
+    // false and this tier is legacy-only until an SDUI counts row is measured
+    // (#950).  Nothing is guessed to widen it.
+    await assertPostDetailCountsCorroboration(client, rawPost);
 
     const post: PostDetail = {
       postUrn,
@@ -545,6 +523,50 @@ export async function getPost(input: GetPostInput): Promise<GetPostOutput> {
     // Extract all visible comments from the DOM
     const rawComments = await client.evaluate<RawComment[]>(SCRAPE_COMMENTS_SCRIPT);
     const allRaw = rawComments ?? [];
+
+    // Corroborate the scrape before trusting an empty one.  `commentCount` was
+    // read off the very page this scrape ran against, so the count and the
+    // scrape are two halves of one observation, and their disagreeing is a
+    // self-contradiction rather than two readings of different things — the
+    // shape the defect took live: `commentCount: 41` returned next to
+    // `comments: []` (#834).
+    //
+    // Only when comments were actually asked for.  `commentCount: 0` on the
+    // input means "skip comment loading entirely", so the empty list is the
+    // caller's own instruction rather than an observation, and there is
+    // nothing for the cardinal to contradict.
+    if (maxComments > 0) {
+      try {
+        assertCardinalCorroboration({
+          surface: POST_DETAIL_SURFACE,
+          variant: rawPost.variant ?? "unknown",
+          field: "comments",
+          cardinalName: "commentCount",
+          cardinal: post.commentCount,
+          extractedCount: allRaw.length,
+        });
+      } catch (error) {
+        // Capture on the way out (#835).  `assertCardinalCorroboration` is a
+        // pure predicate and holds no CDP client, so the capture cannot live
+        // inside it — this is the nearest frame that still has the page open,
+        // and it is the last one: past this `throw` the `finally` disconnects
+        // the client and the DOM that would have explained the failure is
+        // gone.
+        //
+        // Why capture here at all, when the readiness gate already captures:
+        // this failure never reaches a deadline.  The gate went green in
+        // milliseconds, an adapter matched, the post body extracted fine —
+        // and then `commentCount: 41` came back next to `comments: []`.  A
+        // timeout-gated capture cannot see that, which left the ADR-007
+        // directive "inspect these artifacts before changing post-detail
+        // selectors" undischargeable for exactly this defect class.
+        //
+        // Swallows its own errors, so `error` propagates unchanged either way.
+        await capturePostDetailExtractionFailure(client);
+        throw error;
+      }
+    }
+
     const limited = maxComments > 0 ? allRaw.slice(0, maxComments) : [];
 
     const comments: PostComment[] = limited.map((c) => ({

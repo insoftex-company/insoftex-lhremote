@@ -22,9 +22,7 @@ export async function handleVisitProfile(options: {
   json?: boolean;
 }): Promise<void> {
   if ((options.personId == null) === (options.url == null)) {
-    process.stderr.write(
-      "Exactly one of --person-id or --url must be provided.\n",
-    );
+    process.stderr.write("Exactly one of --person-id or --url must be provided.\n");
     process.exitCode = 1;
     return;
   }
@@ -39,14 +37,15 @@ export async function handleVisitProfile(options: {
       options.allowRemote ?? false,
       () =>
         visitProfile({
-      personId: options.personId,
-      url: options.url,
-      extractCurrentOrganizations: options.extractCurrentOrganizations,
-      cdpPort: options.cdpPort,
-      cdpHost: options.cdpHost,
-      allowRemote: options.allowRemote,
-      accountId: options.accountId,
-      }),
+          personId: options.personId,
+          url: options.url,
+          extractCurrentOrganizations: options.extractCurrentOrganizations,
+          cdpPort: options.cdpPort,
+          cdpHost: options.cdpHost,
+          allowRemote: options.allowRemote,
+          accountId: options.accountId,
+        }),
+      { accountId: options.accountId },
     );
   } catch (error) {
     if (error instanceof InstanceNotRunningError) {
@@ -69,9 +68,7 @@ export async function handleVisitProfile(options: {
 }
 
 function printProfile(profile: Profile): void {
-  const name = [profile.miniProfile.firstName, profile.miniProfile.lastName]
-    .filter(Boolean)
-    .join(" ");
+  const name = [profile.miniProfile.firstName, profile.miniProfile.lastName].filter(Boolean).join(" ");
 
   process.stdout.write(`${name} (#${String(profile.id)})\n`);
 
@@ -80,10 +77,7 @@ function printProfile(profile: Profile): void {
   }
 
   if (profile.currentPosition) {
-    const parts = [
-      profile.currentPosition.title,
-      profile.currentPosition.company,
-    ].filter(Boolean);
+    const parts = [profile.currentPosition.title, profile.currentPosition.company].filter(Boolean);
     if (parts.length > 0) {
       process.stdout.write(`\nCurrent: ${parts.join(" at ")}\n`);
     }
@@ -93,9 +87,7 @@ function printProfile(profile: Profile): void {
     process.stdout.write("\nPositions:\n");
     for (const pos of profile.positions) {
       const role = [pos.title, pos.company].filter(Boolean).join(" at ");
-      const dates = [pos.startDate ?? "?", pos.endDate ?? "present"].join(
-        " – ",
-      );
+      const dates = [pos.startDate ?? "?", pos.endDate ?? "present"].join(" – ");
       process.stdout.write(`  ${role} (${dates})\n`);
     }
   }
@@ -106,9 +98,7 @@ function printProfile(profile: Profile): void {
       const parts = [edu.degree, edu.field].filter(Boolean).join(" in ");
       const dates = [edu.startDate, edu.endDate].filter(Boolean).join(" – ");
       const school = edu.school ?? "";
-      const schoolWithDates = dates
-        ? [school, `(${dates})`].filter(Boolean).join(" ")
-        : school;
+      const schoolWithDates = dates ? [school, `(${dates})`].filter(Boolean).join(" ") : school;
       const line = [parts, schoolWithDates].filter(Boolean).join(", ");
       if (line) {
         process.stdout.write(`  ${line}\n`);
@@ -117,21 +107,15 @@ function printProfile(profile: Profile): void {
   }
 
   if (profile.skills.length > 0) {
-    process.stdout.write(
-      `\nSkills: ${profile.skills.map((s) => s.name).join(", ")}\n`,
-    );
+    process.stdout.write(`\nSkills: ${profile.skills.map((s) => s.name).join(", ")}\n`);
   }
 
   if (profile.emails.length > 0) {
     process.stdout.write(`Email: ${profile.emails.join(", ")}\n`);
   }
 
-  const publicExtId = profile.externalIds.find(
-    (e) => e.typeGroup === "public",
-  );
+  const publicExtId = profile.externalIds.find((e) => e.typeGroup === "public");
   if (publicExtId) {
-    process.stdout.write(
-      `\nLinkedIn: linkedin.com/in/${publicExtId.externalId}\n`,
-    );
+    process.stdout.write(`\nLinkedIn: linkedin.com/in/${publicExtId.externalId}\n`);
   }
 }

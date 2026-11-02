@@ -1,7 +1,13 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 // Copyright (C) 2026 Oleksii PELYKH
 
-import { CDPConnectionError, discoverInstancePort, discoverTargets, invalidateProcessCache, scanRunningInstances } from "../cdp/index.js";
+import {
+  CDPConnectionError,
+  discoverInstancePort,
+  discoverTargets,
+  invalidateProcessCache,
+  scanRunningInstances,
+} from "../cdp/index.js";
 import type { RunningInstance } from "../cdp/index.js";
 import type { CdpTarget } from "../types/cdp.js";
 import { delay } from "../utils/delay.js";
@@ -61,15 +67,9 @@ export type StartInstanceOutcome =
  * "first instance port wins" discovery to decide whether account `X` is
  * already running or to report which port a fresh start produced.
  */
-async function findRunningInstanceForAccount(
-  accountId: number,
-): Promise<RunningInstance | null> {
+async function findRunningInstanceForAccount(accountId: number): Promise<RunningInstance | null> {
   const instances = await scanRunningInstances();
-  return (
-    instances.find(
-      (instance) => instance.accountId === accountId && instance.connectable,
-    ) ?? null
-  );
+  return instances.find((instance) => instance.accountId === accountId && instance.connectable) ?? null;
 }
 
 /**
@@ -88,14 +88,24 @@ export async function startInstanceWithRecovery(
   launcher: LauncherService,
   accountId: number,
   launcherPort: number,
+  signal?: AbortSignal,
 ): Promise<StartInstanceOutcome> {
+  signal?.throwIfAborted();
   try {
     await launcher.startInstance(accountId);
   } catch (error) {
-    if (
-      error instanceof StartInstanceError &&
-      error.message.includes("already running")
-    ) {
+    signal?.throwIfAborted();
+    // `instanceof` establishes the value is a `StartInstanceError`; it
+    // establishes NOTHING about `message`, which is typed `string` but is not
+    // one by construction.  Calling `.includes` on a non-string one would raise
+    // `TypeError` from inside this catch -- reading the property merely yields
+    // `undefined`; it is the call that throws -- replacing the launcher's own
+    // failure with an unrelated type error.  See `utils/error-message.ts`
+    // § `ownText` for where that contract is stated and where such a `message`
+    // comes from; its `try` and `isError` guards are deliberately not adopted
+    // here, so a prototype-less or hostile `message` still throws, now from
+    // `String()` rather than `.includes`.
+    if (error instanceof StartInstanceError && String(error.message).includes("already running")) {
       let existingInstance: RunningInstance | null = null;
       let accountScanFailed = false;
       try {
@@ -110,7 +120,7 @@ export async function startInstanceWithRecovery(
       }
 
       if (existingPort !== null) {
-        const targetsReady = await waitForInstanceTargets(existingPort);
+        const targetsReady = await waitForInstanceTargets(existingPort, signal);
         if (!targetsReady) {
           await checkForStartupPopups(existingPort, accountId);
           return { status: "timeout" };
@@ -127,8 +137,10 @@ export async function startInstanceWithRecovery(
       }
 
       // Stale state — crash recovery
+      signal?.throwIfAborted();
       await launcher.stopInstanceWithDialogDismissal(accountId);
-      await delay(CRASH_RECOVERY_DELAY);
+      await delay(CRASH_RECOVERY_DELAY, signal);
+      signal?.throwIfAborted();
       await launcher.startInstance(accountId);
     } else {
       throw error;
@@ -137,13 +149,14 @@ export async function startInstanceWithRecovery(
 
   const startedInstance = await waitForInstanceForAccount(accountId, {
     launcherPort,
+    ...(signal !== undefined ? { signal } : {}),
   });
   if (startedInstance === null || startedInstance.cdpPort === null) {
     return { status: "timeout" };
   }
   const port = startedInstance.cdpPort;
 
-  const targetsReady = await waitForInstanceTargets(port);
+  const targetsReady = await waitForInstanceTargets(port, signal);
   if (!targetsReady) {
     // Check for popups before returning a generic timeout — an error popup
     // is more actionable than "failed to initialize within timeout".
@@ -176,12 +189,7 @@ async function verifyInstanceStarted(
 ): Promise<{ pid: number | undefined; verified: boolean }> {
   try {
     const instances = await scanRunningInstances();
-    const match = instances.find(
-      (i) =>
-        i.accountId === accountId &&
-        i.connectable &&
-        i.cdpPort === expectedPort,
-    );
+    const match = instances.find((i) => i.accountId === accountId && i.connectable && i.cdpPort === expectedPort);
     if (match) {
       return { pid: match.pid, verified: true };
     }
@@ -200,9 +208,7 @@ async function verifyInstanceStarted(
  * responds to the CDP `/json/list` endpoint, so the returned port is
  * guaranteed to be a working CDP port.
  */
-export async function waitForInstancePort(
-  launcherPort: number,
-): Promise<number | null> {
+export async function waitForInstancePort(launcherPort: number): Promise<number | null> {
   const deadline = Date.now() + PORT_DISCOVERY_TIMEOUT;
 
   while (Date.now() < deadline) {
@@ -227,19 +233,16 @@ export async function waitForInstancePort(
  */
 export async function waitForInstanceForAccount(
   accountId: number,
-  options?: { launcherPort?: number },
+  options?: { launcherPort?: number; signal?: AbortSignal },
 ): Promise<RunningInstance | null> {
   const deadline = Date.now() + PORT_DISCOVERY_TIMEOUT;
   const launcherPort = options?.launcherPort ?? 9222;
 
   while (Date.now() < deadline) {
+    options?.signal?.throwIfAborted();
     invalidateProcessCache();
 
-    let scanFailed = false;
-    const byAccount = await findRunningInstanceForAccount(accountId).catch(() => {
-      scanFailed = true;
-      return null;
-    });
+    const byAccount = await findRunningInstanceForAccount(accountId).catch(() => null);
     if (byAccount?.cdpPort != null) {
       return byAccount;
     }
@@ -248,27 +251,14 @@ export async function waitForInstanceForAccount(
     if (fallbackPort !== null) {
       const verified = await verifyInstanceStarted(accountId, fallbackPort);
       if (verified.verified) {
-        const refreshed = await findRunningInstanceForAccount(accountId).catch(
-          () => null,
-        );
+        const refreshed = await findRunningInstanceForAccount(accountId).catch(() => null);
         if (refreshed?.cdpPort != null) {
           return refreshed;
         }
       }
-      if (scanFailed) {
-        return {
-          pid: verified.pid ?? -1,
-          accountId,
-          cdpPort: fallbackPort,
-          connectable: true,
-          helperChildCount: 0,
-          source: "cmdline",
-          confidence: "unknown",
-        };
-      }
     }
 
-    await delay(PORT_DISCOVERY_INTERVAL);
+    await delay(PORT_DISCOVERY_INTERVAL, options?.signal);
   }
 
   return null;
@@ -280,9 +270,7 @@ export async function waitForInstanceForAccount(
  * Use after `stopInstance()` to ensure the process has fully exited
  * before starting a new instance.
  */
-export async function waitForInstanceShutdown(
-  launcherPort: number,
-): Promise<void> {
+export async function waitForInstanceShutdown(launcherPort: number): Promise<void> {
   const deadline = Date.now() + PORT_SHUTDOWN_TIMEOUT;
 
   while (Date.now() < deadline) {
@@ -331,18 +319,14 @@ function pidExists(pid: number): boolean {
  * @param timeoutMs - Maximum wait in ms.
  * @param signal    - Optional cancellation signal; exits early when fired.
  */
-export async function waitForPidExit(
-  pid: number,
-  timeoutMs = PID_EXIT_TIMEOUT,
-  signal?: AbortSignal,
-): Promise<void> {
+export async function waitForPidExit(pid: number, timeoutMs = PID_EXIT_TIMEOUT, signal?: AbortSignal): Promise<void> {
   const deadline = Date.now() + timeoutMs;
 
   while (Date.now() < deadline) {
-    if (signal?.aborted) return;
+    signal?.throwIfAborted();
     invalidateProcessCache();
     if (!pidExists(pid)) return;
-    await delay(PID_EXIT_INTERVAL);
+    await delay(PID_EXIT_INTERVAL, signal);
   }
 }
 
@@ -354,12 +338,11 @@ export async function waitForPidExit(
  * created both targets.  This function bridges the gap between
  * "process is alive" and "instance is fully initialized".
  */
-export async function waitForInstanceTargets(
-  port: number,
-): Promise<boolean> {
+export async function waitForInstanceTargets(port: number, signal?: AbortSignal): Promise<boolean> {
   const deadline = Date.now() + TARGET_DISCOVERY_TIMEOUT;
 
   while (Date.now() < deadline) {
+    signal?.throwIfAborted();
     try {
       const targets = await discoverTargets(port);
       const hasLinkedIn = targets.some(isLinkedInTarget);
@@ -373,7 +356,7 @@ export async function waitForInstanceTargets(
       }
       // CDP endpoint not ready yet — retry
     }
-    await delay(TARGET_DISCOVERY_INTERVAL);
+    await delay(TARGET_DISCOVERY_INTERVAL, signal);
   }
 
   return false;
@@ -393,25 +376,14 @@ function isUiTarget(target: CdpTarget): boolean {
  * Throws {@link StartInstanceError} if any popups are detected.
  * Silently returns if the popup check itself fails (best-effort).
  */
-async function checkForStartupPopups(
-  port: number,
-  accountId: number,
-): Promise<void> {
+async function checkForStartupPopups(port: number, accountId: number): Promise<void> {
   const instance = new InstanceService(port);
   try {
     await instance.connectUiOnly();
     const popups = await instance.getInstancePopups();
     if (popups.length > 0) {
-      const details = popups
-        .map(
-          (p) =>
-            `${p.title}${p.description ? ` — ${p.description}` : ""}`,
-        )
-        .join("; ");
-      throw new StartInstanceError(
-        accountId,
-        `instance has error popups: ${details}`,
-      );
+      const details = popups.map((p) => `${p.title}${p.description ? ` — ${p.description}` : ""}`).join("; ");
+      throw new StartInstanceError(accountId, `instance has error popups: ${details}`);
     }
   } catch (error) {
     if (error instanceof StartInstanceError) {

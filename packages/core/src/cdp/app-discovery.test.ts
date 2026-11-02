@@ -49,7 +49,13 @@ function launcherProc(pid: number, ppid = 0): RawProcess {
   };
 }
 
-function instanceProc(pid: number, ppid: number, appId: number, name = "Test User", email = "test@example.com"): RawProcess {
+function instanceProc(
+  pid: number,
+  ppid: number,
+  appId: number,
+  name = "Test User",
+  email = "test@example.com",
+): RawProcess {
   return {
     pid,
     ppid,
@@ -157,8 +163,8 @@ describe("findApp basic discovery", () => {
     // Regression: old code gated isCdpPort behind ports.has(cmdlinePort), so a
     // stale listListeningTcpPorts result produced a false-negative connectable=false.
     mockedGatherRawProcesses.mockResolvedValue([launcherProc(1000)]);
-    mockedListListeningPorts.mockResolvedValue([]);  // stale — cmdline port absent
-    mockedIsCdpPort.mockResolvedValue(true);         // but port IS responsive
+    mockedListListeningPorts.mockResolvedValue([]); // stale — cmdline port absent
+    mockedIsCdpPort.mockResolvedValue(true); // but port IS responsive
 
     const result = await findApp();
     expect(result[0]).toMatchObject({ pid: 1000, cdpPort: 9222, connectable: true });
@@ -217,10 +223,7 @@ describe("findApp role classification", () => {
   });
 
   it("classifies process with --app-id= as instance", async () => {
-    mockedGatherRawProcesses.mockResolvedValue([
-      launcherProc(1000),
-      instanceProc(2000, 1000, 347559),
-    ]);
+    mockedGatherRawProcesses.mockResolvedValue([launcherProc(1000), instanceProc(2000, 1000, 347559)]);
 
     const result = await findApp();
     expect(result.find((a) => a.pid === 1000)?.role).toBe("launcher");
@@ -238,7 +241,7 @@ describe("findApp role classification", () => {
     ]);
 
     const result = await findApp();
-    expect(result).toHaveLength(2);  // launcher + instance only
+    expect(result).toHaveLength(2); // launcher + instance only
     expect(result.every((a) => a.role !== "helper-child")).toBe(true);
   });
 
@@ -258,7 +261,7 @@ describe("findApp role classification", () => {
 
   it("falls back to parent-PID heuristic when cmdline is null", async () => {
     mockedGatherRawProcesses.mockResolvedValue([
-      { pid: 1000, ppid: 999, name: "linked-helper.exe", cmdline: null },  // ppid not in LH set → launcher
+      { pid: 1000, ppid: 999, name: "linked-helper.exe", cmdline: null }, // ppid not in LH set → launcher
       { pid: 2000, ppid: 1000, name: "linked-helper.exe", cmdline: null }, // ppid in LH set → instance
     ]);
 
@@ -349,10 +352,10 @@ describe("findApp: 3 running instances (not 7 configured accounts)", () => {
       launcherProc(15576),
       instanceProc(13004, 15576, 347559, "Vira Lyn", "viraInsoftex@gmail.com"),
       instanceProc(13640, 15576, 329925, "Mike Florko", "mike@insoftex.com"),
-      instanceProc(7044,  15576, 331874, "Michael Fliorko", "mfliorko@insoftex.com"),
+      instanceProc(7044, 15576, 331874, "Michael Fliorko", "mfliorko@insoftex.com"),
       helperProc(8001, 13004, "gpu-process"),
       helperProc(8002, 13640, "gpu-process"),
-      helperProc(8003, 7044,  "gpu-process"),
+      helperProc(8003, 7044, "gpu-process"),
     ]);
 
     const result = await findApp();
@@ -377,12 +380,12 @@ describe("findApp CDP port wiring", () => {
     mockedGatherRawProcesses.mockResolvedValue([
       instanceProc(13004, 0, 347559),
       instanceProc(13640, 0, 329925),
-      instanceProc(7044,  0, 331874),
+      instanceProc(7044, 0, 331874),
     ]);
     mockedListListeningPorts.mockImplementation(async (pid: number) => {
       if (pid === 13004) return [50297];
       if (pid === 13640) return [56429];
-      if (pid === 7044)  return [49530];
+      if (pid === 7044) return [49530];
       return [];
     });
     mockedIsCdpPort.mockImplementation(async (port: number) => [50297, 56429, 49530].includes(port));
@@ -390,7 +393,7 @@ describe("findApp CDP port wiring", () => {
     const result = await findApp();
     expect(result.find((a) => a.pid === 13004)).toMatchObject({ cdpPort: 50297, connectable: true });
     expect(result.find((a) => a.pid === 13640)).toMatchObject({ cdpPort: 56429, connectable: true });
-    expect(result.find((a) => a.pid === 7044 )).toMatchObject({ cdpPort: 49530, connectable: true });
+    expect(result.find((a) => a.pid === 7044)).toMatchObject({ cdpPort: 49530, connectable: true });
   });
 });
 
@@ -416,12 +419,14 @@ describe("findApp identity parsing", () => {
 
   it("classifies process without --app-id as launcher (not instance)", async () => {
     // A process with no --app-id is the launcher regardless of path.
-    mockedGatherRawProcesses.mockResolvedValue([{
-      pid: 2000,
-      ppid: 0,
-      name: "linked-helper.exe",
-      cmdline: "C:\\path\\linked-helper.exe --env=PROD",
-    }]);
+    mockedGatherRawProcesses.mockResolvedValue([
+      {
+        pid: 2000,
+        ppid: 0,
+        name: "linked-helper.exe",
+        cmdline: "C:\\path\\linked-helper.exe --env=PROD",
+      },
+    ]);
 
     const result = await findApp();
     expect(result[0]?.role).toBe("launcher");
@@ -442,7 +447,7 @@ describe("findApp identity parsing", () => {
     mockedGatherRawProcesses.mockResolvedValue([
       instanceProc(13004, 0, 347559, "Vira Lyn", "vira@example.com"),
       instanceProc(13640, 0, 329925, "Mike Florko", "mike@example.com"),
-      instanceProc(7044,  0, 331874, "Michael Fliorko", "michael@example.com"),
+      instanceProc(7044, 0, 331874, "Michael Fliorko", "michael@example.com"),
     ]);
 
     const result = await findApp();
@@ -494,8 +499,8 @@ describe("findApp result ordering", () => {
 
   it("places connectable entries before non-connectable ones", async () => {
     mockedGatherRawProcesses.mockResolvedValue([
-      instanceProc(100, 0, 111),  // non-connectable
-      instanceProc(200, 0, 222),  // connectable
+      instanceProc(100, 0, 111), // non-connectable
+      instanceProc(200, 0, 222), // connectable
     ]);
     mockedListListeningPorts.mockImplementation(async (pid: number) => {
       if (pid === 200) return [54321];
@@ -525,10 +530,7 @@ describe("resolveAppPort", () => {
   });
 
   it("returns launcher port when launcher role requested", async () => {
-    mockedGatherRawProcesses.mockResolvedValue([
-      launcherProc(1000),
-      instanceProc(2000, 1000, 347559),
-    ]);
+    mockedGatherRawProcesses.mockResolvedValue([launcherProc(1000), instanceProc(2000, 1000, 347559)]);
     mockedListListeningPorts.mockImplementation(async (pid: number) => {
       if (pid === 1000) return [9222];
       if (pid === 2000) return [55660];
@@ -540,10 +542,7 @@ describe("resolveAppPort", () => {
   });
 
   it("returns instance port when instance role requested", async () => {
-    mockedGatherRawProcesses.mockResolvedValue([
-      launcherProc(1000),
-      instanceProc(2000, 1000, 347559),
-    ]);
+    mockedGatherRawProcesses.mockResolvedValue([launcherProc(1000), instanceProc(2000, 1000, 347559)]);
     mockedListListeningPorts.mockImplementation(async (pid: number) => {
       if (pid === 1000) return [9222];
       if (pid === 2000) return [55660];
@@ -594,10 +593,7 @@ describe("resolveInstancePort", () => {
   });
 
   it("auto-discovers when no host specified", async () => {
-    mockedGatherRawProcesses.mockResolvedValue([
-      launcherProc(1000),
-      instanceProc(2000, 1000, 347559),
-    ]);
+    mockedGatherRawProcesses.mockResolvedValue([launcherProc(1000), instanceProc(2000, 1000, 347559)]);
     mockedListListeningPorts.mockImplementation(async (pid: number) => {
       if (pid === 1000) return [9222];
       if (pid === 2000) return [55660];
@@ -609,10 +605,7 @@ describe("resolveInstancePort", () => {
   });
 
   it("auto-discovers when host is loopback", async () => {
-    mockedGatherRawProcesses.mockResolvedValue([
-      launcherProc(1000),
-      instanceProc(2000, 1000, 347559),
-    ]);
+    mockedGatherRawProcesses.mockResolvedValue([launcherProc(1000), instanceProc(2000, 1000, 347559)]);
     mockedListListeningPorts.mockImplementation(async (pid: number) => {
       if (pid === 1000) return [9222];
       if (pid === 2000) return [55660];
@@ -717,12 +710,14 @@ describe("findApp multi-socket port selection", () => {
   it("falls back to probing all ports when process has no --remote-debugging-port in cmdline", async () => {
     // A launcher without the flag (unusual) still gets port selection via the
     // sequential-probe fallback path.
-    mockedGatherRawProcesses.mockResolvedValue([{
-      pid: 12548,
-      ppid: 0,
-      name: "linked-helper.exe",
-      cmdline: "C:\\path\\linked-helper.exe --some-flag",
-    }]);
+    mockedGatherRawProcesses.mockResolvedValue([
+      {
+        pid: 12548,
+        ppid: 0,
+        name: "linked-helper.exe",
+        cmdline: "C:\\path\\linked-helper.exe --some-flag",
+      },
+    ]);
     mockedListListeningPorts.mockResolvedValue([51664, 9222]);
     mockedIsCdpPort.mockImplementation(async (port) => port === 9222);
 
@@ -741,11 +736,61 @@ describe("findApp multi-socket port selection", () => {
     mockedListListeningPorts.mockResolvedValue([51664, 9222]);
     mockedIsCdpPort.mockImplementation(async (port) => port === 9222);
 
-    const results = await Promise.all(
-      Array.from({ length: 20 }, () => resolveAppPort("launcher", 0)),
-    );
+    const results = await Promise.all(Array.from({ length: 20 }, () => resolveAppPort("launcher", 0)));
 
     expect(results).toHaveLength(20);
     expect(results.every((p) => p === 9222)).toBe(true);
+  });
+});
+
+// Regression: account selection must bind identity before any CDP interaction.
+describe("account-bound instance resolution", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockedGatherRawProcesses.mockResolvedValue([
+      launcherProc(1000),
+      {
+        ...instanceProc(2000, 1000, 101),
+        cmdline: instanceProc(2000, 1000, 101).cmdline + " --remote-debugging-port=11111",
+      },
+      {
+        ...instanceProc(3000, 1000, 202),
+        cmdline: instanceProc(3000, 1000, 202).cmdline + " --remote-debugging-port=12222",
+      },
+    ]);
+    mockedIsCdpPort.mockResolvedValue(true);
+  });
+
+  it("selects account B even when account A is enumerated first", async () => {
+    expect(await resolveInstancePort(undefined, undefined, 0, 202)).toBe(12222);
+  });
+  it("rejects an explicit account-A port for account B", async () => {
+    await expect(resolveInstancePort(11111, undefined, 0, 202)).rejects.toThrow("does not belong to account 202");
+  });
+  it("accepts an explicit port only when its identity matches", async () => {
+    expect(await resolveInstancePort(12222, undefined, 0, 202)).toBe(12222);
+  });
+  it("selects the account-specific instance when given a launcher port", async () => {
+    expect(await resolveInstancePort(9222, undefined, 0, 202)).toBe(12222);
+  });
+  it("rejects missing or unidentifiable accounts and unknown explicit ports", async () => {
+    await expect(resolveInstancePort(undefined, undefined, 0, 303)).rejects.toThrow("Account 303");
+    await expect(resolveInstancePort(13333, undefined, 0, 202)).rejects.toThrow("Cannot verify account");
+    mockedGatherRawProcesses.mockResolvedValue([
+      {
+        pid: 2000,
+        ppid: 1000,
+        name: "linked-helper.exe",
+        cmdline: "linked-helper.exe --app-id=0 --remote-debugging-port=11111",
+      },
+    ]);
+    await expect(resolveInstancePort(11111, undefined, 0, 202)).rejects.toThrow("does not belong");
+  });
+  it("refuses ambiguous automatic selection without accountId", async () => {
+    await expect(resolveInstancePort()).rejects.toThrow("Multiple LinkedHelper instances");
+  });
+  it("does not claim local process inspection verifies a remote account", async () => {
+    await expect(resolveInstancePort(11111, "192.0.2.1", 0, 202)).rejects.toThrow("local process inspection");
+    expect(mockedGatherRawProcesses).not.toHaveBeenCalled();
   });
 });

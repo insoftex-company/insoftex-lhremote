@@ -6,15 +6,12 @@ import { CDPClient } from "../cdp/client.js";
 import { discoverTargets } from "../cdp/discovery.js";
 import { humanizedScrollToByIndex } from "../linkedin/dom-automation.js";
 import type { HumanizedMouse } from "../linkedin/humanized-mouse.js";
+import { FEED_POST_MENU_BUTTON } from "../linkedin/selectors.js";
 import { gaussianDelay, maybeHesitate } from "../utils/delay.js";
 import type { ConnectionOptions } from "./types.js";
 import { navigateAwayIf } from "./navigate-away.js";
 import { waitForFeedLoad } from "./get-feed.js";
 import { gateOnLoggedInState } from "./wait-for-logged-in-state.js";
-
-/** CSS selector for feed post menu buttons. */
-const FEED_MENU_BUTTON_SELECTOR =
-  '[data-testid="mainFeed"] div[role="listitem"] button[aria-label^="Open control menu for post"]';
 
 export interface DismissFeedPostInput extends ConnectionOptions {
   /** Zero-based index of the post in the visible LinkedIn feed. */
@@ -47,11 +44,11 @@ async function clickNotInterested(
 ): Promise<boolean> {
   await maybeHesitate();
 
-  await humanizedScrollToByIndex(client, FEED_MENU_BUTTON_SELECTOR, postIndex, mouse);
+  await humanizedScrollToByIndex(client, FEED_POST_MENU_BUTTON, postIndex, mouse);
 
   const clicked = await client.evaluate<boolean>(`(() => {
     const btns = document.querySelectorAll(
-      ${JSON.stringify(FEED_MENU_BUTTON_SELECTOR)}
+      ${JSON.stringify(FEED_POST_MENU_BUTTON)}
     );
     const btn = btns[${postIndex}];
     if (!btn) return false;
@@ -60,9 +57,7 @@ async function clickNotInterested(
   })()`);
 
   if (!clicked) {
-    throw new Error(
-      "Failed to open the three-dot menu for the target post.",
-    );
+    throw new Error("Failed to open the three-dot menu for the target post.");
   }
 
   await gaussianDelay(700, 100, 500, 900);
@@ -107,10 +102,8 @@ async function clickNotInterested(
  * @throws When the menu button is not found or "Not interested" is not
  *   available in its menu.
  */
-export async function dismissFeedPost(
-  input: DismissFeedPostInput,
-): Promise<DismissFeedPostOutput> {
-  const cdpPort = await resolveInstancePort(input.cdpPort, input.cdpHost);
+export async function dismissFeedPost(input: DismissFeedPostInput): Promise<DismissFeedPostOutput> {
+  const cdpPort = await resolveInstancePort(input.cdpPort, input.cdpHost, undefined, input.accountId);
   const cdpHost = input.cdpHost ?? "127.0.0.1";
   const allowRemote = input.allowRemote ?? false;
 
@@ -125,14 +118,11 @@ export async function dismissFeedPost(
   await gateOnLoggedInState(cdpPort, cdpHost, allowRemote, { timeout: 60_000 });
 
   const targets = await discoverTargets(cdpPort, cdpHost);
-  const linkedInTarget = targets.find(
-    (t) => t.type === "page" && t.url?.includes("linkedin.com"),
-  );
+  const linkedInTarget = targets.find((t) => t.type === "page" && t.url?.includes("linkedin.com"));
 
   if (!linkedInTarget) {
     throw new Error(
-      "No LinkedIn page found in LinkedHelper. " +
-        "Ensure LinkedHelper is running with an active LinkedIn session.",
+      "No LinkedIn page found in LinkedHelper. " + "Ensure LinkedHelper is running with an active LinkedIn session.",
     );
   }
 

@@ -7,10 +7,36 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import type { DatabaseClient } from "../client.js";
 import { ActionBudgetRepository } from "./action-budget.js";
 
-function toSqliteLocalDate(date: Date): string {
-  const year = date.getFullYear().toString().padStart(4, "0");
-  const month = (date.getMonth() + 1).toString().padStart(2, "0");
-  const day = date.getDate().toString().padStart(2, "0");
+/**
+ * A **local** calendar date, formatted `YYYY-MM-DD`, shifted by `offsetDays`
+ * (`0` for today, `-1` for yesterday).
+ *
+ * The repository filters on `date('now', 'localtime')` — the operator's own
+ * calendar day — so the fixture has to build that same day.  `toISOString()`
+ * yields the *UTC* day instead, and the two disagree for one offset-width of
+ * every day: on a machine ahead of UTC once local has rolled over and UTC has
+ * not, on one behind UTC once UTC has rolled over and local has not.  Inside
+ * that window the fixture seeds rows the query then refuses to count, so the
+ * suite failed nightly off-UTC while CI — which runs in UTC, where the two
+ * days coincide by construction — stayed green (#942).
+ *
+ * Do not reach for `vi.setSystemTime()` to make this deterministic: it moves
+ * Node's clock only, while SQLite's `'now'` reads the OS clock, so freezing
+ * one side re-opens the very disagreement this closes.
+ *
+ * @param offsetDays  Whole days to shift, in local calendar terms.
+ */
+function localDate(offsetDays = 0): string {
+  const d = new Date();
+  // Anchor at local noon before shifting: `setDate` moves whole calendar days,
+  // and noon is far enough from either edge that a DST transition cannot push
+  // the result into an adjacent day.
+  d.setHours(12, 0, 0, 0);
+  d.setDate(d.getDate() + offsetDays);
+
+  const year = d.getFullYear();
+  const month = String(d.getMonth() + 1).padStart(2, "0");
+  const day = String(d.getDate()).padStart(2, "0");
   return `${year}-${month}-${day}`;
 }
 
@@ -73,7 +99,7 @@ function createBudgetDb(): DatabaseSync {
   `);
 
   // Insert today's results
-  const today = toSqliteLocalDate(new Date());
+  const today = localDate();
   db.exec(`
     INSERT INTO action_results (action_version_id, person_id, result, created_at)
     VALUES
@@ -84,7 +110,7 @@ function createBudgetDb(): DatabaseSync {
   `);
 
   // Insert yesterday's results (should NOT be counted)
-  const yesterday = toSqliteLocalDate(new Date(Date.now() - 86_400_000));
+  const yesterday = localDate(-1);
   db.exec(`
     INSERT INTO action_results (action_version_id, person_id, result, created_at)
     VALUES

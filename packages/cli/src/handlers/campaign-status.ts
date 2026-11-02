@@ -10,7 +10,7 @@ import {
   type CampaignStatusOutput,
 } from "@insoftex/lhremote-core";
 
-/** Handle the {@link https://github.com/insoftex-company/insoftex-lhremote#campaigns | campaign-status} CLI command. */
+/** Handle the {@link https://github.com/alexey-pelykh/lhremote#campaign-status--retry | campaign-status} CLI command. */
 export async function handleCampaignStatus(
   campaignId: number,
   options: {
@@ -38,9 +38,7 @@ export async function handleCampaignStatus(
     if (error instanceof CampaignNotFoundError) {
       process.stderr.write(`Campaign ${String(campaignId)} not found.\n`);
     } else if (error instanceof CampaignExecutionError) {
-      process.stderr.write(
-        `Failed to get campaign status: ${error.message}\n`,
-      );
+      process.stderr.write(`Failed to get campaign status: ${error.message}\n`);
     } else if (error instanceof InstanceNotRunningError) {
       process.stderr.write(`${error.message}\n`);
     } else {
@@ -75,9 +73,7 @@ export async function handleCampaignStatus(
         for (const r of results) {
           let line = `  Person ${String(r.personId)}`;
           if (r.profile) {
-            const name = [r.profile.firstName, r.profile.lastName]
-              .filter(Boolean)
-              .join(" ");
+            const name = [r.profile.firstName, r.profile.lastName].filter(Boolean).join(" ");
             if (name) line += ` (${name})`;
           }
           line += `: result=${String(r.result)} (action version #${String(r.actionVersionId)})`;

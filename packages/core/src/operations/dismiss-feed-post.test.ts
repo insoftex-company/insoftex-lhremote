@@ -41,6 +41,7 @@ import { gateOnLoggedInState } from "./wait-for-logged-in-state.js";
 
 import { CDPClient } from "../cdp/client.js";
 import { discoverTargets } from "../cdp/discovery.js";
+import { humanizedScrollToByIndex } from "../linkedin/dom-automation.js";
 import { dismissFeedPost } from "./dismiss-feed-post.js";
 
 const mockClient = {
@@ -55,7 +56,14 @@ function setupMocks() {
     return mockClient as unknown as CDPClient;
   });
   vi.mocked(discoverTargets).mockResolvedValue([
-    { id: "target-1", type: "page", title: "LinkedIn", url: "https://www.linkedin.com/feed/", description: "", devtoolsFrontendUrl: "" },
+    {
+      id: "target-1",
+      type: "page",
+      title: "LinkedIn",
+      url: "https://www.linkedin.com/feed/",
+      description: "",
+      devtoolsFrontendUrl: "",
+    },
   ]);
 }
 
@@ -117,7 +125,14 @@ describe("dismissFeedPost", () => {
 
   it("throws when no LinkedIn page is found", async () => {
     vi.mocked(discoverTargets).mockResolvedValue([
-      { id: "target-1", type: "page", title: "Example", url: "https://example.com", description: "", devtoolsFrontendUrl: "" },
+      {
+        id: "target-1",
+        type: "page",
+        title: "Example",
+        url: "https://example.com",
+        description: "",
+        devtoolsFrontendUrl: "",
+      },
     ]);
 
     await expect(
@@ -142,6 +157,40 @@ describe("dismissFeedPost", () => {
       feedIndex: 0,
       dryRun: false,
     });
+  });
+
+  it("scrolls menu button into view and clicks by index", async () => {
+    setupMocks();
+    setupFeedWithNotInterested();
+
+    await dismissFeedPost({
+      feedIndex: 0,
+      cdpPort: 9222,
+    });
+
+    // The literal is spelled out rather than imported from the registry on
+    // purpose: importing FEED_POST_MENU_BUTTON would compare the constant
+    // with itself and pass through any change to it.  Spelled out, a change
+    // to the registry value fails HERE, loudly, the way it already does for
+    // hide-feed-author and unfollow-from-feed (lhremote#856).
+    const EXPECTED_MENU_BUTTON_SELECTOR =
+      '[data-testid="mainFeed"] div[role="listitem"] button[aria-label^="Open control menu for post"]';
+
+    expect(humanizedScrollToByIndex).toHaveBeenCalledWith(mockClient, EXPECTED_MENU_BUTTON_SELECTOR, 0, undefined);
+
+    // The second consumer: the menu button is clicked via evaluate (by
+    // index), not humanizedClick, and that script embeds the same selector.
+    // A bare `expect(evaluate).toHaveBeenCalled()` -- which the two sibling
+    // tests carry in this slot -- cannot fail once the await above has
+    // resolved, since dismissFeedPost throws when either evaluate is missing.
+    const clickScripts = mockClient.evaluate.mock.calls
+      .map((call) => String(call[0]))
+      .filter((script) => script.includes("btn.click()"));
+
+    expect(clickScripts.length).toBeGreaterThan(0);
+    for (const script of clickScripts) {
+      expect(script).toContain(JSON.stringify(EXPECTED_MENU_BUTTON_SELECTOR));
+    }
   });
 
   it("throws when Not interested is not in the menu", async () => {

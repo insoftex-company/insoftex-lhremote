@@ -33,11 +33,7 @@ vi.mock("../operation-registry.js", async (importOriginal) => {
   };
 });
 
-import {
-  type EnsureInstanceResult,
-  acquireLauncherWithRecovery,
-  ensureInstances,
-} from "@insoftex/lhremote-core";
+import { type EnsureInstanceResult, acquireLauncherWithRecovery, ensureInstances } from "@insoftex/lhremote-core";
 
 import { registerEnsureInstances } from "./ensure-instances.js";
 import { createMockServer } from "./testing/mock-server.js";
@@ -49,9 +45,9 @@ import { createMockServer } from "./testing/mock-server.js";
 function mockLauncherConnection(port = 9222) {
   const disconnect = vi.fn();
   const mockLauncher = { disconnect, currentPort: port };
-  vi.mocked(acquireLauncherWithRecovery).mockResolvedValue(
-    { launcher: mockLauncher } as unknown as Awaited<ReturnType<typeof acquireLauncherWithRecovery>>,
-  );
+  vi.mocked(acquireLauncherWithRecovery).mockResolvedValue({ launcher: mockLauncher } as unknown as Awaited<
+    ReturnType<typeof acquireLauncherWithRecovery>
+  >);
   return { disconnect, mockLauncher };
 }
 
@@ -113,11 +109,10 @@ describe("registerEnsureInstances", () => {
     const handler = getHandler("ensure-instances");
     await handler({ accountIds: [42], cdpPort: 9222 });
 
-    expect(vi.mocked(ensureInstances)).toHaveBeenCalledWith(
-      [42],
-      expect.any(Object),
-      9222,
-    );
+    expect(vi.mocked(ensureInstances)).toHaveBeenCalledWith([42], expect.any(Object), 9222, {
+      signal: expect.any(AbortSignal),
+      progress: expect.any(Function),
+    });
   });
 
   it("disconnects after completion", async () => {

@@ -24,6 +24,13 @@ const mockedHomedir = vi.mocked(homedir);
 
 afterEach(() => {
   vi.restoreAllMocks();
+  // Every test below stubs `process` in its own body, and `vi.stubGlobal` is
+  // undone by neither reset nor restore — so without this a test that set no
+  // `platform` of its own would silently inherit the previous test's, and the
+  // last one would stay installed for the rest of the file (#935).  Bounded
+  // there, not beyond it: `isolate` defaults to true, so nothing crosses into
+  // the next file.  Not the Tier-1 network guard here, but the same leak.
+  vi.unstubAllGlobals();
 });
 
 describe("discoverDatabase", () => {
@@ -74,12 +81,7 @@ describe("discoverDatabase", () => {
     const result = discoverDatabase(100);
 
     expect(result).toBe(
-      join(
-        "/home/alice/.config/linked-helper",
-        "Partitions",
-        "linked-helper-account-100-main",
-        "lh.db",
-      ),
+      join("/home/alice/.config/linked-helper", "Partitions", "linked-helper-account-100-main", "lh.db"),
     );
   });
 
@@ -108,21 +110,13 @@ describe("discoverAllDatabases", () => {
     vi.stubGlobal("process", { ...process, platform: "darwin" });
     mockedHomedir.mockReturnValue("/Users/alice");
 
-    const baseDir = join(
-      "/Users/alice",
-      "Library",
-      "Application Support",
-      "linked-helper",
-      "Partitions",
-    );
+    const baseDir = join("/Users/alice", "Library", "Application Support", "linked-helper", "Partitions");
 
     mockedExistsSync.mockImplementation((p) => {
       const path = String(p);
       if (path === baseDir) return true;
-      if (path === join(baseDir, "linked-helper-account-1-main", "lh.db"))
-        return true;
-      if (path === join(baseDir, "linked-helper-account-2-main", "lh.db"))
-        return true;
+      if (path === join(baseDir, "linked-helper-account-1-main", "lh.db")) return true;
+      if (path === join(baseDir, "linked-helper-account-2-main", "lh.db")) return true;
       return false;
     });
 
@@ -136,32 +130,21 @@ describe("discoverAllDatabases", () => {
     const result = discoverAllDatabases();
 
     expect(result.size).toBe(2);
-    expect(result.get(1)).toBe(
-      join(baseDir, "linked-helper-account-1-main", "lh.db"),
-    );
-    expect(result.get(2)).toBe(
-      join(baseDir, "linked-helper-account-2-main", "lh.db"),
-    );
+    expect(result.get(1)).toBe(join(baseDir, "linked-helper-account-1-main", "lh.db"));
+    expect(result.get(2)).toBe(join(baseDir, "linked-helper-account-2-main", "lh.db"));
   });
 
   it("skips partitions where the db file is missing", () => {
     vi.stubGlobal("process", { ...process, platform: "darwin" });
     mockedHomedir.mockReturnValue("/Users/alice");
 
-    const baseDir = join(
-      "/Users/alice",
-      "Library",
-      "Application Support",
-      "linked-helper",
-      "Partitions",
-    );
+    const baseDir = join("/Users/alice", "Library", "Application Support", "linked-helper", "Partitions");
 
     mockedExistsSync.mockImplementation((p) => {
       const path = String(p);
       if (path === baseDir) return true;
       // Account 1 has a db, account 2 does not
-      if (path === join(baseDir, "linked-helper-account-1-main", "lh.db"))
-        return true;
+      if (path === join(baseDir, "linked-helper-account-1-main", "lh.db")) return true;
       return false;
     });
 

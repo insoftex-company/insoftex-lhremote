@@ -1,24 +1,18 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 // Copyright (C) 2026 Oleksii PELYKH
 
-import {
-  errorMessage,
-  getFeed,
-  type GetFeedOutput,
-  withLoggedInStateRetryAtPort,
-} from "@insoftex/lhremote-core";
+import { errorMessage, getFeed, type GetFeedOutput, withLoggedInStateRetryAtPort } from "@insoftex/lhremote-core";
 
 /** Handle the {@link https://github.com/insoftex-company/insoftex-lhremote#get-feed | get-feed} CLI command. */
-export async function handleGetFeed(
-  options: {
-    count?: number;
-    cursor?: string;
-    cdpPort?: number;
-    cdpHost?: string;
-    allowRemote?: boolean;
-    json?: boolean;
-  },
-): Promise<void> {
+export async function handleGetFeed(options: {
+  count?: number;
+  cursor?: string;
+  cdpPort?: number;
+  cdpHost?: string;
+  allowRemote?: boolean;
+  accountId?: number;
+  json?: boolean;
+}): Promise<void> {
   let result: GetFeedOutput;
   try {
     result = await withLoggedInStateRetryAtPort(
@@ -27,12 +21,13 @@ export async function handleGetFeed(
       options.allowRemote ?? false,
       () =>
         getFeed({
-      count: options.count,
-      cursor: options.cursor,
-      cdpPort: options.cdpPort,
-      cdpHost: options.cdpHost,
-      allowRemote: options.allowRemote,
-      }),
+          count: options.count,
+          cursor: options.cursor,
+          cdpPort: options.cdpPort,
+          cdpHost: options.cdpHost,
+          allowRemote: options.allowRemote,
+          accountId: options.accountId,
+        }),
     );
   } catch (error) {
     const message = errorMessage(error);
@@ -56,10 +51,7 @@ export async function handleGetFeed(
           process.stdout.write(`  ${post.url}\n`);
         }
         if (post.text) {
-          const truncated =
-            post.text.length > 120
-              ? post.text.slice(0, 120) + "..."
-              : post.text;
+          const truncated = post.text.length > 120 ? post.text.slice(0, 120) + "..." : post.text;
           process.stdout.write(`  ${truncated}\n`);
         }
         if (post.mediaType) {
@@ -71,14 +63,10 @@ export async function handleGetFeed(
             `  Shares: ${String(post.shareCount)}\n`,
         );
         if (post.hashtags.length > 0) {
-          process.stdout.write(
-            `  Tags: ${post.hashtags.map((t) => "#" + t).join(", ")}\n`,
-          );
+          process.stdout.write(`  Tags: ${post.hashtags.map((t) => "#" + t).join(", ")}\n`);
         }
         if (post.timestamp) {
-          process.stdout.write(
-            `  Posted: ${new Date(post.timestamp).toISOString()}\n`,
-          );
+          process.stdout.write(`  Posted: ${new Date(post.timestamp).toISOString()}\n`);
         }
         process.stdout.write("\n");
       }

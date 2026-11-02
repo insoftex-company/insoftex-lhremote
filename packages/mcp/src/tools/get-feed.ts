@@ -2,10 +2,7 @@
 // Copyright (C) 2026 Oleksii PELYKH
 
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
-import {
-  getFeed,
-  withLoggedInStateRetryAtPort,
-} from "@insoftex/lhremote-core";
+import { getFeed, withLoggedInStateRetryAtPort } from "@insoftex/lhremote-core";
 import { z } from "zod";
 import { cdpConnectionSchema, mcpCatchAll, mcpSuccess } from "../helpers.js";
 
@@ -15,19 +12,8 @@ export function registerGetFeed(server: McpServer): void {
     "get-feed",
     "Read the LinkedIn home feed. Returns structured post data (URN, URL, author, text, media type, engagement counts, timestamp) with cursor-based pagination.",
     {
-      count: z
-        .number()
-        .int()
-        .positive()
-        .optional()
-        .default(10)
-        .describe("Number of posts per page (default: 10)"),
-      cursor: z
-        .string()
-        .optional()
-        .describe(
-          "Cursor token from a previous get-feed call for the next page",
-        ),
+      count: z.number().int().positive().optional().default(10).describe("Number of posts per page (default: 10)"),
+      cursor: z.string().optional().describe("Cursor token from a previous get-feed call for the next page"),
       ...cdpConnectionSchema,
     },
     async ({ count, cursor, cdpPort, cdpHost, allowRemote, accountId }) => {
@@ -38,13 +24,14 @@ export function registerGetFeed(server: McpServer): void {
           allowRemote ?? false,
           () =>
             getFeed({
-          count,
-          cursor,
-          cdpPort,
-          cdpHost,
-          allowRemote,
-          accountId,
-          }),
+              count,
+              cursor,
+              cdpPort,
+              cdpHost,
+              allowRemote,
+              accountId,
+            }),
+          { accountId: accountId },
         );
         return mcpSuccess(JSON.stringify(result, null, 2));
       } catch (error) {

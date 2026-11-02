@@ -179,3 +179,9 @@ synchronous."
   relevant; callers that need long-term audit trails should record results themselves.
 - `FAST_PATH_GRACE_MS = 2000` is not configurable at runtime.  If the default proves wrong for
   a deployment, it can be changed at compile time.
+
+## 2026-11-01 amendment — cancellation and physical writer ownership
+
+Cancellation marks the public operation cancelled and fires its signal, but the registry retains an internal in-flight writer flag until the work callback and cleanup settle. Replacement lifecycle requests remain rejected during that interval. A callback that returns normally after cancellation cannot overwrite it with success; already-aborted requests never enter the callback. Batch starts now forward the merged signal through per-account starts, recovery and settling, and check it before starting another account.
+
+`ensureInstances` releases a supplied launcher connection before queue acquisition and reconnects inside queue → gate → connection scopes. It does not leave that supplied launcher connected. LauncherService leases serialize both explicitly grouped sessions and direct callers. Database operation health checks open short launcher sessions instead of holding the gate through the entire operation.
