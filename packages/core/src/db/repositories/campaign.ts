@@ -102,6 +102,9 @@ const PERSON_STATE_MAP: Record<number, CampaignPersonState> = {
   4: "failed",
 };
 
+/** State value LH writes as a tombstone when a person is removed from a target list. */
+const REMOVED_STATE = -1;
+
 const PERSON_STATE_REVERSE: Record<string, number> = {
   queued: 1,
   processed: 2,
@@ -450,6 +453,13 @@ export class CampaignRepository {
     // when publicIds is set, MIN(pei.external_id) is guaranteed to still be
     // one of the requested IDs, since the WHERE clause already restricts
     // pei.external_id to that set.
+    //
+    // Removal model: campaign-remove-people calls actions.createActionVersion()
+    // which inserts a new action_target_people row for the same (person_id,
+    // action_id) with state = -1 (tombstone). The earlier MAX(atp.state)
+    // aggregation returned MAX(1, -1) = 1, leaving removed people visible as
+    // "queued". Fix: pin each (person_id, action_id) to its latest ATP row
+    // before aggregating, then exclude tombstones.
     const sql = `
       SELECT
         atp.person_id,
@@ -465,6 +475,11 @@ export class CampaignRepository {
       LEFT JOIN person_external_ids pei
         ON atp.person_id = pei.person_id AND pei.type_group = 'public'
       WHERE ${where}
+        AND atp.id = (
+          SELECT MAX(atp2.id) FROM action_target_people atp2
+          WHERE atp2.person_id = atp.person_id AND atp2.action_id = atp.action_id
+        )
+        AND atp.state != ${REMOVED_STATE}
       GROUP BY atp.person_id, atp.action_id
       ORDER BY atp.person_id
       LIMIT ? OFFSET ?`;
@@ -562,6 +577,10 @@ export class CampaignRepository {
     // of the submitted ids, not both. Callers needing an authoritative
     // "which submitted companyIds matched" answer should use
     // {@link matchedCompanyIds} instead of this method's output.
+    //
+    // Tombstone fix: same removal model as action_target_people — a removal
+    // inserts a new ato row with state = -1. Pin to the latest row per
+    // (organization_id, action_id) and exclude tombstones, same as listPeople.
     const sql = `
       SELECT
         ato.organization_id,
@@ -579,6 +598,11 @@ export class CampaignRepository {
       LEFT JOIN organization_external_ids oei_co
         ON ato.organization_id = oei_co.organization_id AND oei_co.type_group = 'company'
       WHERE ${where}
+        AND ato.id = (
+          SELECT MAX(ato2.id) FROM action_target_organizations ato2
+          WHERE ato2.organization_id = ato.organization_id AND ato2.action_id = ato.action_id
+        )
+        AND ato.state != ${REMOVED_STATE}
       GROUP BY ato.organization_id, ato.action_id
       ORDER BY ato.organization_id
       LIMIT ? OFFSET ?`;
