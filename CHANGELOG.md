@@ -4,6 +4,16 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+## [0.28.1] — 2026-11-15
+
+### Removed people no longer listed as queued
+
+- `campaign-list-people` / `listPeople` showed people removed with `campaign-remove-people` as still `queued`. LinkedHelper (observed on 2.140.4) records a removal as a new `action_target_people` row with `state = -1` for the same person and action, and the old `MAX(state)` aggregation hid it. Each (person, action) now reports its latest row, and removal rows are excluded. A removed person who is imported again is listed as queued again.
+- `listOrganizations` applies the same rule to `action_target_organizations`. The organization removal model is assumed to match people's; it hasn't been observed at runtime.
+- Added regression tests for removal, re-import after removal, and latest-row state.
+- Found in insoftex-espocrm-extension WP0 T0.5 (branch `wp0/t05-results`, `tests/wp0/t05/STATUS.md`, Test E).
+- Synchronized all workspace package, MCP registry and Claude plugin metadata to 0.28.1.
+
 ## [0.28.0] — 2026-11-02
 
 ### Windows discovery and account startup

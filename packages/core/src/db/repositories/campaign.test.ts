@@ -672,6 +672,53 @@ describe("CampaignRepository", () => {
       expect(result.people.map((p) => p.personId).sort()).toEqual([1, 3]);
       expect(result.total).toBe(2);
     });
+
+    // Removal model observed on LinkedHelper 2.140.4 (insoftex-espocrm-extension
+    // WP0 T0.5, 2026-11-15): campaign-remove-people does not delete or update
+    // the queue row; it inserts a NEW action_target_people row for the same
+    // (person_id, action_id) with state = -1. Re-importing the person inserts
+    // another row with state = 1. The row with the highest id is current.
+
+    it("excludes a person whose latest target-list row is a removal tombstone", () => {
+      db.exec(
+        `INSERT INTO action_target_people (action_id, action_version_id, person_id, state, li_account_id, created_at)
+         VALUES (5, 5, 1, -1, 1, STRFTIME('%Y-%m-%dT%H:%M:%fZ', 'NOW'))`,
+      );
+
+      const result = repo.listPeople(5);
+
+      expect(result.people.map((p) => p.personId)).toEqual([3]);
+      expect(result.total).toBe(1);
+      expect(repo.listPeople(5, { status: "queued" }).people).toHaveLength(0);
+      expect(repo.listPeople(5, { publicIds: ["ada-lovelace-test"] }).people).toHaveLength(0);
+    });
+
+    it("lists a removed-then-re-imported person as queued again", () => {
+      db.exec(
+        `INSERT INTO action_target_people (action_id, action_version_id, person_id, state, li_account_id, created_at)
+         VALUES (5, 5, 1, -1, 1, STRFTIME('%Y-%m-%dT%H:%M:%fZ', 'NOW')),
+                (5, 5, 1, 1, 1, STRFTIME('%Y-%m-%dT%H:%M:%fZ', 'NOW'))`,
+      );
+
+      const result = repo.listPeople(5, { publicIds: ["ada-lovelace-test"] });
+
+      expect(result.people).toHaveLength(1);
+      expect(result.people[0]?.status).toBe("queued");
+      expect(result.total).toBe(1);
+    });
+
+    it("reports the state of the latest row, not the highest state value", () => {
+      // Grace (person 3) is processed in action 5; a newer row re-queues her.
+      // The old MAX(state) aggregation would have kept reporting "processed".
+      db.exec(
+        `INSERT INTO action_target_people (action_id, action_version_id, person_id, state, li_account_id, created_at)
+         VALUES (5, 5, 3, 1, 1, STRFTIME('%Y-%m-%dT%H:%M:%fZ', 'NOW'))`,
+      );
+
+      const result = repo.listPeople(5, { publicIds: ["grace-hopper-test"] });
+
+      expect(result.people[0]?.status).toBe("queued");
+    });
   });
 
   describe("targetKind", () => {
@@ -838,6 +885,20 @@ describe("CampaignRepository", () => {
       });
 
       expect(result.organizations.map((o) => o.organizationId).sort()).toEqual([1, 2]);
+      expect(result.total).toBe(2);
+    });
+
+    it("excludes an organization whose latest target-list row is a removal tombstone", () => {
+      // Assumes organizations follow the people removal model (not yet
+      // observed at runtime for organizations).
+      db.exec(
+        `INSERT INTO action_target_organizations (action_id, action_version_id, organization_id, state, li_account_id, created_at)
+         VALUES (8, 8, 1, -1, 1, STRFTIME('%Y-%m-%dT%H:%M:%fZ', 'NOW'))`,
+      );
+
+      const result = repo.listOrganizations(6);
+
+      expect(result.organizations.filter((o) => o.organizationId === 1)).toHaveLength(0);
       expect(result.total).toBe(2);
     });
   });

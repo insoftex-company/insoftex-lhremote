@@ -578,8 +578,9 @@ export class CampaignRepository {
     // "which submitted companyIds matched" answer should use
     // {@link matchedCompanyIds} instead of this method's output.
     //
-    // Tombstone fix: same removal model as action_target_people — a removal
-    // inserts a new ato row with state = -1. Pin to the latest row per
+    // Tombstone fix: assumes the same removal model as action_target_people
+    // (a removal inserts a new ato row with state = -1); observed for people
+    // on LH 2.140.4, not yet for organizations. Pin to the latest row per
     // (organization_id, action_id) and exclude tombstones, same as listPeople.
     const sql = `
       SELECT
