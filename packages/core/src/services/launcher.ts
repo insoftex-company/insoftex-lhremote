@@ -495,13 +495,21 @@ export class LauncherService {
    * available only on v2.113.x+). Use this when you need to drive
    * accounts that live outside the currently selected workspace.
    *
+   * Archived accounts (LH's `hidden` flag) are left out unless
+   * `includeArchived` is set; every returned account carries `archived`.
+   * Whether the cross-workspace API returns `hidden` isn't verified; an
+   * account without it is treated as not archived.
+   *
    * @param options.includeAllWorkspaces If `true`, enumerate all
    *   workspaces and list accounts across them. Defaults to `false`.
+   * @param options.includeArchived If `true`, also return archived
+   *   accounts. Defaults to `false`.
    */
-  async listAccounts(options?: { includeAllWorkspaces?: boolean }): Promise<Account[]> {
+  async listAccounts(options?: { includeAllWorkspaces?: boolean; includeArchived?: boolean }): Promise<Account[]> {
     const client = this.ensureConnected();
 
     const includeAllWorkspaces = options?.includeAllWorkspaces ?? false;
+    const includeArchived = options?.includeArchived ?? false;
 
     const accounts = await this.launcherEvaluate<Account[] | null>(
       client,
@@ -523,6 +531,7 @@ export class LauncherService {
           workspaceAccess: a.workspaceAccess
             ? { level: a.workspaceAccess.level }
             : undefined,
+          archived: a.hidden === true,
         });
 
         if (includeAll && wsSvc) {
@@ -588,7 +597,10 @@ export class LauncherService {
       }
     }
 
-    return accounts;
+    // Archived accounts stay in LH's account list (LH can't delete one), so
+    // drop them unless asked: callers that walk every account, or pick the
+    // only one, must not act on an archived account.
+    return includeArchived ? accounts : accounts.filter((a) => a.archived !== true);
   }
 
   /**

@@ -10,6 +10,7 @@ export async function handleListAccounts(options: {
   allowRemote?: boolean;
   json?: boolean;
   allWorkspaces?: boolean;
+  includeArchived?: boolean;
 }): Promise<void> {
   let port: number;
   try {
@@ -36,9 +37,10 @@ export async function handleListAccounts(options: {
   }
 
   try {
-    const accounts = await launcher.listAccounts(
-      options.allWorkspaces ? { includeAllWorkspaces: true } : undefined,
-    );
+    const accounts = await launcher.listAccounts({
+      ...(options.allWorkspaces && { includeAllWorkspaces: true }),
+      ...(options.includeArchived && { includeArchived: true }),
+    });
 
     if (options.json) {
       process.stdout.write(JSON.stringify(accounts, null, 2) + "\n");
@@ -50,8 +52,9 @@ export async function handleListAccounts(options: {
         const workspace = account.workspaceName
           ? ` [${account.workspaceName}]`
           : "";
+        const archived = account.archived ? " (archived)" : "";
         process.stdout.write(
-          `${String(account.id)}\t${account.name}${email}${workspace}\n`,
+          `${String(account.id)}\t${account.name}${email}${workspace}${archived}\n`,
         );
       }
     }

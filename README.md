@@ -108,7 +108,7 @@ On Windows, `launch-app` also restores and focuses the LinkedHelper launcher win
 ### Account & Instance
 
 ```sh
-lhremote list-accounts [--cdp-port <port>] [--json]
+lhremote list-accounts [--cdp-port <port>] [--include-archived] [--json]
 lhremote start-instance [accountId] [--cdp-port <port>]
 lhremote stop-instance [accountId] [--cdp-port <port>]
 lhremote restart-instance <accountId> [--cdp-port <port>] [--force]
@@ -242,7 +242,7 @@ Most tools and CLI commands connect to LinkedHelper via the Chrome DevTools Prot
 
 **`cdpPort` is discovered, not defaulted.** Omit it and lhremote finds the port of the running LinkedHelper itself, whatever that port happens to be; it raises `LinkedHelperNotRunningError` or `LinkedHelperUnreachableError` when no instance is reachable. Pass a port only to target one specific instance — you do not need one to reach a LinkedHelper that is not on 9222. Two exceptions: `quit-app` takes `cdpPort` alone (no `cdpHost`, `allowRemote` or `accountId`) and does default to 9222; and a port is required whenever `cdpHost` is non-loopback, because discovery scans local processes only.
 
-**`accountId` is required once more than one account is configured.** With a single account the MCP tools resolve it themselves; with several they cannot, and the call fails — most raise `AccountResolutionError`, while `start-instance` and `stop-instance` answer with their own message. Either way, `list-accounts` gives you the ID. Every tool that connects to a running LinkedHelper accepts `accountId`; the ones that do not are the app-management tools (`find-app`, `launch-app`, `quit-app`), which act on the application rather than on an account, the reference tools (`build-linkedin-url`, `resolve-linkedin-entity`, `list-linkedin-reference-data`, `describe-actions`), which open no connection, and the profile-cache readers (`query-profile`, `query-profiles`, `query-profiles-bulk`), which search every account's local database and cannot be scoped to one. The CLI never auto-resolves, at any account count: `start-instance` / `stop-instance` take a **required** positional `<accountId>`, `comment-on-post` / `react-to-post` take `--account-id`, and no other command exposes it.
+**`accountId` is required once more than one account is configured.** With a single account the MCP tools resolve it themselves (archived accounts don't count, since 0.28.4); with several they cannot, and the call fails — most raise `AccountResolutionError`, while `start-instance` and `stop-instance` answer with their own message. Either way, `list-accounts` gives you the ID. Every tool that connects to a running LinkedHelper accepts `accountId`; the ones that do not are the app-management tools (`find-app`, `launch-app`, `quit-app`), which act on the application rather than on an account, the reference tools (`build-linkedin-url`, `resolve-linkedin-entity`, `list-linkedin-reference-data`, `describe-actions`), which open no connection, and the profile-cache readers (`query-profile`, `query-profiles`, `query-profiles-bulk`), which search every account's local database and cannot be scoped to one. The CLI never auto-resolves, at any account count: `start-instance` / `stop-instance` take a **required** positional `<accountId>`, `comment-on-post` / `react-to-post` take `--account-id`, and no other command exposes it.
 
 All **campaign, campaign-targeting, and people-import** commands additionally accept:
 
@@ -289,11 +289,12 @@ Quit the LinkedHelper application.
 
 #### `list-accounts`
 
-List available LinkedHelper accounts. Returns account ID, LinkedIn ID, name, and email for each account. Returns accounts in the currently selected workspace by default (LinkedHelper 2.113.x+); set `includeAllWorkspaces` to enumerate every workspace the current LH user belongs to.
+List available LinkedHelper accounts. Returns account ID, LinkedIn ID, name, and email for each account. Returns accounts in the currently selected workspace by default (LinkedHelper 2.113.x+); set `includeAllWorkspaces` to enumerate every workspace the current LH user belongs to. LinkedHelper can't delete an account, only archive it; archived accounts (LH's `hidden` flag) are left out unless `includeArchived` is set, and each account carries `archived`.
 
 | Parameter | Type | Required | Default | Description |
 |-----------|------|----------|---------|-------------|
 | `includeAllWorkspaces` | boolean | No | false | When true, enumerates accounts across every workspace the user belongs to, not just the selected workspace |
+| `includeArchived` | boolean | No | false | When true, also returns archived accounts |
 | `cdpPort` | number | No | auto-discovered | CDP port |
 
 #### `list-workspaces`

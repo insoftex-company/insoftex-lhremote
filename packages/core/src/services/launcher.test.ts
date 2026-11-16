@@ -390,6 +390,40 @@ describe("LauncherService", () => {
       expect(accounts).toContainEqual(expect.objectContaining({ name: "Bob" }));
     });
 
+    it("leaves archived accounts out by default", async () => {
+      await service.connect();
+      nextEvaluateResult = [
+        { id: 1, liId: 1, name: "Active", archived: false },
+        { id: 2, liId: 2, name: "Archived", archived: true },
+      ];
+
+      const accounts = await service.listAccounts();
+
+      expect(accounts.map((a) => a.id)).toEqual([1]);
+    });
+
+    it("returns archived accounts with includeArchived", async () => {
+      await service.connect();
+      nextEvaluateResult = [
+        { id: 1, liId: 1, name: "Active", archived: false },
+        { id: 2, liId: 2, name: "Archived", archived: true },
+      ];
+
+      const accounts = await service.listAccounts({ includeArchived: true });
+
+      expect(accounts.map((a) => a.id)).toEqual([1, 2]);
+    });
+
+    it("maps LH's hidden flag to archived", async () => {
+      await service.connect();
+      nextEvaluateResult = [];
+
+      await service.listAccounts();
+
+      const expression = mockEvaluate.mock.calls.map((c) => String(c[0])).find((e) => e.includes("mapAccount"));
+      expect(expression).toContain("archived: a.hidden === true");
+    });
+
     it("returns empty array when no accounts", async () => {
       await service.connect();
       nextEvaluateResult = [];

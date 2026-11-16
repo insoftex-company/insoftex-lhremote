@@ -203,6 +203,7 @@ Examples:
       "--all-workspaces",
       "List accounts across every workspace the LH user belongs to, not just the selected one (LinkedHelper 2.113.x+)",
     )
+    .option("--include-archived", "Also list archived accounts (left out by default)")
     .action(handleListAccounts);
 
   program

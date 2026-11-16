@@ -99,6 +99,18 @@ describe("registerListAccounts", () => {
     expect(JSON.parse(result.content[0].text)).toEqual(accounts);
   });
 
+  it("passes includeArchived through", async () => {
+    const { server, getHandler } = createMockServer();
+    registerListAccounts(server);
+
+    const listAccounts = vi.fn().mockResolvedValue([]);
+    mockLauncherConnection({ listAccounts });
+
+    await getHandler("list-accounts")({ cdpPort: 9222, includeArchived: true });
+
+    expect(listAccounts).toHaveBeenCalledWith({ includeArchived: true });
+  });
+
   it("returns empty array when no accounts", async () => {
     const { server, getHandler } = createMockServer();
     registerListAccounts(server);

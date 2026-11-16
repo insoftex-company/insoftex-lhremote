@@ -14,7 +14,8 @@ import { buildCdpOptions, cdpConnectionSchema, mcpCatchAll, mcpSuccess } from ".
 export function registerListAccounts(server: McpServer): void {
   server.tool(
     "list-accounts",
-    "List available LinkedHelper accounts. By default returns accounts in the currently selected workspace (LinkedHelper 2.113.x+). Pass includeAllWorkspaces=true to enumerate accounts across every workspace the current LH user belongs to.",
+    "List available LinkedHelper accounts. By default returns accounts in the currently selected workspace (LinkedHelper 2.113.x+). Pass includeAllWorkspaces=true to enumerate accounts across every workspace the current LH user belongs to. " +
+      "Archived accounts (LinkedHelper can't delete accounts, only archive them) are left out unless includeArchived=true; each account carries `archived`.",
     {
       ...cdpConnectionSchema,
       includeAllWorkspaces: z
@@ -23,12 +24,17 @@ export function registerListAccounts(server: McpServer): void {
         .describe(
           "When true, enumerate accounts across every workspace the user belongs to, not just the selected workspace. Default: false.",
         ),
+      includeArchived: z
+        .boolean()
+        .optional()
+        .describe("When true, also return archived accounts. Default: false."),
     },
-    async ({ cdpPort, cdpHost, allowRemote, accountId, includeAllWorkspaces }) => {
+    async ({ cdpPort, cdpHost, allowRemote, accountId, includeAllWorkspaces, includeArchived }) => {
       try {
-        const listOptions = includeAllWorkspaces === true
-          ? { includeAllWorkspaces: true }
-          : undefined;
+        const listOptions = {
+          ...(includeAllWorkspaces === true && { includeAllWorkspaces: true }),
+          ...(includeArchived === true && { includeArchived: true }),
+        };
 
         const accounts = await withLauncherCDPGate(async () => {
           const { launcher } = await acquireLauncherWithRecovery(
