@@ -43,7 +43,7 @@ lhremote campaign-status <campaignId>              # monitor progress
 
 > **Pacing**: LinkedIn monitors automated activity. See the [Rate Limiting guide](docs/rate-limiting.md) for recommended settings.
 
-Agent workflow guidance lives in the [MCP Agent Capabilities guide](docs/mcp-agent-capabilities.md). Developer notes and implementation requirements live in the [Development Specification](docs/development-specification.md).
+Agent workflow guidance lives in the [MCP Agent Capabilities guide](docs/mcp-agent-capabilities.md). Verified LinkedHelper runtime behaviour (removal, re-import, state semantics, webhook payload) and the known lhremote gaps are in [LinkedHelper runtime behaviour](docs/linkedhelper-runtime.md). Developer notes and implementation requirements live in the [Development Specification](docs/development-specification.md).
 
 ## Prerequisites
 
