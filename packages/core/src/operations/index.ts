@@ -106,6 +106,15 @@ export {
   type CampaignRemovePeopleInput,
   type CampaignRemovePeopleOutput,
 } from "./campaign-remove-people.js";
+export {
+  campaignStopPeople,
+  planPersonStop,
+  type CampaignStopPeopleInput,
+  type CampaignStopPeopleOutput,
+  type PersonStopOutcome,
+  type PersonStopPlan,
+  type PersonStopResult,
+} from "./campaign-stop-people.js";
 
 // People collection
 export { collectPeople, type CollectPeopleInput, type CollectPeopleOutput } from "./collect-people.js";

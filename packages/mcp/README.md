@@ -76,6 +76,7 @@ The table below is generated from [`packages/mcp/src/tools/`](src/tools).
 | `campaign-statistics` |
 | `campaign-status` |
 | `campaign-stop` |
+| `campaign-stop-people` |
 | `campaign-update` |
 | `campaign-update-action` |
 | `campaign-validate-action-settings` |

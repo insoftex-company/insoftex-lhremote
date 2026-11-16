@@ -140,6 +140,7 @@ describe("createServer", () => {
     expect(names).toContain("campaign-list-people");
     expect(names).toContain("campaign-update-action");
     expect(names).toContain("campaign-remove-people");
+    expect(names).toContain("campaign-stop-people");
     expect(names).toContain("get-errors");
     expect(names).toContain("dismiss-errors");
     expect(names).toContain("list-collections");
@@ -187,6 +188,6 @@ describe("createServer", () => {
     expect(names).toContain("list-operations");
     expect(names).toContain("campaign-list-organizations");
     expect(names).toContain("import-organizations-from-urls");
-    expect(names).toHaveLength(87);
+    expect(names).toHaveLength(88);
   });
 });

@@ -17,6 +17,7 @@ export { handleCampaignListPeople } from "./campaign-list-people.js";
 export { handleCampaignMoveNext } from "./campaign-move-next.js";
 export { handleCampaignRemoveAction } from "./campaign-remove-action.js";
 export { handleCampaignRemovePeople } from "./campaign-remove-people.js";
+export { handleCampaignStopPeople } from "./campaign-stop-people.js";
 export { handleCampaignReorderActions } from "./campaign-reorder-actions.js";
 export { handleCampaignRetry } from "./campaign-retry.js";
 export { handleCampaignStart } from "./campaign-start.js";

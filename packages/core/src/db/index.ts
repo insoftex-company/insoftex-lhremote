@@ -17,6 +17,7 @@ export {
   ActionBudgetRepository,
   CampaignExcludeListRepository,
   CampaignRepository,
+  type PersonCampaignProgress,
   CampaignStatisticsRepository,
   CollectionListRepository,
   type CollectionSummary,

@@ -4,6 +4,24 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+## [0.28.2] — 2026-11-16
+
+### New `campaign-stop-people` (MCP tool and CLI command)
+
+- Stops people wherever they are in a campaign's sequence. For each person still in progress, it first adds an action-level exclude on every action after the one they are on. It then removes them from their current action through a live instance. Finally it reads the database back and reports per person `stopped` / `finished` / `alreadyStopped` / `notInCampaign`, with verification flags. The CLI exits with code 1 when a stop doesn't verify.
+- **Why** (Insoftex WP0 T0.5, LinkedHelper 2.140.4):
+  - `campaign-remove-people` removes from the campaign's first action only, so it doesn't stop a person who has moved on.
+  - A campaign-level exclude doesn't stop a running person.
+  - An action-level exclude drops the person when they reach that action (`result = -2`).
+  - Removal from an action not yet reached writes nothing.
+  - Both mechanisms survive other people's later imports and removals.
+- New `CampaignService.removePeopleFromAction`, which `removePeople` now uses. New `CampaignRepository.getPeopleProgress`: the latest target-list state and the results per action.
+
+### Documented
+
+- `docs/linkedhelper-runtime.md` covers verified LinkedHelper behaviour and known lhremote gaps. One of them: `campaign-start` with `personIds` runs `resetForRerun`, which re-queues the person at every action and deletes their results. It also starts LinkedHelper's global runner, which runs every active campaign of the account.
+- Synchronized all workspace package, MCP registry and Claude plugin metadata to 0.28.2.
+
 ## [0.28.1] — 2026-11-15
 
 ### Removed people no longer listed as queued

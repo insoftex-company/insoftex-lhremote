@@ -286,9 +286,10 @@ export class CampaignService {
   /**
    * Remove people from a campaign's target list via CDP.
    *
-   * Resolves the campaign's first action, then calls
-   * `people.actions.createActionVersion()` with `removeFromTarget`
-   * to remove the specified person IDs from the action's target list.
+   * Resolves the campaign's **first** action and removes the people from that
+   * action's target list ({@link removePeopleFromAction}). A person who has
+   * already moved past the first action is NOT stopped by this (observed on
+   * LinkedHelper 2.140.4); use the `campaign-stop-people` operation instead.
    *
    * @throws {CampaignNotFoundError} if the campaign does not exist.
    * @throws {CampaignExecutionError} if the campaign has no actions or the CDP call fails.
@@ -306,8 +307,24 @@ export class CampaignService {
     }
 
     const firstAction = actions[0] as (typeof actions)[0];
-    const actionId = firstAction.id;
+    return this.removePeopleFromAction(campaignId, firstAction.id, personIds);
+  }
 
+  /**
+   * Remove people from one action's target list via CDP
+   * (`people.actions.createActionVersion()` with `removeFromTarget`).
+   *
+   * LinkedHelper records the removal as a new `action_target_people` row with
+   * `state = -1`, but only for people who already have a row at that action:
+   * removing a person from an action they haven't reached writes nothing.
+   *
+   * @throws {CampaignExecutionError} if the CDP call fails.
+   */
+  async removePeopleFromAction(
+    campaignId: number,
+    actionId: number,
+    personIds: number[],
+  ): Promise<RemovePeopleResult> {
     try {
       const stats = await this.instance.evaluateUI<{
         total: {
