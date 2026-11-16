@@ -22,6 +22,7 @@ The full log and the CRM-side design rules are in `insoftex-espocrm-extension`:
 | `campaign-remove-people` (`CampaignService.removePeople`) always removes from the campaign's **first action** (`actions[0]`). | A person who has moved past the first action keeps running: their remaining webhooks still fire. **Don't use this command to stop a person mid-sequence.** | Observed. **Use `campaign-stop-people` (0.28.2)** instead: action-level exclude on every action after the person's current one, plus removal from the current action (tests C2, D2, C3a, C3b, C4). Runtime verification of the command itself is pending (T0.5 H). |
 | `listPeople` / `listOrganizations` aggregated with `MAX(state)`. | Removed people still showed as `queued`. | Fixed in **0.28.1**. Each (person, action) now uses its latest row, and tombstones are excluded. The organization side is assumed to work the same way, not observed. |
 | `campaign-start` with `personIds` runs `resetForRerun`: it sets the person to `state = 1` at **every** action, deletes their `action_results` and resets their campaign history. It also starts LH's **global** runner, which runs every active campaign of the account. | Undoes stops. Makes a person who partly ran replay all their remaining steps at once, and erases their results. Starting one test campaign also wakes any other active campaign. | Open: document prominently in the tool description; consider refusing `personIds` that have removal rows unless forced. |
+| `campaign-create` document format reads action settings only from `config`, and always names an action after its type. Unknown keys such as `actionSettings` or `name` are ignored without an error (`packages/core/src/formats/campaign-format.ts:201`). | A campaign created with `actionSettings` gets empty settings on every action, and custom names are lost. Fixed afterwards with `campaign-update-action` (T0.5 campaign 9). | Open: reject unknown action keys; accept `name`. |
 | `campaign-list-people` labels `state = 2` as `processed`. | For a finished person: first action `queued`, later actions `processed`. `state = 2` really means "entered this action" (see below). | Open: relabel or add a derived per-person status. |
 | `campaign-create` / `campaign-add-action` accept `SendPersonToWebhook` with `exportSettings: {}`. | LH flags 15 validation errors on the action (it still runs), and the payload is about 5× larger. | Open: validate in 0.28.2. Copy `exportSettings` from a UI-created action. |
 | The campaign linter reports `SendPersonToWebhook` as "unknown action type". | False warning. The action works (802 production webhooks in one campaign). | Open |
@@ -80,6 +81,10 @@ The full log and the CRM-side design rules are in `insoftex-espocrm-extension`:
   the exclude list straight into `lh.db` while LH runs; an integrity check is pending. Whether excludes
   survive later imports and removals: **yes**. Excludes on 40–42 stayed after new versions on 38 and 39,
   and the person was dropped at 40 (C3b). *Observed.*
+- **Stop confirmation.** Immediately after a stop: the latest row at the current action is `-1`, and the person is on
+  each later action's exclude list (what `campaign-stop-people` verifies). `result = -2` appears only when the
+  person reaches an excluded action. The LH UI lists removed people as **Processed** and excluded ones as
+  **Excluded**. *Observed (T0.5 I).*
 - **Removal on an unreached action** writes no tombstone row (C4), so it doesn't pre-empt arrival. Use an
   action-level exclude for future actions. *Observed.*
 
