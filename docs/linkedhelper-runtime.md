@@ -70,7 +70,10 @@ The full log and the CRM-side design rules are in `insoftex-espocrm-extension`:
 - **Undo.** A tombstone has flipped back to `state = 1` after a later import, start or new version of the same
   action for the same person. Whether versions for other people undo it is open (C3).
 - **Exclusion.** A campaign-level `campaign-exclude-add` for a person already in the sequence didn't stop
-  them. Action-level exclusion on the next action is open (D2). *Observed / open.*
+  them. An **action-level** exclude on the person's **next** action did: LH entered that action and wrote
+  `action_results.result = -2` with no webhook, and ran nothing after it (D2). `campaign-exclude-add` writes
+  the exclude list straight into `lh.db` while LH runs; an integrity check is pending. Whether excludes
+  survive later imports and removals is open (C3b). *Observed / open.*
 
 ## Database semantics (`lh.db`, per account)
 
