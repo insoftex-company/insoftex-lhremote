@@ -42,14 +42,59 @@ async function queryWindowsTcpValues(
   return [...new Set(values as number[])].sort((a, b) => a - b);
 }
 
-/** Resolve only an actual listener; fail closed when a port has ambiguous owners. */
+/**
+ * Parse `lsof -F p` output and return the distinct PIDs, sorted ascending.
+ *
+ * Exported for unit testing.
+ */
+export function parseLsofPids(stdout: string): number[] {
+  const pids = new Set<number>();
+  for (const line of stdout.split("\n")) {
+    // Field output: `p<pid>` starts each process set.
+    const m = /^p(\d+)$/.exec(line.trim());
+    if (m?.[1]) pids.add(parseInt(m[1], 10));
+  }
+  return [...pids].sort((a, b) => a - b);
+}
+
+/**
+ * Resolve only an actual listener; fail closed when a port has ambiguous owners.
+ *
+ * On macOS/Linux this asks `lsof` rather than `pid-port`: on macOS 27,
+ * `netstat` (which `pid-port` parses) prints nothing when spawned from Node,
+ * while `lsof` still lists the sockets (observed 2026-11-16, macOS 27.2.1).
+ * `pid-port` remains the fallback when `lsof` is missing.
+ */
 export async function findListeningTcpPid(port: number): Promise<number | null> {
   if (!Number.isInteger(port) || port <= 0 || port > 65535) throw new TypeError("Invalid TCP port");
   if (process.platform === "win32") {
     const owners = await queryWindowsTcpValues(`-LocalPort ${String(port)}`, "OwningProcess");
     return owners.length === 1 ? owners[0] ?? null : null;
   }
-  return await portToPid({ port, host: "*" }) ?? null;
+
+  let pids: number[];
+  try {
+    const { stdout } = await execFileAsync(
+      "lsof",
+      ["-nP", `-iTCP:${String(port)}`, "-sTCP:LISTEN", "-F", "p"],
+      { timeout: COMMAND_TIMEOUT, maxBuffer: COMMAND_MAX_BUFFER },
+    );
+    pids = parseLsofPids(stdout);
+  } catch (error) {
+    // lsof exits 1 when nothing matches — an empty result, not a failure.
+    if (
+      typeof error === "object" &&
+      error !== null &&
+      (error as { code?: unknown }).code !== "ENOENT" &&
+      typeof (error as { stdout?: unknown }).stdout === "string"
+    ) {
+      pids = parseLsofPids((error as { stdout: string }).stdout);
+    } else {
+      // lsof unavailable (minimal Linux images).
+      return await portToPid({ port, host: "*" }) ?? null;
+    }
+  }
+  return pids.length === 1 ? pids[0] ?? null : null;
 }
 
 /** Extract the trailing port number from an `addr:port` string, or null. */

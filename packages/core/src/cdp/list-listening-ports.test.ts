@@ -5,6 +5,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   parseLsofListenPorts,
+  parseLsofPids,
   parseWindowsNetstatListeners,
 } from "./list-listening-ports.js";
 
@@ -88,6 +89,20 @@ describe("parseWindowsNetstatListeners", () => {
 
   it("returns an empty array for empty output", () => {
     expect(parseWindowsNetstatListeners("", 19780)).toEqual([]);
+  });
+});
+
+describe("parseLsofPids", () => {
+  it("returns the distinct PIDs of lsof field output", () => {
+    expect(parseLsofPids("p4242\nf12\np4242\np17\n")).toEqual([17, 4242]);
+  });
+
+  it("returns an empty list for empty output", () => {
+    expect(parseLsofPids("")).toEqual([]);
+  });
+
+  it("ignores non-PID fields", () => {
+    expect(parseLsofPids("f12\nn127.0.0.1:9222\n")).toEqual([]);
   });
 });
 

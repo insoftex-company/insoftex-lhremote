@@ -4,6 +4,14 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+## [0.28.5] — 2026-11-16
+
+### Port-owner lookup works on macOS 27
+
+- `findListeningTcpPid` (used by instance discovery to find the launcher process) now asks `lsof` on macOS/Linux instead of `pid-port`. On macOS 27.2.1, `netstat`, which `pid-port` 2.1.1 parses, prints nothing (exit 0) when spawned from Node, though it works from a shell, so every lookup failed. `lsof` still lists the sockets. `pid-port` remains the fallback when `lsof` is missing. Several owners of one port now give `null`, as on Windows.
+- Windows is unchanged.
+- Synchronized all workspace package, MCP registry and Claude plugin metadata to 0.28.5.
+
 ## [0.28.4] — 2026-11-16
 
 ### Archived accounts left out of `list-accounts`

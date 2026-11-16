@@ -67,12 +67,39 @@ describe("native Windows listener fallback", () => {
     await expect(findListeningTcpPid(65536)).rejects.toThrow("Invalid TCP port");
     expect(exec).not.toHaveBeenCalled();
   });
+});
 
-  it.each([123, undefined])("preserves non-Windows lookup behavior: %s", async (pid) => {
+describe("non-Windows listener lookup", () => {
+  beforeEach(() => {
     vi.stubGlobal("process", { ...process, platform: "linux" });
+  });
+
+  it("asks lsof for the listener of the port", async () => {
+    exec.mockResolvedValueOnce({ stdout: "p123\nf12\n" });
+    expect(await findListeningTcpPid(9222)).toBe(123);
+    expect(exec).toHaveBeenCalledWith(
+      "lsof",
+      ["-nP", "-iTCP:9222", "-sTCP:LISTEN", "-F", "p"],
+      expect.objectContaining({ timeout: 15000 }),
+    );
+    expect(portToPid).not.toHaveBeenCalled();
+  });
+
+  it("returns null when lsof finds no listener (exit 1)", async () => {
+    exec.mockRejectedValueOnce(Object.assign(new Error("exit 1"), { code: 1, stdout: "" }));
+    expect(await findListeningTcpPid(9222)).toBeNull();
+    expect(portToPid).not.toHaveBeenCalled();
+  });
+
+  it("fails closed when several processes listen on the port", async () => {
+    exec.mockResolvedValueOnce({ stdout: "p123\np456\n" });
+    expect(await findListeningTcpPid(9222)).toBeNull();
+  });
+
+  it.each([123, undefined])("falls back to pid-port when lsof is missing: %s", async (pid) => {
+    exec.mockRejectedValueOnce(Object.assign(new Error("spawn lsof ENOENT"), { code: "ENOENT" }));
     vi.mocked(portToPid).mockResolvedValue(pid as never);
     expect(await findListeningTcpPid(9222)).toBe(pid ?? null);
     expect(portToPid).toHaveBeenCalledWith({ port: 9222, host: "*" });
-    expect(exec).not.toHaveBeenCalled();
   });
 });
