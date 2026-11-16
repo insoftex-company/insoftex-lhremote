@@ -21,6 +21,7 @@ The full log and the CRM-side design rules are in `insoftex-espocrm-extension`:
 | --- | --- | --- |
 | `campaign-remove-people` (`CampaignService.removePeople`) always removes from the campaign's **first action** (`actions[0]`). | A person who has moved past the first action keeps running: their remaining webhooks still fire. **Don't use this command to stop a person mid-sequence.** | Observed. Fix planned for 0.28.2: a stop command = action-level exclude on every action after the person's current one, plus removal from the current action (tests C2, D2, C3a, C3b, C4). |
 | `listPeople` / `listOrganizations` aggregated with `MAX(state)`. | Removed people still showed as `queued`. | Fixed in **0.28.1**. Each (person, action) now uses its latest row, and tombstones are excluded. The organization side is assumed to work the same way, not observed. |
+| `campaign-start` with `personIds` runs `resetForRerun`: it sets the person to `state = 1` at **every** action, deletes their `action_results` and resets their campaign history. It also starts LH's **global** runner, which runs every active campaign of the account. | Undoes stops. Makes a person who partly ran replay all their remaining steps at once, and erases their results. Starting one test campaign also wakes any other active campaign. | Open: document prominently in the tool description; consider refusing `personIds` that have removal rows unless forced. |
 | `campaign-list-people` labels `state = 2` as `processed`. | For a finished person: first action `queued`, later actions `processed`. `state = 2` really means "entered this action" (see below). | Open: relabel or add a derived per-person status. |
 | `campaign-create` / `campaign-add-action` accept `SendPersonToWebhook` with `exportSettings: {}`. | LH flags 15 validation errors on the action (it still runs), and the payload is about 5× larger. | Open: validate in 0.28.2. Copy `exportSettings` from a UI-created action. |
 | The campaign linter reports `SendPersonToWebhook` as "unknown action type". | False warning. The action works (802 production webhooks in one campaign). | Open |
@@ -55,9 +56,11 @@ The full log and the CRM-side design rules are in `insoftex-espocrm-extension`:
   - a removed person → `imported`, with a new queued row.
 
   *Observed.*
-- **Replay hazard.** A person removed mid-sequence still has rows at later actions. If re-imported, they run
-  **all remaining steps at once, in reverse order**: last webhook first, all within about 1 s. Never re-import
-  a person into a campaign they have partly run. *Observed.*
+- **Replay hazard (caused by lhremote).** A person removed mid-sequence was re-imported and started with
+  `campaign-start --person-ids`. That command's `resetForRerun` set them back to queued at **every** action,
+  and LH ran all those steps at once, in reverse order: last webhook first, all within about 1 s. Never re-import
+  a person into a campaign they have partly run, and never pass their id to `campaign-start`. Whether a plain
+  re-import without the reset replays isn't established. *Observed; cause from source.*
 
 ## Removal and exclusion
 
@@ -67,9 +70,10 @@ The full log and the CRM-side design rules are in `insoftex-espocrm-extension`:
 - **Which action matters.** Removing a person from the action they are **currently** on (e.g. the Waiter they
   are waiting in) stopped them: no later webhooks and no later `action_results`. Removing them from the first
   action after they moved past it didn't. *Observed.*
-- **Undo.** A tombstone has flipped back to `state = 1` after a later import, start or new version of the same
-  action for the **same** person. Later versions for **other** people (an import on the first action, a removal
-  of someone else at the same action) didn't undo it (C3a). Never re-import or re-version a stopped person.
+- **Undo (caused by lhremote).** Every observed tombstone flip back to `state = 1` followed
+  `campaign-start --person-ids` for that person (`resetForRerun`: `UPDATE action_target_people SET state = 1`
+  at every action). LH itself kept removals through later versions for **other** people: an import on the
+  first action, and a removal of someone else at the same action (C3a). *Observed; cause from source.*
 - **Exclusion.** A campaign-level `campaign-exclude-add` for a person already in the sequence didn't stop
   them. An **action-level** exclude on the person's **next** action did: LH entered that action and wrote
   `action_results.result = -2` with no webhook, and ran nothing after it (D2). `campaign-exclude-add` writes
@@ -88,8 +92,8 @@ The full log and the CRM-side design rules are in `insoftex-espocrm-extension`:
 
   *Observed.*
 - **`action_results`:** one row per completed action (`result = 1`), at completion time. Waiters write
-  nothing while waiting. A **re-run updates the row in place**, `created_at` included, so it is current state,
-  not history. *Observed.*
+  nothing while waiting. `campaign-start --person-ids` **deletes** the person's results
+  (`resetForRerun`), so they are current state, not history. *Observed; cause from source.*
 - **Per-person status:**
   - finished = `action_results` has the last action;
   - at action X = latest row is X with `state = 2` and X has no result;
