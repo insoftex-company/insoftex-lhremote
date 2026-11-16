@@ -27,6 +27,7 @@ The full log and the CRM-side design rules are in `insoftex-espocrm-extension`:
 | `campaign-list-people` labels `state = 2` as `processed`. | For a finished person: first action `queued`, later actions `processed`. `state = 2` really means "entered this action" (see below). | Open: relabel or add a derived per-person status. |
 | `campaign-create` / `campaign-add-action` accept `SendPersonToWebhook` with `exportSettings: {}`. | LH flags 15 validation errors on the action (it still runs), and the payload is about 5× larger. | Open: not validated yet. Copy `exportSettings` from a UI-created action. |
 | The campaign linter reports `SendPersonToWebhook` as "unknown action type". | False warning. The action works (802 production webhooks in one campaign). | Open |
+| `list-accounts` maps no archived flag from LH's account list. | LH can't delete an account, only archive it. If archived accounts are still returned, scripts that walk every account (Insoftex FEED loader, campaign status sync) keep processing them, and `--force` start-instance would try to start a dormant one. | Open: not checked whether LH's in-memory list (`extendedLinkedInAccountsBS`) includes archived accounts. Check with `list-accounts --json` on a machine that has one. |
 
 ## How LH runs campaigns
 
@@ -37,6 +38,9 @@ The full log and the CRM-side design rules are in `insoftex-espocrm-extension`:
   - With no open working-hours window, an active campaign does nothing.
   - Working hours are global per account and stored per weekday. `00:00–00:00` means the day is closed.
   - *Observed.*
+- **Archive, not delete.** LH's UI can't delete an account or a campaign, only archive it, and archiving can
+  be undone. `campaign-list` leaves archived campaigns out unless `includeArchived` is set. *Reported by the
+  operator, 2026-11-16.*
 - **Webhook-only campaigns don't visit LinkedIn.**
   - A campaign of only `Waiter` + `SendPersonToWebhook` didn't load a profile or call LinkedIn's identity API,
     even for people known only by URL. Page-URL and CDP network watchdogs were running.
