@@ -116,7 +116,8 @@ describe("createProgram", () => {
     expect(commandNames).toContain("reap-orphans");
     expect(commandNames).toContain("campaign-list-organizations");
     expect(commandNames).toContain("import-organizations-from-urls");
-    expect(commandNames).toHaveLength(81);
+    expect(commandNames).toContain("hello");
+    expect(commandNames).toHaveLength(82);
   });
 
   describe("--account-id", () => {

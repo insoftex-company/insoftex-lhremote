@@ -104,6 +104,7 @@ The table below is generated from [`packages/mcp/src/tools/`](src/tools).
 | `get-post-stats` |
 | `get-profile-activity` |
 | `get-throttle-status` |
+| `hello` |
 | `hide-feed-author` |
 | `hide-feed-author-profile` |
 | `import-organizations-from-urls` |

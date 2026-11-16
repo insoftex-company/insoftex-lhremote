@@ -25,7 +25,7 @@ The full log and the CRM-side design rules are in `insoftex-espocrm-extension`:
 | `campaign-create` document format reads action settings only from `config`, and always names an action after its type. Unknown keys such as `actionSettings` or `name` are ignored without an error (`packages/core/src/formats/campaign-format.ts:201`). | A campaign created with `actionSettings` gets empty settings on every action, and custom names are lost. Fixed afterwards with `campaign-update-action` (T0.5 campaign 9). | Open: reject unknown action keys; accept `name`. |
 | The `campaign-start` MCP tool **requires** `personIds` (`minItems: 1`), so every start runs `resetForRerun` on the listed people. | A paused campaign can't be resumed without resetting the people passed in. Harmless only for people new to the campaign. | Open: make `personIds` optional (start without a reset). |
 | `campaign-list-people` labels `state = 2` as `processed`. | For a finished person: first action `queued`, later actions `processed`. `state = 2` really means "entered this action" (see below). | Open: relabel or add a derived per-person status. |
-| `campaign-create` / `campaign-add-action` accept `SendPersonToWebhook` with `exportSettings: {}`. | LH flags 15 validation errors on the action (it still runs), and the payload is about 5× larger. | Open: validate in 0.28.2. Copy `exportSettings` from a UI-created action. |
+| `campaign-create` / `campaign-add-action` accept `SendPersonToWebhook` with `exportSettings: {}`. | LH flags 15 validation errors on the action (it still runs), and the payload is about 5× larger. | Open: not validated yet. Copy `exportSettings` from a UI-created action. |
 | The campaign linter reports `SendPersonToWebhook` as "unknown action type". | False warning. The action works (802 production webhooks in one campaign). | Open |
 
 ## How LH runs campaigns
@@ -140,6 +140,9 @@ The payload is a flat object: `lh_id`, `public_id`, `profile_url`, `member_id`, 
   2. Run `pnpm --filter=@insoftex/lhremote deploy --prod scripts\lhremote-<new>`.
   3. Repoint the junction, keeping the old snapshot for rollback.
   4. Reconnect the MCP server (`/mcp` in Claude Code).
+  5. Confirm with `hello` (0.28.3+): the MCP tool and `lhremote hello` report the version and the real
+     path of the running copy, which must sit in `scripts\lhremote-<new>`. The MCP server only picks up
+     a new snapshot after a reconnect, so check the MCP tool, not just the CLI.
 
   LinkedHelper campaigns keep running during the switch.
 - **MCP entry.** Claude Code's entry is `cmd /c npx --yes lhremote@0.20.1 mcp`. It reaches this fork only

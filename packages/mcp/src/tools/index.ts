@@ -48,6 +48,7 @@ import { registerCampaignValidateActionSettings } from "./campaign-validate-acti
 import { registerDeleteCollection } from "./delete-collection.js";
 import { registerCheckReplies } from "./check-replies.js";
 import { registerCheckStatus } from "./check-status.js";
+import { registerHello } from "./hello.js";
 import { registerEnsureInstances } from "./ensure-instances.js";
 import { registerListOrphans } from "./list-orphans.js";
 import { registerReapOrphans } from "./reap-orphans.js";
@@ -141,6 +142,7 @@ export {
   registerDismissErrors,
   registerCheckReplies,
   registerCheckStatus,
+  registerHello,
   registerDescribeActions,
   registerFindApp,
   registerGetActionBudget,
@@ -183,7 +185,11 @@ export {
   registerListOperations,
 };
 
-export function registerAllTools(server: McpServer): void {
+/**
+ * Register every tool. `version` is reported by the `hello` tool.
+ */
+export function registerAllTools(server: McpServer, options: { version?: string } = {}): void {
+  registerHello(server, options.version);
   registerEnsureInstances(server);
   registerListOrphans(server);
   registerReapOrphans(server);

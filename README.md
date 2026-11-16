@@ -113,6 +113,7 @@ lhremote start-instance [accountId] [--cdp-port <port>]
 lhremote stop-instance [accountId] [--cdp-port <port>]
 lhremote restart-instance <accountId> [--cdp-port <port>] [--force]
 lhremote check-status [--cdp-port <port>] [--json]
+lhremote hello [--json]
 ```
 
 ### Campaigns
@@ -338,6 +339,10 @@ Report which LinkedHelper account instances are running, their CDP ports, and da
 | Parameter | Type | Required | Default | Description |
 |-----------|------|----------|---------|-------------|
 | `cdpPort` | number | No | auto-discover | Launcher CDP port (optional; instance data is always available regardless) |
+
+#### `hello`
+
+Report which lhremote is running: `version`, `modulePath` (the real path of the running copy, with symlinks and Windows junctions resolved), `node`, `platform` and `pid`. Needs no LinkedHelper connection. Use it to confirm a deploy or an MCP reconnect took effect. No parameters.
 
 ### Campaigns
 

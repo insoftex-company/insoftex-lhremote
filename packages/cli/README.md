@@ -56,6 +56,7 @@ The table below is generated from [`packages/cli/src/program.ts`](src/program.ts
 
 | Command |
 |---|
+| `hello` |
 | `find-app` |
 | `launch-app` |
 | `quit-app` |
