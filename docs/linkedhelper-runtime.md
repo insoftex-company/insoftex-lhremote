@@ -19,10 +19,11 @@ The full log and the CRM-side design rules are in `insoftex-espocrm-extension`:
 
 | Gap | Consequence | Status |
 | --- | --- | --- |
-| `campaign-remove-people` (`CampaignService.removePeople`) always removes from the campaign's **first action** (`actions[0]`). | A person who has moved past the first action keeps running: their remaining webhooks still fire. **Don't use this command to stop a person mid-sequence.** | Observed. **Use `campaign-stop-people` (0.28.2)** instead: action-level exclude on every action after the person's current one, plus removal from the current action (tests C2, D2, C3a, C3b, C4). Runtime verification of the command itself is pending (T0.5 H). |
+| `campaign-remove-people` (`CampaignService.removePeople`) always removes from the campaign's **first action** (`actions[0]`). | A person who has moved past the first action keeps running: their remaining webhooks still fire. **Don't use this command to stop a person mid-sequence.** | Observed. **Use `campaign-stop-people` (0.28.2)** instead: action-level exclude on every action after the person's current one, plus removal from the current action (tests C2, D2, C3a, C3b, C4). Verified at runtime on 2026-11-16: the stopped person fired nothing more. |
 | `listPeople` / `listOrganizations` aggregated with `MAX(state)`. | Removed people still showed as `queued`. | Fixed in **0.28.1**. Each (person, action) now uses its latest row, and tombstones are excluded. The organization side is assumed to work the same way, not observed. |
 | `campaign-start` with `personIds` runs `resetForRerun`: it sets the person to `state = 1` at **every** action, deletes their `action_results` and resets their campaign history. It also starts LH's **global** runner, which runs every active campaign of the account. | Undoes stops. Makes a person who partly ran replay all their remaining steps at once, and erases their results. Starting one test campaign also wakes any other active campaign. | Open: document prominently in the tool description; consider refusing `personIds` that have removal rows unless forced. |
 | `campaign-create` document format reads action settings only from `config`, and always names an action after its type. Unknown keys such as `actionSettings` or `name` are ignored without an error (`packages/core/src/formats/campaign-format.ts:201`). | A campaign created with `actionSettings` gets empty settings on every action, and custom names are lost. Fixed afterwards with `campaign-update-action` (T0.5 campaign 9). | Open: reject unknown action keys; accept `name`. |
+| The `campaign-start` MCP tool **requires** `personIds` (`minItems: 1`), so every start runs `resetForRerun` on the listed people. | A paused campaign can't be resumed without resetting the people passed in. Harmless only for people new to the campaign. | Open: make `personIds` optional (start without a reset). |
 | `campaign-list-people` labels `state = 2` as `processed`. | For a finished person: first action `queued`, later actions `processed`. `state = 2` really means "entered this action" (see below). | Open: relabel or add a derived per-person status. |
 | `campaign-create` / `campaign-add-action` accept `SendPersonToWebhook` with `exportSettings: {}`. | LH flags 15 validation errors on the action (it still runs), and the payload is about 5× larger. | Open: validate in 0.28.2. Copy `exportSettings` from a UI-created action. |
 | The campaign linter reports `SendPersonToWebhook` as "unknown action type". | False warning. The action works (802 production webhooks in one campaign). | Open |
@@ -125,7 +126,10 @@ The payload is a flat object: `lh_id`, `public_id`, `profile_url`, `member_id`, 
 - **Duplicate delivery.** In 16 deliveries, one (a final-step webhook) was logged twice in the same
   millisecond, with a single `action_results` row. All 12 deliveries logged per request arrived once.
   Consumers must be idempotent. *Observed; cause unconfirmed.*
-- **Failed delivery.** It appears as exception `870030`. Whether LH retries is open.
+- **Failed delivery is final: at most once.** With the receiver down, the webhook action got `result = -1` and
+  exception `870030`, and LH never retried after the receiver came back (T0.5 N). The campaign was found paused
+  right afterwards without anyone pausing it, so LH probably pauses a campaign after webhook failures (not
+  proven). *Observed.*
 
 ## Windows deployment (Insoftex LinkedHelper machine)
 
