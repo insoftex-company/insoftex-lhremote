@@ -4,6 +4,17 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+## [0.28.4] — 2026-11-16
+
+### Archived accounts left out of `list-accounts`
+
+- LinkedHelper can't delete an account, only archive it, and archived accounts stay in its account list. `LauncherService.listAccounts` now reports `archived` (from LH's `hidden` flag) and leaves archived accounts out unless `includeArchived` is set. New CLI flag `--include-archived`, new MCP parameter `includeArchived`; the CLI table marks archived accounts.
+- **Evidence:** on the Insoftex machine (LinkedHelper 2.140.x), the one archived account had `hidden: true` and the active account `false`; no other field marked the archive. Whether the cross-workspace API (`includeAllWorkspaces`) returns `hidden` isn't verified; an account without it counts as not archived.
+- **Behaviour change:** account auto-resolution (MCP tools without `accountId`, `start-instance` / `stop-instance` MCP tools without one) no longer counts archived accounts. A machine with one active and one archived account now resolves to the active one instead of failing with "multiple accounts".
+- Scripts that walk every account (for example a feed loader) skip archived accounts without a change on their side.
+- New `scripts/probe-account-fields.mjs`: a read-only probe of LH's in-memory account fields, secrets redacted.
+- Synchronized all workspace package, MCP registry and Claude plugin metadata to 0.28.4.
+
 ## [0.28.3] — 2026-11-16
 
 ### New `hello` (MCP tool and CLI command)

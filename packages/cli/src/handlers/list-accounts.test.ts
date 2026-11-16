@@ -72,6 +72,24 @@ describe("handleListAccounts", () => {
     expect(stdoutSpy).toHaveBeenCalledWith("2\tBob <bob@example.com>\n");
   });
 
+  it("passes --include-archived through and marks archived accounts", async () => {
+    const stdoutSpy = vi
+      .spyOn(process.stdout, "write")
+      .mockReturnValue(true);
+
+    const listAccounts = vi.fn().mockResolvedValue([
+      { id: 1, liId: 1, name: "Alice", archived: false },
+      { id: 2, liId: 2, name: "Old", archived: true },
+    ] satisfies Account[]);
+    mockLauncher({ listAccounts });
+
+    await handleListAccounts({ includeArchived: true });
+
+    expect(listAccounts).toHaveBeenCalledWith({ includeArchived: true });
+    expect(stdoutSpy).toHaveBeenCalledWith("1\tAlice\n");
+    expect(stdoutSpy).toHaveBeenCalledWith("2\tOld (archived)\n");
+  });
+
   it("prints message when no accounts", async () => {
     const stdoutSpy = vi
       .spyOn(process.stdout, "write")

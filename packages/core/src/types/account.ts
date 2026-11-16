@@ -38,4 +38,12 @@ export interface Account {
    * with a "wrong-access:full" stopping reason.
    */
   workspaceAccess?: WorkspaceAccess | undefined;
+  /**
+   * The account is archived in LinkedHelper, which can't delete accounts.
+   *
+   * Read from LH's `hidden` flag. Observed on LinkedHelper 2.140.x: the one
+   * archived account had `hidden: true`, active accounts `false` (Insoftex,
+   * 2026-11-16).
+   */
+  archived?: boolean | undefined;
 }
