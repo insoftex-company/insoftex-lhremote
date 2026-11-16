@@ -449,6 +449,9 @@ export {
   type PersonStopOutcome,
   type PersonStopPlan,
   type PersonStopResult,
+  // Diagnostics
+  hello,
+  type HelloOutput,
   // Collections (Lists)
   listCollections,
   type ListCollectionsInput,

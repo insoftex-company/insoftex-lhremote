@@ -15,6 +15,6 @@ const { name, version } = require("../package.json") as { name: string; version:
  */
 export function createServer(): McpServer {
   const server = new McpServer({ name, version });
-  registerAllTools(server);
+  registerAllTools(server, { version });
   return server;
 }

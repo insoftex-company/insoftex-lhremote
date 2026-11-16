@@ -4,6 +4,14 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+## [0.28.3] — 2026-11-16
+
+### New `hello` (MCP tool and CLI command)
+
+- Reports which lhremote is running: version, the real path of the running copy (symlinks and Windows junctions resolved), Node.js version, platform and process id. Needs no LinkedHelper connection. Use it after a deploy or an MCP reconnect to confirm which build answers. `lhremote --version` still prints the version only.
+- The version comes from the calling front end (CLI or MCP server), not from core, so it also works in the esbuild bundle.
+- Synchronized all workspace package, MCP registry and Claude plugin metadata to 0.28.3.
+
 ## [0.28.2] — 2026-11-16
 
 ### New `campaign-stop-people` (MCP tool and CLI command)

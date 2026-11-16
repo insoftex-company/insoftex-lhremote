@@ -42,6 +42,7 @@ import {
   handleListCollections,
   handleCheckReplies,
   handleCheckStatus,
+  handleHello,
   handleEnsureInstances,
   handleListOrphans,
   handleReapOrphans,
@@ -139,10 +140,19 @@ export interface CreateProgramOptions {
 }
 
 export function createProgram(options: CreateProgramOptions = {}): Command {
+  const programVersion = options.version ?? version;
   const program = new Command()
     .name("lhremote")
     .description("CLI for LinkedHelper automation")
-    .version(options.version ?? version);
+    .version(programVersion);
+
+  program
+    .command("hello")
+    .description("Show which lhremote is running: version, install path, Node.js (no LinkedHelper needed)")
+    .option("--json", "Output as JSON")
+    .action((opts: { json?: boolean }) => {
+      handleHello(programVersion, opts);
+    });
 
   const findAppCmd = program
     .command("find-app")
