@@ -23,6 +23,7 @@ import {
   handleCampaignMoveNext,
   handleCampaignRemoveAction,
   handleCampaignRemovePeople,
+  handleCampaignStopPeople,
   handleCampaignReorderActions,
   handleCampaignRetry,
   handleCampaignStart,
@@ -625,6 +626,19 @@ Examples:
     .option("--account-id <id>", "Account ID to select when multiple accounts exist", parsePositiveInt)
     .option("--json", "Output as JSON")
     .action(handleCampaignRemovePeople);
+
+  program
+    .command("campaign-stop-people")
+    .description("Stop people wherever they are in a campaign's sequence (exclude on later actions + remove from the current one)")
+    .argument("<campaignId>", "Campaign ID to stop people in", parsePositiveInt)
+    .option("--person-ids <ids>", "Comma-separated person IDs")
+    .option("--person-ids-file <path>", "File containing person IDs")
+    .option("--cdp-port <port>", "CDP debugging port (auto-discovered when omitted)", parsePositiveInt)
+    .option("--cdp-host <host>", "CDP host (default: 127.0.0.1)")
+    .option("--allow-remote", "SECURITY: allow non-loopback CDP connections (enables remote code execution on target)")
+    .option("--account-id <id>", "Account ID to select when multiple accounts exist", parsePositiveInt)
+    .option("--json", "Output as JSON")
+    .action(handleCampaignStopPeople);
 
   program
     .command("list-collections")

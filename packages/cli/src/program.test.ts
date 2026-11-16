@@ -72,6 +72,7 @@ describe("createProgram", () => {
     expect(commandNames).toContain("campaign-list-people");
     expect(commandNames).toContain("campaign-update-action");
     expect(commandNames).toContain("campaign-remove-people");
+    expect(commandNames).toContain("campaign-stop-people");
     expect(commandNames).toContain("get-errors");
     expect(commandNames).toContain("dismiss-errors");
     expect(commandNames).toContain("get-action-budget");
@@ -115,7 +116,7 @@ describe("createProgram", () => {
     expect(commandNames).toContain("reap-orphans");
     expect(commandNames).toContain("campaign-list-organizations");
     expect(commandNames).toContain("import-organizations-from-urls");
-    expect(commandNames).toHaveLength(80);
+    expect(commandNames).toHaveLength(81);
   });
 
   describe("--account-id", () => {

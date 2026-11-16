@@ -140,6 +140,14 @@ function deriveTargetKind(type: number): CampaignTargetKind {
  * Write operations require the DatabaseClient to be opened with
  * `{ readOnly: false }`.
  */
+/** Per-person progress through one campaign (see {@link CampaignRepository.getPeopleProgress}). */
+export interface PersonCampaignProgress {
+  /** Latest `action_target_people.state` per action id. */
+  readonly latestStateByAction: Map<number, number>;
+  /** `action_results.result` per action id (last row wins). */
+  readonly resultByAction: Map<number, number>;
+}
+
 export class CampaignRepository {
   private readonly stmtListCampaigns;
   private readonly stmtListAllCampaigns;
@@ -626,6 +634,76 @@ export class CampaignRepository {
     }));
 
     return { organizations, total };
+  }
+
+  /**
+   * Per-person progress through a campaign, used to stop people mid-sequence.
+   *
+   * For each requested person: the state of their **latest**
+   * `action_target_people` row per action (highest `id` wins), and the
+   * `action_results.result` recorded per action. Observed on LinkedHelper
+   * 2.140.4: `state` 1 = queued (import rows, first action), 2 = entered this
+   * action, -1 = removed; `result` 1 = success, -2 = excluded. A person with
+   * no rows is absent from the campaign.
+   *
+   * @throws {CampaignNotFoundError} if no campaign exists with the given ID.
+   */
+  getPeopleProgress(
+    campaignId: number,
+    personIds: number[],
+  ): Map<number, PersonCampaignProgress> {
+    this.getCampaign(campaignId);
+
+    const progress = new Map<number, PersonCampaignProgress>();
+    for (const personId of personIds) {
+      progress.set(personId, {
+        latestStateByAction: new Map(),
+        resultByAction: new Map(),
+      });
+    }
+    if (personIds.length === 0) return progress;
+
+    const placeholders = personIds.map(() => "?").join(", ");
+
+    const stateRows = this.client.db
+      .prepare(
+        `SELECT atp.person_id, atp.action_id, atp.state
+         FROM action_target_people atp
+         JOIN actions a ON a.id = atp.action_id
+         WHERE a.campaign_id = ? AND atp.person_id IN (${placeholders})
+           AND atp.id = (
+             SELECT MAX(atp2.id) FROM action_target_people atp2
+             WHERE atp2.person_id = atp.person_id AND atp2.action_id = atp.action_id
+           )`,
+      )
+      .all(campaignId, ...personIds) as unknown as {
+      person_id: number;
+      action_id: number;
+      state: number;
+    }[];
+    for (const row of stateRows) {
+      progress.get(row.person_id)?.latestStateByAction.set(row.action_id, row.state);
+    }
+
+    const resultRows = this.client.db
+      .prepare(
+        `SELECT ar.person_id, av.action_id, ar.result
+         FROM action_results ar
+         JOIN action_versions av ON av.id = ar.action_version_id
+         JOIN actions a ON a.id = av.action_id
+         WHERE a.campaign_id = ? AND ar.person_id IN (${placeholders})
+         ORDER BY ar.id`,
+      )
+      .all(campaignId, ...personIds) as unknown as {
+      person_id: number;
+      action_id: number;
+      result: number;
+    }[];
+    for (const row of resultRows) {
+      progress.get(row.person_id)?.resultByAction.set(row.action_id, row.result);
+    }
+
+    return progress;
   }
 
   /**

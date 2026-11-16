@@ -32,6 +32,7 @@ import { registerCampaignListPeople } from "./campaign-list-people.js";
 import { registerCampaignMoveNext } from "./campaign-move-next.js";
 import { registerCampaignRemoveAction } from "./campaign-remove-action.js";
 import { registerCampaignRemovePeople } from "./campaign-remove-people.js";
+import { registerCampaignStopPeople } from "./campaign-stop-people.js";
 import { registerCampaignReorderActions } from "./campaign-reorder-actions.js";
 import { registerCampaignRetry } from "./campaign-retry.js";
 import { registerCampaignUpdateAction } from "./campaign-update-action.js";
@@ -124,6 +125,7 @@ export {
   registerCampaignMoveNext,
   registerCampaignRemoveAction,
   registerCampaignRemovePeople,
+  registerCampaignStopPeople,
   registerCampaignReorderActions,
   registerCampaignRetry,
   registerCampaignUpdateAction,
@@ -204,6 +206,7 @@ export function registerAllTools(server: McpServer): void {
   registerCampaignMoveNext(server);
   registerCampaignRemoveAction(server);
   registerCampaignRemovePeople(server);
+  registerCampaignStopPeople(server);
   registerCampaignReorderActions(server);
   registerCampaignRetry(server);
   registerCampaignStart(server);

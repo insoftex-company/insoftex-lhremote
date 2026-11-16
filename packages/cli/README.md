@@ -93,6 +93,7 @@ The table below is generated from [`packages/cli/src/program.ts`](src/program.ts
 | `import-organizations-from-urls` |
 | `collect-people` |
 | `campaign-remove-people` |
+| `campaign-stop-people` |
 | `list-collections` |
 | `create-collection` |
 | `delete-collection` |

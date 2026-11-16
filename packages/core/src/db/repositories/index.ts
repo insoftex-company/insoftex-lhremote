@@ -3,7 +3,7 @@
 
 export { ActionBudgetRepository } from "./action-budget.js";
 export { CampaignExcludeListRepository } from "./campaign-exclude-list.js";
-export { CampaignRepository } from "./campaign.js";
+export { CampaignRepository, type PersonCampaignProgress } from "./campaign.js";
 export { CampaignStatisticsRepository } from "./campaign-statistics.js";
 export {
   CollectionListRepository,

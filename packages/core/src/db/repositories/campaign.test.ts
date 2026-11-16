@@ -591,6 +591,45 @@ describe("CampaignRepository", () => {
     });
   });
 
+  describe("getPeopleProgress", () => {
+    // Campaign 5 / action 5 (version 5): person 1 queued (state 1),
+    // person 3 processed (state 2). Person 99 has no rows.
+
+    it("returns the latest state per action, with a later removal winning", () => {
+      db.exec(
+        `INSERT INTO action_target_people (action_id, action_version_id, person_id, state, li_account_id, created_at)
+         VALUES (5, 5, 1, -1, 1, STRFTIME('%Y-%m-%dT%H:%M:%fZ', 'NOW'))`,
+      );
+
+      const progress = repo.getPeopleProgress(5, [1, 3]);
+
+      expect(progress.get(1)?.latestStateByAction.get(5)).toBe(-1);
+      expect(progress.get(3)?.latestStateByAction.get(5)).toBe(2);
+    });
+
+    it("maps action results to their action through the action version", () => {
+      db.exec(
+        `INSERT INTO action_results (action_version_id, person_id, result, platform)
+         VALUES (5, 3, -2, 'LINKEDIN')`,
+      );
+
+      const progress = repo.getPeopleProgress(5, [3]);
+
+      expect(progress.get(3)?.resultByAction.get(5)).toBe(-2);
+    });
+
+    it("returns empty progress for people with no rows in the campaign", () => {
+      const progress = repo.getPeopleProgress(5, [99]);
+
+      expect(progress.get(99)?.latestStateByAction.size).toBe(0);
+      expect(progress.get(99)?.resultByAction.size).toBe(0);
+    });
+
+    it("throws CampaignNotFoundError for an unknown campaign", () => {
+      expect(() => repo.getPeopleProgress(999, [1])).toThrow(CampaignNotFoundError);
+    });
+  });
+
   describe("listPeople", () => {
     // Campaign 5 / action 5: person 1 (Ada, public id "ada-lovelace-test")
     // queued, person 3 (Grace, public id "grace-hopper-test") processed.
