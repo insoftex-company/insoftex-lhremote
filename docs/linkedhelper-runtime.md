@@ -68,7 +68,8 @@ The full log and the CRM-side design rules are in `insoftex-espocrm-extension`:
   are waiting in) stopped them: no later webhooks and no later `action_results`. Removing them from the first
   action after they moved past it didn't. *Observed.*
 - **Undo.** A tombstone has flipped back to `state = 1` after a later import, start or new version of the same
-  action for the same person. Whether versions for other people undo it is open (C3).
+  action for the **same** person. Later versions for **other** people (an import on the first action, a removal
+  of someone else at the same action) didn't undo it (C3a). Never re-import or re-version a stopped person.
 - **Exclusion.** A campaign-level `campaign-exclude-add` for a person already in the sequence didn't stop
   them. An **action-level** exclude on the person's **next** action did: LH entered that action and wrote
   `action_results.result = -2` with no webhook, and ran nothing after it (D2). `campaign-exclude-add` writes
