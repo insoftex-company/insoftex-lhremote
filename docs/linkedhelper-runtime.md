@@ -19,7 +19,7 @@ The full log and the CRM-side design rules are in `insoftex-espocrm-extension`:
 
 | Gap | Consequence | Status |
 | --- | --- | --- |
-| `campaign-remove-people` (`CampaignService.removePeople`) always removes from the campaign's **first action** (`actions[0]`). | A person who has moved past the first action keeps running: their remaining webhooks still fire. **Don't use this command to stop a person mid-sequence.** | Observed. Fix planned: a current-action / all-actions mode (0.28.2), pending tests C3 and C4. |
+| `campaign-remove-people` (`CampaignService.removePeople`) always removes from the campaign's **first action** (`actions[0]`). | A person who has moved past the first action keeps running: their remaining webhooks still fire. **Don't use this command to stop a person mid-sequence.** | Observed. Fix planned for 0.28.2: a stop command = action-level exclude on every action after the person's current one, plus removal from the current action (tests C2, D2, C3a, C3b, C4). |
 | `listPeople` / `listOrganizations` aggregated with `MAX(state)`. | Removed people still showed as `queued`. | Fixed in **0.28.1**. Each (person, action) now uses its latest row, and tombstones are excluded. The organization side is assumed to work the same way, not observed. |
 | `campaign-list-people` labels `state = 2` as `processed`. | For a finished person: first action `queued`, later actions `processed`. `state = 2` really means "entered this action" (see below). | Open: relabel or add a derived per-person status. |
 | `campaign-create` / `campaign-add-action` accept `SendPersonToWebhook` with `exportSettings: {}`. | LH flags 15 validation errors on the action (it still runs), and the payload is about 5× larger. | Open: validate in 0.28.2. Copy `exportSettings` from a UI-created action. |
@@ -74,7 +74,10 @@ The full log and the CRM-side design rules are in `insoftex-espocrm-extension`:
   them. An **action-level** exclude on the person's **next** action did: LH entered that action and wrote
   `action_results.result = -2` with no webhook, and ran nothing after it (D2). `campaign-exclude-add` writes
   the exclude list straight into `lh.db` while LH runs; an integrity check is pending. Whether excludes
-  survive later imports and removals is open (C3b). *Observed / open.*
+  survive later imports and removals: **yes**. Excludes on 40–42 stayed after new versions on 38 and 39,
+  and the person was dropped at 40 (C3b). *Observed.*
+- **Removal on an unreached action** writes no tombstone row (C4), so it doesn't pre-empt arrival. Use an
+  action-level exclude for future actions. *Observed.*
 
 ## Database semantics (`lh.db`, per account)
 
