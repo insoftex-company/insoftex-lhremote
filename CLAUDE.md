@@ -31,6 +31,15 @@ Single-developer repository — no PRs, no human or Copilot code review (Copilot
 - Run `pnpm lint` and `pnpm test` before pushing.
 - CI (`ci.yml`) runs on every push to `main` — verify it stays green after pushing.
 
+### Multi-machine sync and environment check
+
+Development happens on several computers (MacBook, lhserver, minis01, others) and with several AI tools (Claude Code, Codex, OpenCode). GitHub is the single source of truth; every local clone is a working copy. These rules bind every AI agent on every machine, on top of the workflow above:
+
+1. **Sync before you touch anything.** Run `git fetch --all --prune`, check ahead/behind against `origin/main`, and `git pull --ff-only` when the clone is only behind.
+2. **Merge parallel work, do not discard it.** If local and remote both moved, or there are uncommitted local changes: commit or `git stash`, `git pull --no-rebase`, restore the stash, and resolve unambiguous conflicts automatically (then re-run `pnpm lint` and `pnpm test`). **Stop and ask Mike** when a conflict is critical (changes behavior of LinkedHelper automation, account or campaign handling, release/CI config, versions, or the intent is unclear) or when resolving it would discard someone's work.
+3. Never `git push --force`, `git reset --hard` or delete branches to get past a sync problem without Mike's explicit approval.
+4. **After every pull that brought new commits, check the local environment**: Node.js against `.nvmrc` and `engines` in `package.json`, pnpm against `packageManager`, and any other pinned tool. Run `pnpm install` when `pnpm-lock.yaml` changed. If a tool version differs from the declared one (the project may have migrated), install or switch to the declared version (on Windows `winget`; MSI installs need an elevated shell, so ask Mike), then re-run `pnpm lint` and `pnpm test`. When you migrate a version yourself, update the docs and tell Mike which machines still need the update.
+
 ### Copyright And Attribution
 
 - This repository is an Insoftex fork of the upstream `alexey-pelykh/lhremote` project.
