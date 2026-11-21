@@ -52,7 +52,7 @@ try {
     if (-not $line) { throw 'lh-backup.ps1 produced no archive' }
     $tar = ("$line" -replace '^BACKUP_FILE=', '').Trim()
     $base = Split-Path $tar -Leaf
-    $localHash = (Get-FileHash $tar -Algorithm SHA256).Hash.ToLower()
+    $localHash = ((Get-Content "$tar.sha256" -Raw).Trim() -split '\s+')[0].ToLower()   # written by lh-backup.ps1 (avoids hashing 3 GB twice)
     $key = Join-Path $HomeDir '.ssh\id_dev_insoftex_com'
     $sshOpts = @('-i', $key, '-o', 'IdentitiesOnly=yes', '-o', 'BatchMode=yes', '-o', 'ConnectTimeout=20', '-o', 'LogLevel=ERROR')
     $target = "$RemoteUser@$RemoteHost"

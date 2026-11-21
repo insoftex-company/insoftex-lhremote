@@ -9,12 +9,14 @@
   pnpm junctions from non-interactive (ssh / S4U) logons on this machine, and the shadow copy needs elevation.
 #>
 param([switch]$Remove, [string]$HomeDir = 'C:\Users\xuser', [string]$User = 'xuser')
-$name = 'LinkedHelper nightly backup (Austin 23:00)'
+$name = 'LinkedHelper nightly backup - Austin 11PM'   # no ':' allowed in a task name
 if ($Remove) { Unregister-ScheduledTask -TaskName $name -Confirm:$false -ErrorAction SilentlyContinue; "Removed '$name'."; return }
 $script = Join-Path $HomeDir 'scripts\lh-backup-nightly.ps1'
 if (-not (Test-Path $script)) { throw "Missing $script" }
 $act = New-ScheduledTaskAction -Execute 'powershell.exe' -Argument "-NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File `"$script`""
-$trg = New-ScheduledTaskTrigger -Once -At (Get-Date '00:00') -RepetitionInterval (New-TimeSpan -Minutes 30) -RepetitionDuration (New-TimeSpan -Days 3650)
+# daily trigger at 00:00 that repeats every 30 minutes for 24 hours (a 3650-day repetition is rejected by Task Scheduler)
+$trg = New-ScheduledTaskTrigger -Daily -At '00:00'
+$trg.Repetition = (New-ScheduledTaskTrigger -Once -At '00:00' -RepetitionInterval (New-TimeSpan -Minutes 30) -RepetitionDuration (New-TimeSpan -Hours 23 -Minutes 59)).Repetition
 $prin = New-ScheduledTaskPrincipal -UserId "$env:COMPUTERNAME\$User" -LogonType Interactive -RunLevel Highest
 $set = New-ScheduledTaskSettingsSet -StartWhenAvailable -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries -MultipleInstances IgnoreNew -ExecutionTimeLimit (New-TimeSpan -Hours 3)
 Register-ScheduledTask -TaskName $name -Action $act -Trigger $trg -Principal $prin -Settings $set -Force | Out-Null

@@ -141,6 +141,7 @@ console.log(JSON.stringify(out));
         try { $manifest.lhremote = (& $node $cli --version 2>&1 | Select-Object -Last 1).ToString() } catch { }
         if (-not $NoCampaignExport) {
             Log 'Exporting campaign configurations with lhremote (best effort)'
+            $ErrorActionPreference = 'Continue'   # native stderr must not become a terminating error; failures are recorded in the manifest
             $cdir = Join-Path $work 'campaigns'; New-Item -ItemType Directory -Force $cdir | Out-Null
             try {
                 $raw = & $node $cli list-accounts --json --include-archived 2>&1 | Out-String
@@ -164,6 +165,7 @@ console.log(JSON.stringify(out));
                 $manifest.campaignExport = "exported $n campaign configuration(s)"
             }
             catch { $manifest.campaignExport = "skipped: $($_.Exception.Message)" }
+            $ErrorActionPreference = 'Stop'
         }
     }
     else { $manifest.campaignExport = 'skipped: lhremote CLI not usable in this session' }
