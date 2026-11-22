@@ -87,7 +87,7 @@ foreach (`$old in `$sets | Select-Object -Skip $KeepRemote) {
 "minis01 now keeps " + (@(Get-ChildItem `$d -Filter 'lh-backup-*.tar').Count) + " archive(s)"
 "@
     Write-Host $kept
-    Set-Content $marker $austinDay -Encoding ascii
+    if (-not $Force) { Set-Content $marker $austinDay -Encoding ascii }   # a manual -Force run must not make the scheduled 23:00 run skip itself
     if ($backupExit -ne 0) { Write-Host "NOTE: the backup finished with warnings (exit $backupExit); see the PROBLEM lines above."; exit $backupExit }
     Write-Host 'Nightly LinkedHelper backup OK.'
 }
