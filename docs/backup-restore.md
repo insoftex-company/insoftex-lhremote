@@ -17,6 +17,9 @@ lhremote has no backup command (only `campaign-export`), so the backup is a cons
 ## What is inside
 `data\` = `%APPDATA%\linked-helper` without caches: `config.json`, `Local State`, `Preferences`, `Partitions\linked-helper-account-<id>-main\lh.db` for every account (archived ones included), browser sessions/cookies (`Network`), Local Storage, IndexedDB, the launcher partition; `campaigns\` = `accounts.json`, `campaigns-<id>.json`, `campaign-<account>-<campaign>.yaml` from lhremote (best effort, see below); `manifest.json`.
 
+## Verified (2026-11-22)
+The 08:08 archive was extracted into a scratch folder and checked independently of the restore script: SHA-256 matches, 2064 tar entries, 7 databases pass the full `PRAGMA integrity_check` (123 to 238 thousand pages each, 128 tables, hundreds of thousands of rows in the largest tables), the database list equals the manifest, no leftover journal files, 15 cookie databases present, and 307 campaign configurations exported through lhremote. `data\config.json` is LinkedHelper's own **binary** format (it is not JSON and not plain zlib) and is byte-identical to the live file on lhserver at that moment, so do not expect it to parse as JSON; `Local State` is JSON.
+
 ## Scheduled run
 The task runs as `xuser` in the logged-on session with highest privileges (needed for the snapshot). It must be interactive because on lhserver junctions (pnpm `node_modules`, the `lhremote` link) cannot be resolved from ssh/S4U logons, so the lhremote CLI works only in the interactive session; without it the backup still runs and records `campaignExport: skipped`. Target host: `scripts\lh-backup.config.json` `{"remoteHost":"..."}` (kept out of git) or `LH_BACKUP_REMOTE_HOST`. SSH key: `~\.ssh\id_dev_insoftex_com`. Logs: `scripts\logs\lh-backup-nightly-*.log`; marker `lh-backup-last-success.txt` holds the last successful Austin date.
 
