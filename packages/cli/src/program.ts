@@ -24,6 +24,13 @@ import {
   handleCampaignRemoveAction,
   handleCampaignRemovePeople,
   handleCampaignStopPeople,
+  handleCampaignIgnoreReply,
+  handleCampaignMoveOn,
+  handleCampaignPause,
+  handleCampaignPutBack,
+  handleCampaignResume,
+  handleCampaignStandBy,
+  handlePersonCustomFields,
   handleCampaignReorderActions,
   handleCampaignRetry,
   handleCampaignStart,
@@ -650,6 +657,96 @@ Examples:
     .option("--account-id <id>", "Account ID to select when multiple accounts exist", parsePositiveInt)
     .option("--json", "Output as JSON")
     .action(handleCampaignStopPeople);
+
+  program
+    .command("campaign-move-on")
+    .description("Move people whose step failed at an action (result -1) on to the next action; refuses the last action")
+    .argument("<campaignId>", "Campaign ID", parsePositiveInt)
+    .requiredOption("--action-id <id>", "The action where their step failed", parsePositiveInt)
+    .option("--person-ids <ids>", "Comma-separated person IDs")
+    .option("--person-ids-file <path>", "File containing person IDs")
+    .option("--cdp-port <port>", "CDP debugging port (auto-discovered when omitted)", parsePositiveInt)
+    .option("--cdp-host <host>", "CDP host (default: 127.0.0.1)")
+    .option("--allow-remote", "SECURITY: allow non-loopback CDP connections (enables remote code execution on target)")
+    .option("--account-id <id>", "Account ID to select when multiple accounts exist", parsePositiveInt)
+    .option("--json", "Output as JSON")
+    .action(handleCampaignMoveOn);
+
+  program
+    .command("campaign-ignore-reply")
+    .description("Ignore the replies of people held at an action because they replied (result 2) and move them on; refuses the last action")
+    .argument("<campaignId>", "Campaign ID", parsePositiveInt)
+    .requiredOption("--action-id <id>", "The action holding them", parsePositiveInt)
+    .option("--person-ids <ids>", "Comma-separated person IDs")
+    .option("--person-ids-file <path>", "File containing person IDs")
+    .option("--cdp-port <port>", "CDP debugging port (auto-discovered when omitted)", parsePositiveInt)
+    .option("--cdp-host <host>", "CDP host (default: 127.0.0.1)")
+    .option("--allow-remote", "SECURITY: allow non-loopback CDP connections (enables remote code execution on target)")
+    .option("--account-id <id>", "Account ID to select when multiple accounts exist", parsePositiveInt)
+    .option("--json", "Output as JSON")
+    .action(handleCampaignIgnoreReply);
+
+  program
+    .command("campaign-put-back")
+    .description("EXPERIMENTAL: put back people dropped at an action by an action-level exclude (result -2): removes that exclude, then queues them there again")
+    .argument("<campaignId>", "Campaign ID", parsePositiveInt)
+    .requiredOption("--action-id <id>", "The action they were dropped at", parsePositiveInt)
+    .option("--person-ids <ids>", "Comma-separated person IDs")
+    .option("--person-ids-file <path>", "File containing person IDs")
+    .option("--cdp-port <port>", "CDP debugging port (auto-discovered when omitted)", parsePositiveInt)
+    .option("--cdp-host <host>", "CDP host (default: 127.0.0.1)")
+    .option("--allow-remote", "SECURITY: allow non-loopback CDP connections (enables remote code execution on target)")
+    .option("--account-id <id>", "Account ID to select when multiple accounts exist", parsePositiveInt)
+    .option("--json", "Output as JSON")
+    .action(handleCampaignPutBack);
+
+  program
+    .command("campaign-pause")
+    .description("Pause one campaign alone (setCampaignPaused), without stopping the account's runner; Waiters already running still finish")
+    .argument("<campaignId>", "Campaign ID", parsePositiveInt)
+    .option("--cdp-port <port>", "CDP debugging port (auto-discovered when omitted)", parsePositiveInt)
+    .option("--cdp-host <host>", "CDP host (default: 127.0.0.1)")
+    .option("--allow-remote", "SECURITY: allow non-loopback CDP connections (enables remote code execution on target)")
+    .option("--account-id <id>", "Account ID to select when multiple accounts exist", parsePositiveInt)
+    .option("--json", "Output as JSON")
+    .action(handleCampaignPause);
+
+  program
+    .command("campaign-resume")
+    .description("WAKES EXECUTION: un-pause a campaign and start the account's runner, which runs EVERY active campaign of the account; needs --wake")
+    .argument("<campaignId>", "Campaign ID", parsePositiveInt)
+    .option("--wake", "Confirm that the account's runner may start (runs every active campaign of the account)")
+    .option("--cdp-port <port>", "CDP debugging port (auto-discovered when omitted)", parsePositiveInt)
+    .option("--cdp-host <host>", "CDP host (default: 127.0.0.1)")
+    .option("--allow-remote", "SECURITY: allow non-loopback CDP connections (enables remote code execution on target)")
+    .option("--account-id <id>", "Account ID to select when multiple accounts exist", parsePositiveInt)
+    .option("--json", "Output as JSON")
+    .action(handleCampaignResume);
+
+  program
+    .command("campaign-stand-by")
+    .description("Switch a campaign's Stand by mode; switching it off on an empty campaign pauses it at once")
+    .argument("<campaignId>", "Campaign ID", parsePositiveInt)
+    .option("--on", "Stand by on")
+    .option("--off", "Stand by off")
+    .option("--cdp-port <port>", "CDP debugging port (auto-discovered when omitted)", parsePositiveInt)
+    .option("--cdp-host <host>", "CDP host (default: 127.0.0.1)")
+    .option("--allow-remote", "SECURITY: allow non-loopback CDP connections (enables remote code execution on target)")
+    .option("--account-id <id>", "Account ID to select when multiple accounts exist", parsePositiveInt)
+    .option("--json", "Output as JSON")
+    .action(handleCampaignStandBy);
+
+  program
+    .command("person-custom-fields")
+    .description("Save a person's custom fields (CRM level, savePersonCustomFields); an empty value clears the field")
+    .argument("<personId>", "Person ID", parsePositiveInt)
+    .option("--set <name=value...>", "Field to set (repeatable): name=value")
+    .option("--cdp-port <port>", "CDP debugging port (auto-discovered when omitted)", parsePositiveInt)
+    .option("--cdp-host <host>", "CDP host (default: 127.0.0.1)")
+    .option("--allow-remote", "SECURITY: allow non-loopback CDP connections (enables remote code execution on target)")
+    .option("--account-id <id>", "Account ID to select when multiple accounts exist", parsePositiveInt)
+    .option("--json", "Output as JSON")
+    .action(handlePersonCustomFields);
 
   program
     .command("list-collections")

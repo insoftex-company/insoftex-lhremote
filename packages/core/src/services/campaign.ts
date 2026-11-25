@@ -602,6 +602,182 @@ export class CampaignService {
   }
 
   /**
+   * Build the people search request LinkedHelper's `people.actions` methods take: the people of one action's sub-list
+   * (`actionCollectionType`: Queued 1, Failed 4, Excluded 5, Replied 7; LinkedHelper's `ActionSubListType`), filtered to the given ids.
+   */
+  private static peopleSearch(actionId: number, collectionType: number, personIds: number[]): string {
+    return JSON.stringify({
+      request: { action: actionId, actionCollectionType: collectionType },
+      type: "people",
+      filter: personIds,
+    });
+  }
+
+  /**
+   * Move people at one action's sub-list on to the next action: `people.actions.moveToTheNextActionByAction` (the UI's
+   * *move to next action*). LinkedHelper writes a Skipped (-3) result at the action and adds the people to the next
+   * action's target. At the last action it does nothing and returns no people. One write per evaluate (Runtime §11).
+   *
+   * @returns the person ids LinkedHelper says it moved (`actionPersonIds`).
+   * @throws {CampaignExecutionError} if the CDP call fails.
+   */
+  async moveToNextAction(
+    campaignId: number,
+    actionId: number,
+    personIds: number[],
+    collectionType: number,
+  ): Promise<number[]> {
+    try {
+      const result = await this.instance.evaluateUI<{ actionPersonIds?: number[] } | undefined>(
+        `(async function() {
+          const actions = window.mainWindowService.mainWindow.source.people.actions;
+          return await actions.moveToTheNextActionByAction(${CampaignService.peopleSearch(actionId, collectionType, personIds)});
+        })()`,
+      );
+      return result?.actionPersonIds ?? [];
+    } catch (error) {
+      throw new CampaignExecutionError(
+        `Failed to move people on in campaign ${String(campaignId)}: ${errorMessage(error)}`,
+        campaignId,
+        { cause: error },
+      );
+    }
+  }
+
+  /**
+   * Ignore the replies of people LinkedHelper holds at an action (its Replied list, `actionCollectionType` 7) and move
+   * them on: `people.actions.ignoreRepliesAndMove` (the UI's *Ignore reply and retry*).
+   *
+   * @returns the person ids LinkedHelper says it moved (`actionPersonIds`).
+   * @throws {CampaignExecutionError} if the CDP call fails.
+   */
+  async ignoreRepliesAndMove(campaignId: number, actionId: number, personIds: number[]): Promise<number[]> {
+    try {
+      const result = await this.instance.evaluateUI<{ actionPersonIds?: number[] } | undefined>(
+        `(async function() {
+          const actions = window.mainWindowService.mainWindow.source.people.actions;
+          return await actions.ignoreRepliesAndMove(${CampaignService.peopleSearch(actionId, 7, personIds)});
+        })()`,
+      );
+      return result?.actionPersonIds ?? [];
+    } catch (error) {
+      throw new CampaignExecutionError(
+        `Failed to ignore replies in campaign ${String(campaignId)}: ${errorMessage(error)}`,
+        campaignId,
+        { cause: error },
+      );
+    }
+  }
+
+  /**
+   * Queue people at an action again: `people.actions.retryPeople(actionId, searchRequest)` (removes them from the next
+   * action's queue, then adds them to this action's queue). Used to put back people dropped at an excluded action.
+   *
+   * @throws {CampaignExecutionError} if the CDP call fails.
+   */
+  async retryPeopleAtAction(
+    campaignId: number,
+    actionId: number,
+    personIds: number[],
+    collectionType: number,
+  ): Promise<void> {
+    try {
+      await this.instance.evaluateUI(
+        `(async function() {
+          const actions = window.mainWindowService.mainWindow.source.people.actions;
+          await actions.retryPeople(${String(actionId)}, ${CampaignService.peopleSearch(actionId, collectionType, personIds)});
+          return true;
+        })()`,
+      );
+    } catch (error) {
+      throw new CampaignExecutionError(
+        `Failed to queue people again in campaign ${String(campaignId)}: ${errorMessage(error)}`,
+        campaignId,
+        { cause: error },
+      );
+    }
+  }
+
+  /**
+   * Pause one campaign **alone**: `setCampaignPaused(id, true)`, without stopping the account's runner (unlike
+   * {@link stop}). Sets `campaigns.is_paused = 1`. Waiters already running in it still finish when the runner runs
+   * (Runtime §13, observed 2026-11-24).
+   *
+   * @throws {CampaignNotFoundError} if the campaign does not exist.
+   * @throws {CampaignExecutionError} if the CDP call fails.
+   */
+  async pauseCampaign(campaignId: number): Promise<void> {
+    const campaign = this.campaignRepo.getCampaign(campaignId);
+    try {
+      await this.instance.evaluateUI(
+        `(async function() {
+          const src = window.mainWindowService.mainWindow.source.campaigns;
+          await src.setCampaignPaused(${String(campaign.id)}, true, ${String(campaign.liAccountId)});
+        })()`,
+      );
+    } catch (error) {
+      throw new CampaignExecutionError(
+        `Failed to pause campaign ${String(campaignId)}: ${errorMessage(error)}`,
+        campaignId,
+        { cause: error },
+      );
+    }
+  }
+
+  /**
+   * Switch a campaign's Stand by mode: `setCampaignStandByModeActive(id, flag)`. Switching it off on an empty
+   * campaign pauses it at once (Runtime §13).
+   *
+   * @throws {CampaignNotFoundError} if the campaign does not exist.
+   * @throws {CampaignExecutionError} if the CDP call fails.
+   */
+  async setStandByMode(campaignId: number, active: boolean): Promise<void> {
+    const campaign = this.campaignRepo.getCampaign(campaignId);
+    try {
+      await this.instance.evaluateUI(
+        `(async function() {
+          const src = window.mainWindowService.mainWindow.source.campaigns;
+          await src.setCampaignStandByModeActive(${String(campaign.id)}, ${active ? "true" : "false"}, ${String(campaign.liAccountId)});
+          return true;
+        })()`,
+      );
+    } catch (error) {
+      throw new CampaignExecutionError(
+        `Failed to set Stand by for campaign ${String(campaignId)}: ${errorMessage(error)}`,
+        campaignId,
+        { cause: error },
+      );
+    }
+  }
+
+  /**
+   * Save a person's custom fields (CRM level): `people.profiles.savePersonCustomFields`. One write and nothing else
+   * in the evaluate: a save followed by a read in one evaluate hung the instance (Runtime §13).
+   *
+   * @throws {CampaignExecutionError} if the CDP call fails.
+   */
+  async savePersonCustomFields(
+    personId: number,
+    fields: readonly { name: string; content: string }[],
+  ): Promise<void> {
+    try {
+      await this.instance.evaluateUI(
+        `(async function() {
+          const profiles = window.mainWindowService.mainWindow.source.people.profiles;
+          await profiles.savePersonCustomFields(${JSON.stringify({ personOrExternalId: personId, customFields: fields })});
+          return true;
+        })()`,
+      );
+    } catch (error) {
+      throw new CampaignExecutionError(
+        `Failed to save custom fields of person ${String(personId)}: ${errorMessage(error)}`,
+        undefined,
+        { cause: error },
+      );
+    }
+  }
+
+  /**
    * Unpause a single campaign via CDP.
    *
    * @throws {CampaignNotFoundError} if the campaign does not exist.

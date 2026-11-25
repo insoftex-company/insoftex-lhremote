@@ -18,6 +18,15 @@ export { handleCampaignMoveNext } from "./campaign-move-next.js";
 export { handleCampaignRemoveAction } from "./campaign-remove-action.js";
 export { handleCampaignRemovePeople } from "./campaign-remove-people.js";
 export { handleCampaignStopPeople } from "./campaign-stop-people.js";
+export {
+  handleCampaignIgnoreReply,
+  handleCampaignMoveOn,
+  handleCampaignPause,
+  handleCampaignPutBack,
+  handleCampaignResume,
+  handleCampaignStandBy,
+  handlePersonCustomFields,
+} from "./campaign-flow.js";
 export { handleHello } from "./hello.js";
 export { handleCampaignReorderActions } from "./campaign-reorder-actions.js";
 export { handleCampaignRetry } from "./campaign-retry.js";

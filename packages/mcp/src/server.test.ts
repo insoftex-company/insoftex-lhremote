@@ -141,6 +141,13 @@ describe("createServer", () => {
     expect(names).toContain("campaign-update-action");
     expect(names).toContain("campaign-remove-people");
     expect(names).toContain("campaign-stop-people");
+    expect(names).toContain("campaign-move-on");
+    expect(names).toContain("campaign-ignore-reply");
+    expect(names).toContain("campaign-put-back");
+    expect(names).toContain("campaign-pause");
+    expect(names).toContain("campaign-resume");
+    expect(names).toContain("campaign-stand-by");
+    expect(names).toContain("person-custom-fields");
     expect(names).toContain("get-errors");
     expect(names).toContain("dismiss-errors");
     expect(names).toContain("list-collections");
@@ -189,6 +196,6 @@ describe("createServer", () => {
     expect(names).toContain("campaign-list-organizations");
     expect(names).toContain("import-organizations-from-urls");
     expect(names).toContain("hello");
-    expect(names).toHaveLength(89);
+    expect(names).toHaveLength(96);
   });
 });

@@ -73,6 +73,13 @@ describe("createProgram", () => {
     expect(commandNames).toContain("campaign-update-action");
     expect(commandNames).toContain("campaign-remove-people");
     expect(commandNames).toContain("campaign-stop-people");
+    expect(commandNames).toContain("campaign-move-on");
+    expect(commandNames).toContain("campaign-ignore-reply");
+    expect(commandNames).toContain("campaign-put-back");
+    expect(commandNames).toContain("campaign-pause");
+    expect(commandNames).toContain("campaign-resume");
+    expect(commandNames).toContain("campaign-stand-by");
+    expect(commandNames).toContain("person-custom-fields");
     expect(commandNames).toContain("get-errors");
     expect(commandNames).toContain("dismiss-errors");
     expect(commandNames).toContain("get-action-budget");
@@ -117,7 +124,7 @@ describe("createProgram", () => {
     expect(commandNames).toContain("campaign-list-organizations");
     expect(commandNames).toContain("import-organizations-from-urls");
     expect(commandNames).toContain("hello");
-    expect(commandNames).toHaveLength(82);
+    expect(commandNames).toHaveLength(89);
   });
 
   describe("--account-id", () => {

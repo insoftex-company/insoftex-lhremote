@@ -115,6 +115,34 @@ export {
   type PersonStopPlan,
   type PersonStopResult,
 } from "./campaign-stop-people.js";
+export {
+  campaignMoveOn,
+  campaignIgnoreReply,
+  campaignPutBack,
+  planPersonMoves,
+  moveDone,
+  RESULT,
+  SUB_LIST,
+  type CampaignPersonMoveInput,
+  type CampaignPersonMoveOutput,
+  type PersonMoveResult,
+  type PersonMoveKind,
+} from "./campaign-person-moves.js";
+export {
+  campaignPause,
+  campaignResume,
+  campaignStandBy,
+  personCustomFields,
+  parseCustomFields,
+  type CampaignFlagInput,
+  type CampaignPauseOutput,
+  type CampaignResumeInput,
+  type CampaignResumeOutput,
+  type CampaignStandByInput,
+  type CampaignStandByOutput,
+  type PersonCustomFieldsInput,
+  type PersonCustomFieldsOutput,
+} from "./campaign-flags.js";
 
 // Diagnostics
 export { hello, type HelloOutput } from "./hello.js";

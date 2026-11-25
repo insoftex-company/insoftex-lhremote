@@ -95,6 +95,13 @@ The table below is generated from [`packages/cli/src/program.ts`](src/program.ts
 | `collect-people` |
 | `campaign-remove-people` |
 | `campaign-stop-people` |
+| `campaign-move-on` |
+| `campaign-ignore-reply` |
+| `campaign-put-back` |
+| `campaign-pause` |
+| `campaign-resume` |
+| `campaign-stand-by` |
+| `person-custom-fields` |
 | `list-collections` |
 | `create-collection` |
 | `delete-collection` |

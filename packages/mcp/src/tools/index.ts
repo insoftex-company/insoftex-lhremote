@@ -33,6 +33,13 @@ import { registerCampaignMoveNext } from "./campaign-move-next.js";
 import { registerCampaignRemoveAction } from "./campaign-remove-action.js";
 import { registerCampaignRemovePeople } from "./campaign-remove-people.js";
 import { registerCampaignStopPeople } from "./campaign-stop-people.js";
+import { registerCampaignMoveOn } from "./campaign-move-on.js";
+import { registerCampaignIgnoreReply } from "./campaign-ignore-reply.js";
+import { registerCampaignPutBack } from "./campaign-put-back.js";
+import { registerCampaignPause } from "./campaign-pause.js";
+import { registerCampaignResume } from "./campaign-resume.js";
+import { registerCampaignStandBy } from "./campaign-stand-by.js";
+import { registerPersonCustomFields } from "./person-custom-fields.js";
 import { registerCampaignReorderActions } from "./campaign-reorder-actions.js";
 import { registerCampaignRetry } from "./campaign-retry.js";
 import { registerCampaignUpdateAction } from "./campaign-update-action.js";
@@ -127,6 +134,13 @@ export {
   registerCampaignRemoveAction,
   registerCampaignRemovePeople,
   registerCampaignStopPeople,
+  registerCampaignMoveOn,
+  registerCampaignIgnoreReply,
+  registerCampaignPutBack,
+  registerCampaignPause,
+  registerCampaignResume,
+  registerCampaignStandBy,
+  registerPersonCustomFields,
   registerCampaignReorderActions,
   registerCampaignRetry,
   registerCampaignUpdateAction,
@@ -213,6 +227,13 @@ export function registerAllTools(server: McpServer, options: { version?: string 
   registerCampaignRemoveAction(server);
   registerCampaignRemovePeople(server);
   registerCampaignStopPeople(server);
+  registerCampaignMoveOn(server);
+  registerCampaignIgnoreReply(server);
+  registerCampaignPutBack(server);
+  registerCampaignPause(server);
+  registerCampaignResume(server);
+  registerCampaignStandBy(server);
+  registerPersonCustomFields(server);
   registerCampaignReorderActions(server);
   registerCampaignRetry(server);
   registerCampaignStart(server);

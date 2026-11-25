@@ -4,6 +4,7 @@
 import {
   AccountResolutionError,
   BudgetExceededError,
+  CampaignExecutionError,
   CampaignNotFoundError,
   errorMessage,
   LinkedHelperNotRunningError,
@@ -154,4 +155,17 @@ export function mcpCatchAll(error: unknown, prefix: string): McpResult {
 
   const message = errorMessage(error);
   return mcpError(`${prefix}: ${message}`);
+}
+
+/**
+ * Run a campaign operation and turn its result into an MCP answer: JSON on success, a {@link CampaignExecutionError}
+ * as a tool error naming what failed, anything else through {@link mcpCatchAll}.
+ */
+export async function mcpRunCampaignOp<T>(what: string, fn: () => Promise<T>) {
+  try {
+    return mcpSuccess(JSON.stringify(await fn(), null, 2));
+  } catch (error) {
+    if (error instanceof CampaignExecutionError) return mcpError(`Failed to ${what}: ${error.message}`);
+    return mcpCatchAll(error, `Failed to ${what}`);
+  }
 }
