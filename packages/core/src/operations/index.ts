@@ -130,6 +130,7 @@ export {
 } from "./campaign-person-moves.js";
 export {
   campaignPause,
+  campaignUnpause,
   campaignResume,
   campaignStandBy,
   personCustomFields,

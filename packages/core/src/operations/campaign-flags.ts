@@ -39,6 +39,20 @@ export async function campaignPause(input: CampaignFlagInput): Promise<CampaignP
   });
 }
 
+/**
+ * Un-pause one campaign **without** starting the account's runner (`setCampaignPaused(id, false)` alone): the campaign runs when the runner
+ * next runs, not now. Restores a campaign paused for a while (a fence, a test) to its earlier state without waking execution.
+ */
+export async function campaignUnpause(input: CampaignFlagInput): Promise<CampaignPauseOutput> {
+  const accountId = await resolveAccount(input.cdpPort, buildCdpOptions(input));
+  return withInstanceDatabase(input.cdpPort, accountId, async ({ instance, db }) => {
+    await new CampaignService(instance, db).unpauseCampaign(input.campaignId);
+    const isPaused = new CampaignRepository(db).getCampaign(input.campaignId).isPaused;
+    if (isPaused) throw new CampaignExecutionError(`Campaign ${String(input.campaignId)} is still paused after the call`, input.campaignId);
+    return { success: true as const, campaignId: input.campaignId, isPaused };
+  });
+}
+
 export interface CampaignResumeInput extends CampaignFlagInput {
   /**
    * Must be true: resuming starts the account's runner, which runs **every** active campaign of the account (Runtime L9).

@@ -461,6 +461,7 @@ export {
   type PersonMoveResult,
   type PersonMoveKind,
   campaignPause,
+  campaignUnpause,
   campaignResume,
   campaignStandBy,
   personCustomFields,

@@ -77,6 +77,7 @@ describe("createProgram", () => {
     expect(commandNames).toContain("campaign-ignore-reply");
     expect(commandNames).toContain("campaign-put-back");
     expect(commandNames).toContain("campaign-pause");
+    expect(commandNames).toContain("campaign-unpause");
     expect(commandNames).toContain("campaign-resume");
     expect(commandNames).toContain("campaign-stand-by");
     expect(commandNames).toContain("person-custom-fields");
@@ -124,7 +125,7 @@ describe("createProgram", () => {
     expect(commandNames).toContain("campaign-list-organizations");
     expect(commandNames).toContain("import-organizations-from-urls");
     expect(commandNames).toContain("hello");
-    expect(commandNames).toHaveLength(89);
+    expect(commandNames).toHaveLength(90);
   });
 
   describe("--account-id", () => {

@@ -99,6 +99,7 @@ The table below is generated from [`packages/cli/src/program.ts`](src/program.ts
 | `campaign-ignore-reply` |
 | `campaign-put-back` |
 | `campaign-pause` |
+| `campaign-unpause` |
 | `campaign-resume` |
 | `campaign-stand-by` |
 | `person-custom-fields` |

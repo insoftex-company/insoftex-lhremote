@@ -145,6 +145,7 @@ describe("createServer", () => {
     expect(names).toContain("campaign-ignore-reply");
     expect(names).toContain("campaign-put-back");
     expect(names).toContain("campaign-pause");
+    expect(names).toContain("campaign-unpause");
     expect(names).toContain("campaign-resume");
     expect(names).toContain("campaign-stand-by");
     expect(names).toContain("person-custom-fields");
@@ -196,6 +197,6 @@ describe("createServer", () => {
     expect(names).toContain("campaign-list-organizations");
     expect(names).toContain("import-organizations-from-urls");
     expect(names).toContain("hello");
-    expect(names).toHaveLength(96);
+    expect(names).toHaveLength(97);
   });
 });

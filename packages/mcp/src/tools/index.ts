@@ -37,6 +37,7 @@ import { registerCampaignMoveOn } from "./campaign-move-on.js";
 import { registerCampaignIgnoreReply } from "./campaign-ignore-reply.js";
 import { registerCampaignPutBack } from "./campaign-put-back.js";
 import { registerCampaignPause } from "./campaign-pause.js";
+import { registerCampaignUnpause } from "./campaign-unpause.js";
 import { registerCampaignResume } from "./campaign-resume.js";
 import { registerCampaignStandBy } from "./campaign-stand-by.js";
 import { registerPersonCustomFields } from "./person-custom-fields.js";
@@ -138,6 +139,7 @@ export {
   registerCampaignIgnoreReply,
   registerCampaignPutBack,
   registerCampaignPause,
+  registerCampaignUnpause,
   registerCampaignResume,
   registerCampaignStandBy,
   registerPersonCustomFields,
@@ -231,6 +233,7 @@ export function registerAllTools(server: McpServer, options: { version?: string 
   registerCampaignIgnoreReply(server);
   registerCampaignPutBack(server);
   registerCampaignPause(server);
+  registerCampaignUnpause(server);
   registerCampaignResume(server);
   registerCampaignStandBy(server);
   registerPersonCustomFields(server);

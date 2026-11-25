@@ -9,6 +9,7 @@ import {
   campaignIgnoreReply,
   campaignMoveOn,
   campaignPause,
+  campaignUnpause,
   campaignPutBack,
   campaignResume,
   campaignStandBy,
@@ -112,6 +113,16 @@ export async function handleCampaignPause(campaignId: number, options: Connectio
     print(options, result, `Campaign ${String(campaignId)} paused (the account's runner keeps running).`);
   } catch (error) {
     fail("pause the campaign", campaignId, error);
+  }
+}
+
+/** `campaign-unpause`: un-pause one campaign without starting the account's runner. */
+export async function handleCampaignUnpause(campaignId: number, options: ConnectionFlags): Promise<void> {
+  try {
+    const result = await campaignUnpause({ campaignId, ...connection(options) });
+    print(options, result, `Campaign ${String(campaignId)} un-paused (the runner was not started).`);
+  } catch (error) {
+    fail("un-pause the campaign", campaignId, error);
   }
 }
 

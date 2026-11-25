@@ -22,6 +22,7 @@ export {
   handleCampaignIgnoreReply,
   handleCampaignMoveOn,
   handleCampaignPause,
+  handleCampaignUnpause,
   handleCampaignPutBack,
   handleCampaignResume,
   handleCampaignStandBy,

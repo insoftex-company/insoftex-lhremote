@@ -27,6 +27,7 @@ import {
   handleCampaignIgnoreReply,
   handleCampaignMoveOn,
   handleCampaignPause,
+  handleCampaignUnpause,
   handleCampaignPutBack,
   handleCampaignResume,
   handleCampaignStandBy,
@@ -710,6 +711,17 @@ Examples:
     .option("--account-id <id>", "Account ID to select when multiple accounts exist", parsePositiveInt)
     .option("--json", "Output as JSON")
     .action(handleCampaignPause);
+
+  program
+    .command("campaign-unpause")
+    .description("Un-pause one campaign WITHOUT starting the account's runner (setCampaignPaused false alone); it runs when the runner next runs")
+    .argument("<campaignId>", "Campaign ID", parsePositiveInt)
+    .option("--cdp-port <port>", "CDP debugging port (auto-discovered when omitted)", parsePositiveInt)
+    .option("--cdp-host <host>", "CDP host (default: 127.0.0.1)")
+    .option("--allow-remote", "SECURITY: allow non-loopback CDP connections (enables remote code execution on target)")
+    .option("--account-id <id>", "Account ID to select when multiple accounts exist", parsePositiveInt)
+    .option("--json", "Output as JSON")
+    .action(handleCampaignUnpause);
 
   program
     .command("campaign-resume")
