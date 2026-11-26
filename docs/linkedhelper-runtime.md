@@ -153,6 +153,11 @@ The payload is a flat object: `lh_id`, `public_id`, `profile_url`, `member_id`, 
   4. Reconnect the MCP server (`/mcp` in Claude Code) and confirm with `hello` (0.28.3+). The MCP tool
      only picks up a new snapshot after a reconnect.
 
+  pnpm hard-links the workspace packages into a deploy, even with `package-import-method=copy`, so
+  `tsc` in the clone would rewrite the live snapshot. The script detaches those files after deploying;
+  a manual `pnpm deploy` does not. *Observed 2026-11-26.* Snapshots older than that date may hold code
+  that later builds rewrote, so do not trust their version label.
+
   Set `LHREMOTE_NO_DEPLOY=1` to build without deploying. LinkedHelper campaigns keep running during
   the switch.
 - **Why elevated.** Over SSH, Windows refuses to follow links created by a non-elevated process

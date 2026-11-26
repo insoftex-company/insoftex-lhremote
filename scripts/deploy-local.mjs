@@ -22,9 +22,11 @@ import {
   copyFileSync,
   existsSync,
   mkdirSync,
+  readdirSync,
   lstatSync,
   readFileSync,
   readlinkSync,
+  renameSync,
   rmdirSync,
   symlinkSync,
   writeFileSync,
@@ -74,10 +76,30 @@ function repoint(target) {
   symlinkSync(target, live, "junction");
 }
 
+/**
+ * Gives every file in the snapshot its own copy. pnpm hard-links workspace packages
+ * into a deploy whatever 'package-import-method' says, and 'tsc' rewrites files in
+ * place, so without this a later build changes the snapshot that is live.
+ */
+function detach(dir) {
+  let detached = 0;
+  // Links (junctions and symlinks) are neither files nor directories here: not followed.
+  for (const entry of readdirSync(dir, { withFileTypes: true })) {
+    const path = join(dir, entry.name);
+    if (entry.isDirectory()) {
+      detached += detach(path);
+    } else if (entry.isFile() && lstatSync(path).nlink > 1) {
+      copyFileSync(path, `${path}.detach`);
+      renameSync(`${path}.detach`, path);
+      detached += 1;
+    }
+  }
+  return detached;
+}
+
 function deploy(target) {
   const state = existsSync(workspaceState) ? readFileSync(workspaceState) : undefined;
   try {
-    // 'copy' keeps a later build from rewriting files inside the live snapshot.
     execSync(
       // A config option rather than '--legacy', which pnpm 9 rejects.
       "pnpm --config.package-import-method=copy --config.force-legacy-deploy=true " +
@@ -139,6 +161,7 @@ function main() {
 
   log(`deploying ${version} (${commit.slice(0, 7)}) to ${target}`);
   deploy(target);
+  log(`detached ${detach(target)} hard-linked files from the clone and store.`);
 
   const built = cliVersion(target);
   if (built !== version) {
