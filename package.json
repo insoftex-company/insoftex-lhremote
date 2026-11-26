@@ -9,7 +9,8 @@
     "node": ">=24"
   },
   "scripts": {
-    "build": "turbo run build",
+    "build": "turbo run build && node scripts/deploy-local.mjs",
+    "install:windows": "turbo run build && node scripts/deploy-local.mjs --install",
     "test": "turbo run test",
     "test:e2e": "turbo run test:e2e --concurrency=1",
     "lint": "turbo run lint && pnpm docs:check-command-readmes",

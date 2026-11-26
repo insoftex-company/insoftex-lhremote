@@ -138,18 +138,26 @@ The payload is a flat object: `lh_id`, `public_id`, `profile_url`, `member_id`, 
 
 ## Windows deployment (Insoftex LinkedHelper machine)
 
-- **Layout.** pnpm global `@insoftex/lhremote` → junction `C:\Users\xuser\scripts\lhremote` → versioned
-  snapshot `scripts\lhremote-<version>`, with `DEPLOYMENT-INFO.json`.
-- **Deploy:**
-  1. On `main`, run `pnpm build`.
-  2. Run `pnpm --filter=@insoftex/lhremote deploy --prod scripts\lhremote-<new>`.
-  3. Repoint the junction, keeping the old snapshot for rollback.
-  4. Reconnect the MCP server (`/mcp` in Claude Code).
-  5. Confirm with `hello` (0.28.3+): the MCP tool and `lhremote hello` report the version and the real
-     path of the running copy, which must sit in `scripts\lhremote-<new>`. The MCP server only picks up
-     a new snapshot after a reconnect, so check the MCP tool, not just the CLI.
+- **Layout.** Junction `C:\Users\xuser\scripts\lhremote` → versioned snapshot
+  `scripts\lhremote-<version>-<commit>`, with `DEPLOYMENT-INFO.json`.
+- **First install:** from an elevated shell, in a clean `main` clone, run `pnpm install` and then
+  `pnpm install:windows`. It builds, deploys, creates the junction and copies the `lhremote.cmd` and
+  `lhremote.ps1` wrappers into `~\scripts` (existing wrappers are kept). Add `~\scripts` to `PATH`.
+- **Update:** from an **elevated** shell (Run as administrator, or over SSH), on a clean `main`:
+  1. `git pull --ff-only`
+  2. `pnpm install`
+  3. `pnpm build`. Its last step (`scripts/deploy-local.mjs`) deploys a new snapshot, checks that it
+     reports the repo version and repoints the junction. Old snapshots are kept for rollback.
+  4. Reconnect the MCP server (`/mcp` in Claude Code) and confirm with `hello` (0.28.3+). The MCP tool
+     only picks up a new snapshot after a reconnect.
 
-  LinkedHelper campaigns keep running during the switch.
+  Set `LHREMOTE_NO_DEPLOY=1` to build without deploying. LinkedHelper campaigns keep running during
+  the switch.
+- **Why elevated.** Over SSH, Windows refuses to follow links created by a non-elevated process
+  (`untrusted mount point`), which shows up as `Cannot find module ...\scripts\lhremote\dist\cli.js`
+  while the same command works over RDP. This applies to the junctions inside `node_modules` too.
+  *Observed 2026-11-26 on both machines.* Only the then-live 0.28.5 snapshots were repaired, so do not
+  roll back to an older one without recreating its junctions from an elevated shell.
 - **MCP entry.** Claude Code's entry is `cmd /c npx --yes lhremote@0.20.1 mcp`. It reaches this fork only
   through the pnpm shim `%LOCALAPPDATA%\pnpm\lhremote.cmd`. That's fragile: the entry should point at the
   shim directly.
