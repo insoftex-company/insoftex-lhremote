@@ -144,7 +144,9 @@ The payload is a flat object: `lh_id`, `public_id`, `profile_url`, `member_id`, 
   `pnpm install:windows`. It builds, deploys, creates the junction and copies the `lhremote.cmd` and
   `lhremote.ps1` wrappers into `~\scripts` (existing wrappers are kept). Add `~\scripts` to `PATH`.
 - **Update:** from an **elevated** shell (Run as administrator, or over SSH), on a clean `main`:
-  1. `git pull --ff-only`
+  1. `git pull --ff-only`. In a non-interactive SSH session this hung on both machines (*observed
+     2026-11-26*, cause unknown), so pull from an elevated RDP shell, or send the commits as a
+     `git bundle`.
   2. `pnpm install`
   3. `pnpm build`. Its last step (`scripts/deploy-local.mjs`) deploys a new snapshot, checks that it
      reports the repo version and repoints the junction. Old snapshots are kept for rollback.

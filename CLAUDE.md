@@ -76,7 +76,7 @@ Development happens on several computers (MacBook, lhserver, minis01, others) an
 ## Infrastructure
 
 - **Monorepo**: pnpm workspace with 5 packages: `core`, `mcp`, `cli`, `lhremote`, `e2e`
-- **Toolchain**: pnpm 11.8.0, Node 24, Turbo (cached via `.turbo/`)
+- **Toolchain**: pnpm 11.8.0, Node 26 on the LinkedHelper machines (`.nvmrc`; CI and `engines` still use 24), Turbo (cached via `.turbo/`)
 - **CI**: GitHub Actions (`ci.yml`) — `build`, `lint`, `test` on ubuntu/macos/windows matrix
   - GH Pages docs (README + rate-limiting guide) built via pandoc on every CI run, published on push to main
   - Composite setup action: `.github/actions/setup/action.yml` (pnpm + node + playwright chromium + turbo cache)

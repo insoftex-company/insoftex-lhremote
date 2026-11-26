@@ -22,7 +22,7 @@
   "devDependencies": {
     "@eslint/js": "catalog:",
     "@vitest/coverage-v8": "catalog:",
-    "esbuild": "^0.28.1",
+    "esbuild": "^0.28.2",
     "eslint": "catalog:",
     "eslint-config-prettier": "catalog:",
     "eslint-plugin-header": "catalog:",
