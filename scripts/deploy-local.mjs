@@ -14,6 +14,8 @@
  * non-elevated process created ("untrusted mount point"), which surfaces as
  * `Cannot find module ...\scripts\lhremote\dist\cli.js`.
  *
+ * After a successful switch only the live and the previous snapshot are kept.
+ *
  * Only a clean `main` is deployed. Set LHREMOTE_NO_DEPLOY=1 to skip.
  */
 
@@ -28,6 +30,7 @@ import {
   readlinkSync,
   renameSync,
   rmdirSync,
+  rmSync,
   symlinkSync,
   writeFileSync,
 } from "node:fs";
@@ -108,6 +111,22 @@ function deploy(target) {
     );
   } finally {
     if (state) writeFileSync(workspaceState, state);
+  }
+}
+
+/** Removes older snapshots. Links inside them are removed as links, never followed. */
+function prune(keep) {
+  const kept = keep.filter(Boolean).map((dir) => dir.toLowerCase());
+  for (const entry of readdirSync(scriptsDir, { withFileTypes: true })) {
+    const dir = join(scriptsDir, entry.name);
+    if (!entry.isDirectory() || !entry.name.startsWith("lhremote-")) continue;
+    if (kept.includes(dir.toLowerCase()) || !existsSync(join(dir, "dist", "cli.js"))) continue;
+    try {
+      rmSync(dir, { recursive: true, force: true });
+      log(`removed old snapshot ${entry.name}`);
+    } catch (error) {
+      log(`could not remove ${entry.name}: ${error.message}`);
+    }
   }
 }
 
@@ -196,6 +215,7 @@ function main() {
   }
 
   log(`active: ${live} -> ${target}`);
+  prune([target, previous]);
   log("Reconnect running MCP clients to pick up the new version.");
 }
 

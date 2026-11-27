@@ -169,6 +169,8 @@ The payload is a flat object: `lh_id`, `public_id`, `profile_url`, `member_id`, 
   through the pnpm shim `%LOCALAPPDATA%\pnpm\lhremote.cmd`. That's fragile: the entry should point at the
   shim directly.
 
+A successful deployment keeps the new snapshot and the previous one and deletes older snapshots. Where files, logs and secrets belong is defined in [Windows host layout](windows-host-layout.md).
+
 ## Safety rules for live tests
 
 - Before starting a campaign, check that no other campaign on the account is active.

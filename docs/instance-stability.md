@@ -203,7 +203,7 @@ Use `readiness` to distinguish `starting` (normal initialisation) from `stuck` (
 
 `scripts/launch-linkedhelper.cmd` and `launch-linkedhelper-silent.cmd` invoke the adjacent `launch-linkedhelper.ps1` through Windows PowerShell. Keep these files together. Paths containing spaces are quoted; the executable is discovered from the current user's installation or `LINKEDHELPER_PATH`. `CDP_PORT` defaults to 9222. Direct PowerShell invocation also accepts `-Port`, `-LinkedHelperPath`, `-WaitSeconds` (default 60), and `-Silent`.
 
-The helper takes a per-session, per-port startup mutex. Existing LinkedHelper processes are given time to recover; the helper never automatically kills them. Success requires both a launcher command line declaring the requested port and a valid CDP response. Silent mode writes to `%TEMP%\lh-cdp-startup.log`; interactive mode also runs `list-accounts`. Failure exits with code 2. Use `launch-app --force` only when deliberately restarting the entire application.
+The helper takes a per-session, per-port startup mutex. Existing LinkedHelper processes are given time to recover; the helper never automatically kills them. Success requires both a launcher command line declaring the requested port and a valid CDP response. Silent mode writes to `~\tmp\logs\lh-cdp-startup.log`; interactive mode also runs `list-accounts`. Failure exits with code 2. Use `launch-app --force` only when deliberately restarting the entire application.
 
 ### Windows TCP-provider compatibility
 

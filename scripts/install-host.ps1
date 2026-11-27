@@ -65,6 +65,22 @@ foreach ($path in $retired | Where-Object { Test-Path $_ }) {
 }
 if (-not $Check) { New-Item -ItemType Directory -Force (Join-Path $HomeDir 'tmp\logs') | Out-Null }
 
+# lhremote is started by name (launcher, synchronisation scripts), so ~\scripts has to be on PATH.
+$scripts = Join-Path $HomeDir 'scripts'
+$onPath = @(([Environment]::GetEnvironmentVariable('Path', 'Machine') + ';' + [Environment]::GetEnvironmentVariable('Path', 'User')).Split(';') |
+    Where-Object { $_.TrimEnd('\') -ieq $scripts }).Count -gt 0
+if (-not $onPath) {
+    $drift++
+    if ($Check) { "not on PATH: $scripts" }
+    else {
+        $envKey = [Microsoft.Win32.Registry]::CurrentUser.OpenSubKey('Environment', $true)
+        $current = $envKey.GetValue('Path', '', 'DoNotExpandEnvironmentNames')
+        $envKey.SetValue('Path', "$scripts;$current", 'ExpandString')
+        $envKey.Close()
+        "added to the user PATH (effective at the next logon): $scripts"
+    }
+}
+
 if ($Role -eq 'Source') {
     $script = Join-Path $HomeDir 'backups\cmd_backup.ps1'
     $task = Get-ScheduledTask -TaskName 'LinkedHelper nightly backup - Austin 11PM' -ErrorAction SilentlyContinue

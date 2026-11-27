@@ -24,6 +24,24 @@ powershell -ExecutionPolicy Bypass -File scripts\install-host.ps1 -Role Standby 
 
 `-Check` reports drift without changing anything. On lhserver the installer also registers the nightly backup task, which needs `~\.secrets\lhremote\backup.json` (see [backup and restore](backup-restore.md)).
 
+## MCP clients
+
+Every MCP client starts the deployment with an absolute Node executable, never `npx`, a pnpm shim or another copy:
+
+```json
+{ "command": "C:/Program Files/nodejs/node.exe", "args": ["C:/Users/xuser/scripts/lhremote/dist/cli.js", "mcp"] }
+```
+
+On lhserver Node is `C:/nvm4w/nodejs/node.exe`. Reconnect clients after a deployment.
+
+## Auto-start
+
+| Machine | Entry | Starts |
+|---|---|---|
+| lhserver, minis01 | Startup folder shortcut | `~\scripts\launch-linkedhelper-silent.vbs` |
+| lhserver | Task `LinkedHelper nightly backup - Austin 11PM` | `~\backups\cmd_backup.ps1` |
+| minis01 | Task `Weekly maintenance reboot` (`insoftex-admin-tools`) | `~\scripts\Invoke-WeeklyReboot.ps1` |
+
 ## Owners
 
 | Files | Repository |
@@ -34,6 +52,9 @@ powershell -ExecutionPolicy Bypass -File scripts\install-host.ps1 -Role Standby 
 
 ## Not yet compliant (2026-11-27)
 
-- The launcher logs to `%TEMP%`; the weekly-reboot and bloat scripts log to `~\scripts\logs`; the daily script logs under `%LOCALAPPDATA%`.
-- The other two repositories have no installer; their files are copied by hand.
-- lhserver still has a pnpm global shim and a PowerShell profile function for `lhremote`, and both machines have a second install in `%LOCALAPPDATA%\lhremote`.
+- The weekly-reboot and bloat scripts log to `~\scripts\logs`; the daily script logs under `%LOCALAPPDATA%`.
+- `insoftex-admin-tools` and `insoftex-espocrm-extension` have no installer; their files are copied by hand.
+- `~\scripts\collect-campaign-stats.mjs` and `inspect-lhremote-mcp.mjs` (with their `package.json` and `node_modules`) are in no repository.
+- lhserver keeps a pnpm global shim for `lhremote` until the next logon has picked up the new `PATH`.
+- minis01 keeps `%LOCALAPPDATA%\lhremote` until the sessions started before the MCP settings change have ended.
+- lhserver: `~\p6-lhdb-copies` stays until the tests described in the `insoftex-espocrm-extension` runbook end.

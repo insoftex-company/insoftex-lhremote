@@ -9,7 +9,9 @@ param(
 )
 
 $ErrorActionPreference = 'Stop'
-$log = Join-Path ([System.IO.Path]::GetTempPath()) 'lh-cdp-startup.log'
+$logDir = Join-Path $env:USERPROFILE 'tmp\logs'
+New-Item -ItemType Directory -Force $logDir | Out-Null
+$log = Join-Path $logDir 'lh-cdp-startup.log'
 function Write-Status([string]$Message) {
     if ($Silent) { Add-Content -LiteralPath $log -Encoding UTF8 -Value "[$(Get-Date -Format o)] $Message" }
     else { Write-Host $Message }
