@@ -26,7 +26,7 @@ describe("native Windows listener fallback", () => {
     expect(command).toContain("-OwningProcess 42");
     expect(command).toContain("$_.RemotePort -eq 0");
     expect(command).not.toContain("-State Listen");
-    expect(exec.mock.calls[1]?.[2]).toMatchObject({ windowsHide: true, timeout: 45000 });
+    expect(exec.mock.calls[1]?.[2]).toMatchObject({ windowsHide: true, timeout: 15000 });
   });
 
   it("keeps netstat as the fast path", async () => {
@@ -51,16 +51,46 @@ describe("native Windows listener fallback", () => {
     await expect(listListeningTcpPorts(42)).rejects.toThrow("Windows TCP enumeration failed");
   });
 
-  it("resolves an unknown-state listener's owning PID without netstat", async () => {
+  it("resolves the owner from netstat without starting a shell", async () => {
+    exec.mockResolvedValueOnce({ stdout: [
+      " TCP    127.0.0.1:9222    0.0.0.0:0          LISTENING    42",
+      " TCP    [::1]:9222        [::]:0             LISTENING    42",
+      " TCP    127.0.0.1:9222    127.0.0.1:50000    TIME_WAIT    0",
+      " TCP    127.0.0.1:19222   0.0.0.0:0          LISTENING    7",
+    ].join("\r\n") });
+    expect(await findListeningTcpPid(9222)).toBe(42);
+    expect(exec).toHaveBeenCalledTimes(1);
+    expect(exec.mock.calls[0]?.[0]).toBe("netstat");
+  });
+
+  it("does not guess between two netstat owners", async () => {
+    exec.mockResolvedValueOnce({ stdout: [
+      " TCP 127.0.0.1:9222 0.0.0.0:0 LISTENING 42",
+      " TCP [::1]:9222 [::]:0 LISTENING 43",
+    ].join("\r\n") });
+    expect(await findListeningTcpPid(9222)).toBeNull();
+    expect(exec).toHaveBeenCalledTimes(1);
+  });
+
+  it.each([
+    ["omits the listener", () => exec.mockResolvedValueOnce({ stdout: "Active Connections\r\n" })],
+    ["fails", () => exec.mockRejectedValueOnce(new Error("netstat unavailable"))],
+  ])("queries the TCP provider when netstat %s", async (_case, netstat) => {
+    netstat();
     exec.mockResolvedValueOnce({ stdout: "[123456,123456]" });
     expect(await findListeningTcpPid(9222)).toBe(123456);
-    expect(exec.mock.calls[0]?.[1].join(" ")).toContain("-LocalPort 9222");
-    expect(exec.mock.calls[0]?.[1].join(" ")).toContain("-ExpandProperty OwningProcess");
+    expect(exec.mock.calls[1]?.[1].join(" ")).toContain("-LocalPort 9222");
+    expect(exec.mock.calls[1]?.[1].join(" ")).toContain("-ExpandProperty OwningProcess");
   });
 
   it.each(["[]", "[123,456]"])("does not guess an absent or ambiguous owner: %s", async (stdout) => {
-    exec.mockResolvedValueOnce({ stdout });
+    exec.mockResolvedValueOnce({ stdout: "" }).mockResolvedValueOnce({ stdout });
     expect(await findListeningTcpPid(9222)).toBeNull();
+  });
+
+  it("reports failure when both owner lookups fail", async () => {
+    exec.mockRejectedValue(new Error("access denied"));
+    await expect(findListeningTcpPid(9222)).rejects.toThrow("Windows TCP enumeration failed");
   });
 
   it("rejects an invalid port before spawning a shell", async () => {

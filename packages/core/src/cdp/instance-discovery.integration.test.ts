@@ -26,7 +26,7 @@ describe.skipIf(!isChromiumAvailable)("instance-discovery packages (integration)
     const pid = await findListeningTcpPid(chromium.port);
 
     expect(pid).toBe(chromium.process.pid);
-  }, 60_000);
+  }, 20_000);
 
   it("psList should include the Chromium process with correct ppid", async () => {
     expect(chromium).toBeDefined();

@@ -211,7 +211,7 @@ On some Windows systems, `Get-NetTCPConnection` exposes a live TCP listener with
 
 When netstat finds no listeners for a PID or fails, lhremote queries `Get-NetTCPConnection -OwningProcess <pid>` and selects wildcard remote addresses (`0.0.0.0` or `::`) with remote port zero. It validates and deduplicates the returned ports, then the existing discovery code probes `/json/list` before marking an instance connectable. The fallback does not start/stop processes, modify LinkedHelper files, or change account settings. Both enumeration commands are hidden and bounded to 15 seconds each.
 
-The reverse lookup used by legacy instance discovery also queries the TCP provider on Windows, filtering by local port and the same listener endpoint fields. An absent or ambiguous owner returns no PID. Other platforms retain their existing `pid-port` lookup.
+The reverse lookup (port to owning PID) follows the same order: `netstat -ano` first, then the TCP provider filtered by local port and the same listener endpoint fields when netstat fails or has no listener. An absent or ambiguous owner returns no PID. A second listener that only the provider can see is not noticed when netstat already reports one owner. Using PowerShell alone was dropped because it takes seconds to start and exceeded the 15-second limit on CI runners and, at times, on a loaded host. macOS and Linux use `lsof`.
 
 ### Local deployment and MCP clients
 
