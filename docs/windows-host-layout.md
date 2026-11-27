@@ -50,11 +50,14 @@ On lhserver Node is `C:/nvm4w/nodejs/node.exe`. Reconnect clients after a deploy
 | Firewall, RDP and weekly-reboot scripts | `insoftex-admin-tools` (`scripts/windows/`) |
 | EspoCRM synchronisation and LinkedHelper daily scripts | `insoftex-espocrm-extension` (`scripts/nodejs/`) |
 
+## Access to private data
+
+LinkedHelper archives hold browser sessions and databases. `~\backups\linkedhelper` is readable only by the user, SYSTEM and Administrators (not by the `CodexSandboxUsers` group). `~\.secrets` is still readable by that group.
+
 ## Not yet compliant (2026-11-27)
 
-- The weekly-reboot and bloat scripts log to `~\scripts\logs`; the daily script logs under `%LOCALAPPDATA%`.
+- The daily script (`insoftex-espocrm-extension`) logs under `%LOCALAPPDATA%`.
 - `insoftex-admin-tools` and `insoftex-espocrm-extension` have no installer; their files are copied by hand.
-- `~\scripts\collect-campaign-stats.mjs` and `inspect-lhremote-mcp.mjs` (with their `package.json` and `node_modules`) are in no repository.
-- lhserver keeps a pnpm global shim for `lhremote` until the next logon has picked up the new `PATH`.
+- lhserver keeps a pnpm global shim for `lhremote` until the next logon has picked up the new `PATH`; then remove it with `pnpm remove -g @insoftex/lhremote`.
 - minis01 keeps `%LOCALAPPDATA%\lhremote` until the sessions started before the MCP settings change have ended.
 - lhserver: `~\p6-lhdb-copies` stays until the tests described in the `insoftex-espocrm-extension` runbook end.
