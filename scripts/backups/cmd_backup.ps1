@@ -73,9 +73,18 @@ try {
 
     function Invoke-Remote([string]$Script) {
         $enc = [Convert]::ToBase64String([Text.Encoding]::Unicode.GetBytes($Script))
-        $o = & ssh @sshOpts $target "powershell -NoProfile -NonInteractive -EncodedCommand $enc" 2>&1 | Out-String
-        if ($LASTEXITCODE -ne 0) { throw "remote command failed: $o" }
-        return $o.Trim()
+        # Output goes to files, not a pipe: when this script is itself run over SSH, Windows ssh.exe with a piped
+        # stdout never exits, although the remote command has finished.
+        $out = Join-Path $logDir "backup-ssh-$PID.out"
+        $err = Join-Path $logDir "backup-ssh-$PID.err"
+        try {
+            $argList = @('-n') + $sshOpts + @($target, "`"powershell -NoProfile -NonInteractive -EncodedCommand $enc`"")
+            $p = Start-Process ssh -ArgumentList $argList -NoNewWindow -Wait -PassThru -RedirectStandardOutput $out -RedirectStandardError $err
+            $o = "$(Get-Content $out -Raw)".Trim()
+            if ($p.ExitCode -ne 0) { throw "remote command failed: $o $(Get-Content $err -Raw)" }
+            return $o
+        }
+        finally { Remove-Item $out, $err -Force -ErrorAction SilentlyContinue }
     }
 
     Write-Host "Preparing $target`:$RemoteDir"
