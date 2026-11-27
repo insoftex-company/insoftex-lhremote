@@ -130,8 +130,8 @@ importers:
   packages/core:
     dependencies:
       devtools-protocol:
-        specifier: ^0.0.1621552
-        version: 0.0.1621552
+        specifier: ^0.0.1755318
+        version: 0.0.1755318
       get-port:
         specifier: 'catalog:'
         version: 7.2.0
@@ -1129,8 +1129,8 @@ packages:
     resolution: {integrity: sha512-g7nH6P6dyDioJogAAGprGpCtVImJhpPk/roCzdb3fIh61/s/nPsfR6onyMwkCAR/OlC3yBC0lESvUoQEAssIrw==}
     engines: {node: '>= 0.8'}
 
-  devtools-protocol@0.0.1621552:
-    resolution: {integrity: sha512-uaHF17cjNtGKOVZUoh8W0PGuEwR3pWzY5kz3sj7PK8N/SyBKG3cPnQIehVDDJkSdph6Omv+GlP7GdM/b4DTgJQ==}
+  devtools-protocol@0.0.1755318:
+    resolution: {integrity: sha512-ZTuMGdpyddC36xxOcDACwjr4QJvfz/XtbdomhoJN8rOv+Z8A4ApwEIpsUkBdlIeKE2QtXVU268jiJWpgokDQHg==}
 
   dunder-proto@1.0.1:
     resolution: {integrity: sha512-KIN/nDJBQRcXw0MLVhZE9iQHmG68qAVIBg9CqmUYjmQIhgij9U5MFvrqkUL5FbtyyzZuOeOt0zdeRe4UY7ct+A==}
@@ -2686,7 +2686,7 @@ snapshots:
 
   depd@2.0.0: {}
 
-  devtools-protocol@0.0.1621552: {}
+  devtools-protocol@0.0.1755318: {}
 
   dunder-proto@1.0.1:
     dependencies:
