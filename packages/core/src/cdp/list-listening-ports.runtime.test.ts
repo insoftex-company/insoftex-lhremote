@@ -26,7 +26,7 @@ describe("native Windows listener fallback", () => {
     expect(command).toContain("-OwningProcess 42");
     expect(command).toContain("$_.RemotePort -eq 0");
     expect(command).not.toContain("-State Listen");
-    expect(exec.mock.calls[1]?.[2]).toMatchObject({ windowsHide: true, timeout: 15000 });
+    expect(exec.mock.calls[1]?.[2]).toMatchObject({ windowsHide: true, timeout: 45000 });
   });
 
   it("keeps netstat as the fast path", async () => {

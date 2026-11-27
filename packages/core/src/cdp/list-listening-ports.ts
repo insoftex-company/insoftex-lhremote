@@ -11,6 +11,12 @@ const execFileAsync = promisify(execFile);
 /** Timeout for the netstat/lsof subprocess (ms). */
 const COMMAND_TIMEOUT = 15_000;
 
+/**
+ * Timeout for the Windows PowerShell query (ms). Longer than COMMAND_TIMEOUT: PowerShell start plus
+ * Get-NetTCPConnection takes 1-3 s on an idle host and has been seen near 10 s, and past 15 s, under load.
+ */
+const WINDOWS_QUERY_TIMEOUT = 45_000;
+
 /** netstat output on a busy host can be large; allow well beyond the 1 MiB default. */
 const COMMAND_MAX_BUFFER = 16 * 1024 * 1024;
 
@@ -33,7 +39,7 @@ async function queryWindowsTcpValues(
       "-ErrorAction SilentlyContinue | Where-Object { $_.RemotePort -eq 0 -and " +
       "$_.RemoteAddress -in @('0.0.0.0', '::') } | " +
       `Select-Object -ExpandProperty ${property})`,
-  ], { timeout: COMMAND_TIMEOUT, maxBuffer: COMMAND_MAX_BUFFER, windowsHide: true });
+  ], { timeout: WINDOWS_QUERY_TIMEOUT, maxBuffer: COMMAND_MAX_BUFFER, windowsHide: true });
   const values: unknown = JSON.parse(stdout.trim());
   if (!Array.isArray(values) || !values.every((value: unknown) =>
     typeof value === "number" && Number.isSafeInteger(value) && value > 0 && value <= maximum)) {
