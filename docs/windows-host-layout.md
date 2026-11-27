@@ -40,6 +40,7 @@ On lhserver Node is `C:/nvm4w/nodejs/node.exe`. Reconnect clients after a deploy
 |---|---|---|
 | lhserver, minis01 | Startup folder shortcut | `~\scripts\launch-linkedhelper-silent.vbs` |
 | lhserver | Task `LinkedHelper nightly backup - Austin 11PM` | `~\backups\cmd_backup.ps1` |
+| minis01 | Task `LinkedHelper backup freshness check` | `~\backups\cmd_check_backup.ps1` |
 | minis01 | Task `Weekly maintenance reboot` (`insoftex-admin-tools`) | `~\scripts\Invoke-WeeklyReboot.ps1` |
 
 ## Owners
@@ -52,7 +53,7 @@ On lhserver Node is `C:/nvm4w/nodejs/node.exe`. Reconnect clients after a deploy
 
 ## Access to private data
 
-LinkedHelper archives hold browser sessions and databases. `~\backups\linkedhelper` is readable only by the user, SYSTEM and Administrators (not by the `CodexSandboxUsers` group). `~\.secrets` is still readable by that group.
+LinkedHelper archives hold browser sessions and databases. `~\backups` is not readable by the `CodexSandboxUsers` group (`install-host.ps1` removes that access). `~\.secrets` is still readable by it, on purpose until decided otherwise: agent skills of `insoftex-admin-tools` read `~\.secrets\.n8n_header_auth`.
 
 ## Not yet compliant (2026-11-27)
 

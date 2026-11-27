@@ -33,7 +33,8 @@ $common = @('lhremote.cmd', 'lhremote.ps1', 'launch-linkedhelper.cmd', 'launch-l
     'launch-linkedhelper-silent.cmd', 'launch-linkedhelper-silent.vbs')
 $roleFiles = @{
     Source  = @('cmd_backup.ps1', 'cmd_backup_now.cmd', 'cmd_install_backup_task.ps1', 'lib_capture_linkedhelper.ps1')
-    Standby = @('cmd_restore_linkedhelper.ps1', 'cmd_restore_stage.cmd', 'cmd_restore_activate.cmd')
+    Standby = @('cmd_restore_linkedhelper.ps1', 'cmd_restore_stage.cmd', 'cmd_restore_activate.cmd',
+        'cmd_check_backup.ps1', 'cmd_install_backup_check_task.ps1')
 }
 # Names used before the move to ~\backups. Keep until every machine has been installed once.
 $formerNames = @('lh-backup.ps1', 'lh-backup-nightly.ps1', 'lh-backup-now.cmd', 'lh-restore.ps1', 'lh-restore-stage.cmd',
@@ -65,6 +66,19 @@ foreach ($path in $retired | Where-Object { Test-Path $_ }) {
 }
 if (-not $Check) { New-Item -ItemType Directory -Force (Join-Path $HomeDir 'tmp\logs') | Out-Null }
 
+# Backups hold browser sessions and databases: the Codex sandbox accounts must not read them.
+$backups = Join-Path $HomeDir 'backups'
+if ((Test-Path $backups) -and ((Get-Acl $backups).Access | Where-Object { "$($_.IdentityReference)" -like '*\CodexSandboxUsers' })) {
+    $drift++
+    if ($Check) { "readable by CodexSandboxUsers: $backups" }
+    else {
+        & icacls.exe $backups /inheritance:d /Q | Out-Null
+        & icacls.exe $backups /remove:g CodexSandboxUsers /T /C /Q | Out-Null
+        if ($LASTEXITCODE -ne 0) { throw "could not remove CodexSandboxUsers from $backups" }
+        "removed CodexSandboxUsers access: $backups"
+    }
+}
+
 # lhremote is started by name (launcher, synchronisation scripts), so ~\scripts has to be on PATH.
 $scripts = Join-Path $HomeDir 'scripts'
 $onPath = @(([Environment]::GetEnvironmentVariable('Path', 'Machine') + ';' + [Environment]::GetEnvironmentVariable('Path', 'User')).Split(';') |
@@ -92,6 +106,15 @@ if ($Role -eq 'Source') {
     if (-not (Test-Path (Join-Path $HomeDir '.secrets\lhremote\backup.json'))) {
         Write-Warning 'No .secrets\lhremote\backup.json: backups have no target. See docs/backup-restore.md.'
         $drift++
+    }
+}
+if ($Role -eq 'Standby') {
+    $script = Join-Path $HomeDir 'backups\cmd_check_backup.ps1'
+    $task = Get-ScheduledTask -TaskName 'LinkedHelper backup freshness check' -ErrorAction SilentlyContinue
+    if (-not $task -or $task.Actions[0].Arguments -notlike "*`"$script`"*") {
+        $drift++
+        if ($Check) { 'backup check task missing or pointing elsewhere' }
+        else { & (Join-Path $HomeDir 'backups\cmd_install_backup_check_task.ps1') -HomeDir $HomeDir }
     }
 }
 "role=$Role differences=$drift"

@@ -9,6 +9,7 @@ lhremote has no backup command (only `campaign-export`), so the backup is a cons
 | `cmd_backup.ps1` | lhserver | Runs the backup, copies it to minis01 (`~\backups\linkedhelper`), verifies SHA-256 there, keeps 7 there / 2 locally |
 | `cmd_install_backup_task.ps1` | lhserver (elevated) | Registers the scheduled task (checks every 30 min, works once during 23:00-23:59 Austin, TX, DST-safe) |
 | `cmd_backup_now.cmd` | lhserver | Same as nightly, immediately |
+| `cmd_check_backup.ps1`, `cmd_install_backup_check_task.ps1` | minis01 | Daily 10:00 check that a backup arrived in the last 24 h; see below |
 | `cmd_restore_linkedhelper.ps1`, `cmd_restore_stage.cmd`, `cmd_restore_activate.cmd` | minis01 | Verify and stage the newest archive; switch over on demand |
 
 ## How the backup stays consistent while LinkedHelper runs
@@ -22,6 +23,9 @@ The 08:08 archive was extracted into a scratch folder and checked independently 
 
 ## Scheduled run
 The task runs as `xuser` in the logged-on session with highest privileges (needed for the snapshot). It is registered as an interactive-logon task. The campaign export needs the lhremote deployment to be readable from that session; if it is not, the backup still runs and records `campaignExport: skipped`. Target host: `~\.secrets\lhremote\backup.json` `{"remoteHost":"..."}` (kept out of git) or `LH_BACKUP_REMOTE_HOST`. SSH key: `~\.ssh\id_dev_insoftex_com`. Logs: `~\tmp\logs\linkedhelper-backup-*.log`; `~\backups\linkedhelper\last-success.txt` holds the last successful Austin date. `cmd_backup.ps1 -Check` tests the settings and the transfer target without making a backup. When scripting on these hosts, do not pipe the output of `ssh.exe` in a run that was itself started over SSH: it never exits. Redirect it to a file.
+
+## Missing-backup warning (minis01)
+The task `LinkedHelper backup freshness check` runs `cmd_check_backup.ps1` daily at 10:00. When the newest archive that arrived is older than 24 h (or there is none), it shows a message in the logged-on session, appends `STALE` to `~\tmp\logs\linkedhelper-backup-check.log` and ends with result 1. The warning is only on minis01: nothing is e-mailed or posted, and nothing warns if minis01 itself is off.
 
 ## Restore / standby (minis01)
 1. `cmd_restore_stage.cmd` (or `cmd_restore_linkedhelper.ps1`): checks SHA-256, extracts to `~\backups\linkedhelper\staged`, checks every `lh.db`, compares the LinkedHelper version in the manifest with what is installed. Touches nothing live; run it after each nightly copy to keep the standby proven.
