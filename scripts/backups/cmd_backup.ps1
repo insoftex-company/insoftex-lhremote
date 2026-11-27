@@ -2,18 +2,22 @@
 # Copyright (C) 2026 Insoftex
 <#
 .SYNOPSIS
-  Nightly LinkedHelper backup on lhserver: runs lh-backup.ps1, then copies the archive to minis01 and applies retention there.
+  Nightly LinkedHelper backup on lhserver: runs lib_capture_linkedhelper.ps1, then copies the archive to minis01 and applies retention there.
   Runs from a scheduled task every 30 minutes but only does work once per Austin, TX calendar day during the 23:00-23:59
   Austin hour (America/Chicago, DST-safe), so "11 PM Austin time" holds whatever time zone this machine uses.
 
 .EXAMPLE
-  powershell -ExecutionPolicy Bypass -File lh-backup-nightly.ps1 -Force      # run now, ignoring the Austin time gate
+  powershell -ExecutionPolicy Bypass -File cmd_backup.ps1 -Force      # run now, ignoring the Austin time gate
+
+.EXAMPLE
+  powershell -ExecutionPolicy Bypass -File cmd_backup.ps1 -Check      # test settings and the transfer target; no backup
 #>
 [CmdletBinding()]
 param(
     [switch]$Force,
+    [switch]$Check,
     [string]$HomeDir = 'C:\Users\xuser',
-    [string]$RemoteHost = '',        # else $env:LH_BACKUP_REMOTE_HOST, else "remoteHost" in <HomeDir>\scripts\lh-backup.config.json (not in git)
+    [string]$RemoteHost = '',        # else $env:LH_BACKUP_REMOTE_HOST, else "remoteHost" in <HomeDir>\.secrets\lhremote\backup.json (not in git)
     [string]$RemoteUser = 'xuser',
     [string]$RemoteDir = 'backups/linkedhelper',
     [int]$KeepRemote = 7,
@@ -21,15 +25,25 @@ param(
 )
 
 $ErrorActionPreference = 'Stop'
+$config = Join-Path $HomeDir '.secrets\lhremote\backup.json'
 if (-not $RemoteHost) { $RemoteHost = $env:LH_BACKUP_REMOTE_HOST }
-if (-not $RemoteHost) {
-    $cfg = Join-Path $HomeDir 'scripts\lh-backup.config.json'
-    if (Test-Path $cfg) { $RemoteHost = (Get-Content $cfg -Raw | ConvertFrom-Json).remoteHost }
-}
-if (-not $RemoteHost) { throw 'No backup target: pass -RemoteHost, set LH_BACKUP_REMOTE_HOST, or create scripts\lh-backup.config.json with {"remoteHost":"<ip or name>"}' }
-$logDir = Join-Path $HomeDir 'scripts\logs'
+if (-not $RemoteHost -and (Test-Path $config)) { $RemoteHost = (Get-Content $config -Raw | ConvertFrom-Json).remoteHost }
+$logDir = Join-Path $HomeDir 'tmp\logs'
 New-Item -ItemType Directory -Force $logDir | Out-Null
-$marker = Join-Path $logDir 'lh-backup-last-success.txt'
+$marker = Join-Path $HomeDir 'backups\linkedhelper\last-success.txt'
+New-Item -ItemType Directory -Force (Split-Path $marker) | Out-Null
+$key = Join-Path $HomeDir '.ssh\id_dev_insoftex_com'
+$sshOpts = @('-i', $key, '-o', 'IdentitiesOnly=yes', '-o', 'BatchMode=yes', '-o', 'ConnectTimeout=20', '-o', 'LogLevel=ERROR')
+$noTarget = "No backup target: pass -RemoteHost, set LH_BACKUP_REMOTE_HOST, or create $config with {`"remoteHost`":`"<ip or name>`"}"
+
+if ($Check) {
+    if (-not $RemoteHost) { throw $noTarget }
+    & ssh @sshOpts "$RemoteUser@$RemoteHost" hostname
+    if ($LASTEXITCODE -ne 0) { throw "cannot reach $RemoteHost over ssh" }
+    "OK: target $RemoteHost reachable"
+    exit 0
+}
+
 $tz = [TimeZoneInfo]::FindSystemTimeZoneById('Central Standard Time')   # Austin, TX (handles CST/CDT)
 $austin = [TimeZoneInfo]::ConvertTime((Get-Date), $tz)
 $austinDay = $austin.ToString('yyyy-MM-dd')
@@ -42,19 +56,19 @@ $created = $false
 $mutex = New-Object System.Threading.Mutex($true, 'Global\InsoftexLhBackup', [ref]$created)
 if (-not $created) { Write-Host 'Another backup is running; exiting.'; exit 0 }
 
-Start-Transcript -Path (Join-Path $logDir ("lh-backup-nightly-{0}.log" -f (Get-Date -Format 'yyyyMMdd-HHmmss'))) | Out-Null
+Start-Transcript -Path (Join-Path $logDir ("linkedhelper-backup-{0}.log" -f (Get-Date -Format 'yyyyMMdd-HHmmss'))) | Out-Null
 try {
+    # inside the transcript, so a missing setting leaves a log instead of failing silently
+    if (-not $RemoteHost) { throw $noTarget }
     Write-Host "Austin time now: $($austin.ToString('yyyy-MM-dd HH:mm')) (day $austinDay)"
-    $out = & (Join-Path $PSScriptRoot 'lh-backup.ps1') -HomeDir $HomeDir -KeepLocal $KeepLocal 2>&1
+    $out = & (Join-Path $PSScriptRoot 'lib_capture_linkedhelper.ps1') -HomeDir $HomeDir -KeepLocal $KeepLocal 2>&1
     $backupExit = $LASTEXITCODE
     $out | ForEach-Object { Write-Host $_ }
     $line = $out | Where-Object { "$_" -like 'BACKUP_FILE=*' } | Select-Object -Last 1
-    if (-not $line) { throw 'lh-backup.ps1 produced no archive' }
+    if (-not $line) { throw 'lib_capture_linkedhelper.ps1 produced no archive' }
     $tar = ("$line" -replace '^BACKUP_FILE=', '').Trim()
     $base = Split-Path $tar -Leaf
-    $localHash = ((Get-Content "$tar.sha256" -Raw).Trim() -split '\s+')[0].ToLower()   # written by lh-backup.ps1 (avoids hashing 3 GB twice)
-    $key = Join-Path $HomeDir '.ssh\id_dev_insoftex_com'
-    $sshOpts = @('-i', $key, '-o', 'IdentitiesOnly=yes', '-o', 'BatchMode=yes', '-o', 'ConnectTimeout=20', '-o', 'LogLevel=ERROR')
+    $localHash = ((Get-Content "$tar.sha256" -Raw).Trim() -split '\s+')[0].ToLower()   # written by lib_capture_linkedhelper.ps1 (avoids hashing 3 GB twice)
     $target = "$RemoteUser@$RemoteHost"
 
     function Invoke-Remote([string]$Script) {
@@ -98,5 +112,5 @@ catch {
 finally {
     Stop-Transcript | Out-Null
     $mutex.ReleaseMutex()
-    Get-ChildItem $logDir -Filter 'lh-backup-nightly-*.log' | Sort-Object LastWriteTime -Descending | Select-Object -Skip 30 | Remove-Item -Force -ErrorAction SilentlyContinue
+    Get-ChildItem $logDir -Filter 'linkedhelper-backup-*.log' | Sort-Object LastWriteTime -Descending | Select-Object -Skip 30 | Remove-Item -Force -ErrorAction SilentlyContinue
 }

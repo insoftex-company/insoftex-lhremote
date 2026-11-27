@@ -2,7 +2,7 @@
 # Copyright (C) 2026 Insoftex
 <#
 .SYNOPSIS
-  Restores a LinkedHelper backup made by lh-backup.ps1 (normally on minis01, the standby machine).
+  Restores a LinkedHelper backup made by lib_capture_linkedhelper.ps1 (normally on minis01, the standby machine).
 
 .DESCRIPTION
   Two stages so the standby can be kept "ready" without ever running two LinkedHelpers on the same accounts:
@@ -14,9 +14,9 @@
               instances only when lhserver is completely stopped.
 
 .EXAMPLE
-  lh-restore.ps1                                   # stage the newest archive in ~\backups\linkedhelper
-  lh-restore.ps1 -Activate -IConfirmLhserverIsStopped
-  lh-restore.ps1 -Archive C:\Users\xuser\backups\linkedhelper\lh-backup-desktop-l00df47-20261122-231500.tar -Stage
+  cmd_restore_linkedhelper.ps1                                   # stage the newest archive in ~\backups\linkedhelper
+  cmd_restore_linkedhelper.ps1 -Activate -IConfirmLhserverIsStopped
+  cmd_restore_linkedhelper.ps1 -Archive C:\Users\xuser\backups\linkedhelper\lh-backup-desktop-l00df47-20261122-231500.tar -Stage
 #>
 [CmdletBinding()]
 param(
@@ -120,4 +120,4 @@ if ($Activate) {
     Log "Restored into $dataDir. Replaced data was moved to $pre"
     Log 'No instance was started. Next: launch-linkedhelper.cmd, then check with: lhremote check-status / list-accounts'
 }
-else { Log 'Staged only; nothing in the live LinkedHelper data was changed. To switch this machine over: lh-restore.ps1 -Activate -IConfirmLhserverIsStopped' }
+else { Log 'Staged only; nothing in the live LinkedHelper data was changed. To switch this machine over: cmd_restore_linkedhelper.ps1 -Activate -IConfirmLhserverIsStopped' }

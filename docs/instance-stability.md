@@ -215,7 +215,7 @@ The reverse lookup used by legacy instance discovery also queries the TCP provid
 
 ### Local deployment and MCP clients
 
-The production package can be deployed to `~/scripts/lhremote/` with the adjacent `scripts/lhremote.cmd` and `scripts/lhremote.ps1` wrappers. Keep the three `launch-linkedhelper` CMD/PowerShell files together; the optional VBS wrapper resolves its sibling silent CMD without a hardcoded user path. Do not replace the other CRM scripts or their `package.json` when deploying lhremote.
+The production package can be deployed to `~/scripts/lhremote/` with the adjacent `scripts/lhremote.cmd` and `scripts/lhremote.ps1` wrappers. Keep the three `launch-linkedhelper` CMD/PowerShell files together; the optional VBS wrapper resolves its sibling silent CMD without a hardcoded user path. Do not replace the other CRM scripts or their `package.json` when deploying lhremote. File placement is defined in [Windows host layout](windows-host-layout.md).
 
 The Insoftex package is `@insoftex/lhremote`. A client configured with `npx lhremote mcp` can run a cached, unscoped upstream package instead. Configure local clients with the absolute Node executable and `C:/Users/<user>/scripts/lhremote/dist/cli.js`, followed by `mcp`. Reconnect the client after updating an already running MCP server. Release `0.28.0` includes the Windows discovery and native startup fixes; retain the deployment manifest for the exact source commit and runtime hashes.
 

@@ -51,11 +51,8 @@ function Find-Node {
     return $null
 }
 function Find-LhremoteCli {
-    foreach ($p in (Join-Path $ScriptsDir 'lhremote\dist\cli.js')) { if (Test-Path $p) { return $p } }
-    $dirs = Get-ChildItem $ScriptsDir -Directory -Filter 'lhremote-*' -ErrorAction SilentlyContinue |
-        Where-Object { $_.Name -match '^lhremote-\d+\.\d+\.\d+$' -and (Test-Path (Join-Path $_.FullName 'dist\cli.js')) } |
-        Sort-Object { [version]($_.Name -replace '^lhremote-', '') } -Descending
-    if ($dirs) { return (Join-Path $dirs[0].FullName 'dist\cli.js') }
+    $p = Join-Path $ScriptsDir 'lhremote\dist\cli.js'
+    if (Test-Path $p) { return $p }
     return $null
 }
 

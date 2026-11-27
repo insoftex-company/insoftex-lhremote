@@ -1,15 +1,15 @@
 # LinkedHelper backup and standby restore (Windows)
 
-Scripts in `scripts/` (deployed to `C:\Users\xuser\scripts` on both machines). They only add files; nothing in `packages/` changed.
+Scripts in `scripts/backups/`, installed to `~\backups` by `scripts/install-host.ps1` (see [Windows host layout](windows-host-layout.md)): producer commands on lhserver, restore commands on minis01.
 lhremote has no backup command (only `campaign-export`), so the backup is a consistent copy of LinkedHelper's own data plus campaign exports through the lhremote CLI when it works.
 
 | File | Where | What |
 |---|---|---|
-| `lh-backup.ps1` | lhserver (elevated) | One archive `lh-backup-<host>-<time>.tar` + `.sha256` + `.manifest.json` |
-| `lh-backup-nightly.ps1` | lhserver | Runs the backup, copies it to minis01 (`~\backups\linkedhelper`), verifies SHA-256 there, keeps 7 there / 2 locally |
-| `Install-LhBackupTask.ps1` | lhserver (elevated) | Registers the scheduled task (checks every 30 min, works once during 23:00-23:59 Austin, TX, DST-safe) |
-| `lh-backup-now.cmd` | lhserver | Same as nightly, immediately |
-| `lh-restore.ps1`, `lh-restore-stage.cmd`, `lh-restore-activate.cmd` | minis01 | Verify and stage the newest archive; switch over on demand |
+| `lib_capture_linkedhelper.ps1` | lhserver (elevated) | One archive `lh-backup-<host>-<time>.tar` + `.sha256` + `.manifest.json` |
+| `cmd_backup.ps1` | lhserver | Runs the backup, copies it to minis01 (`~\backups\linkedhelper`), verifies SHA-256 there, keeps 7 there / 2 locally |
+| `cmd_install_backup_task.ps1` | lhserver (elevated) | Registers the scheduled task (checks every 30 min, works once during 23:00-23:59 Austin, TX, DST-safe) |
+| `cmd_backup_now.cmd` | lhserver | Same as nightly, immediately |
+| `cmd_restore_linkedhelper.ps1`, `cmd_restore_stage.cmd`, `cmd_restore_activate.cmd` | minis01 | Verify and stage the newest archive; switch over on demand |
 
 ## How the backup stays consistent while LinkedHelper runs
 `lh.db` (SQLite, rollback-journal mode, up to ~1 GB per account) and the Chromium session files are open all the time. The script takes a **VSS snapshot of C:**, copies from the snapshot (no locks, LinkedHelper is not touched), skips caches, logs, installers and LinkedHelper's own old `lh.db.backup.*` (about 3.4 GB of the 8.7 GB data folder is kept), opens every copied `lh.db` and runs `PRAGMA quick_check` on the copy, then writes the manifest (versions, accounts, per-database check) and the archive. A problem is logged as `PROBLEM:` and gives exit code 2, but the archive is still produced.
@@ -21,10 +21,10 @@ lhremote has no backup command (only `campaign-export`), so the backup is a cons
 The 08:08 archive was extracted into a scratch folder and checked independently of the restore script: SHA-256 matches, 2064 tar entries, 7 databases pass the full `PRAGMA integrity_check` (123 to 238 thousand pages each, 128 tables, hundreds of thousands of rows in the largest tables), the database list equals the manifest, no leftover journal files, 15 cookie databases present, and 307 campaign configurations exported through lhremote. `data\config.json` is LinkedHelper's own **binary** format (it is not JSON and not plain zlib) and is byte-identical to the live file on lhserver at that moment, so do not expect it to parse as JSON; `Local State` is JSON.
 
 ## Scheduled run
-The task runs as `xuser` in the logged-on session with highest privileges (needed for the snapshot). It must be interactive because on lhserver junctions (pnpm `node_modules`, the `lhremote` link) cannot be resolved from ssh/S4U logons, so the lhremote CLI works only in the interactive session; without it the backup still runs and records `campaignExport: skipped`. Target host: `scripts\lh-backup.config.json` `{"remoteHost":"..."}` (kept out of git) or `LH_BACKUP_REMOTE_HOST`. SSH key: `~\.ssh\id_dev_insoftex_com`. Logs: `scripts\logs\lh-backup-nightly-*.log`; marker `lh-backup-last-success.txt` holds the last successful Austin date.
+The task runs as `xuser` in the logged-on session with highest privileges (needed for the snapshot). It is registered as an interactive-logon task. The campaign export needs the lhremote deployment to be readable from that session; if it is not, the backup still runs and records `campaignExport: skipped`. Target host: `~\.secrets\lhremote\backup.json` `{"remoteHost":"..."}` (kept out of git) or `LH_BACKUP_REMOTE_HOST`. SSH key: `~\.ssh\id_dev_insoftex_com`. Logs: `~\tmp\logs\linkedhelper-backup-*.log`; `~\backups\linkedhelper\last-success.txt` holds the last successful Austin date. `cmd_backup.ps1 -Check` tests the settings and the transfer target without making a backup.
 
 ## Restore / standby (minis01)
-1. `lh-restore-stage.cmd` (or `lh-restore.ps1`): checks SHA-256, extracts to `~\backups\linkedhelper\staged`, checks every `lh.db`, compares the LinkedHelper version in the manifest with what is installed. Touches nothing live; run it after each nightly copy to keep the standby proven.
-2. Only when LinkedHelper is **completely stopped on lhserver**: `lh-restore-activate.cmd` (asks for YES) = `lh-restore.ps1 -Activate -IConfirmLhserverIsStopped -QuitLinkedHelper`. LinkedHelper must not run; replaced data is moved (not deleted) to `~\backups\linkedhelper\pre-restore-<time>`. No instance is started.
+1. `cmd_restore_stage.cmd` (or `cmd_restore_linkedhelper.ps1`): checks SHA-256, extracts to `~\backups\linkedhelper\staged`, checks every `lh.db`, compares the LinkedHelper version in the manifest with what is installed. Touches nothing live; run it after each nightly copy to keep the standby proven.
+2. Only when LinkedHelper is **completely stopped on lhserver**: `cmd_restore_activate.cmd` (asks for YES) = `cmd_restore_linkedhelper.ps1 -Activate -IConfirmLhserverIsStopped -QuitLinkedHelper`. LinkedHelper must not run; replaced data is moved (not deleted) to `~\backups\linkedhelper\pre-restore-<time>`. No instance is started.
 3. Start LinkedHelper (`launch-linkedhelper.cmd`), check `lhremote list-accounts` / `check-status`, start instances manually. Both machines share one public IP, but never run the same account on both at once.
 Install the same LinkedHelper version on minis01 as the backup was written with (a database from a newer LinkedHelper may not open in an older one).
